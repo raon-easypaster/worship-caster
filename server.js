@@ -12,6 +12,7 @@ const { WebSocketServer } = require('ws');
 const store = require('./lib/store');
 const bible = require('./lib/bible');
 const { importPptx } = require('./lib/pptx');
+const templates = require('./lib/templates');
 
 const PORT = +process.env.PORT || 5300;
 const MEDIA_DIR = path.join(store.DATA_DIR, 'media');
@@ -20,9 +21,59 @@ fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const db = store.load();
 bible.loadAll(db.settings.bibleFolders);
 
+// ── 자료 정리 규칙 ─────────────────────────────────
+// 자료실에는 찬양(가사·악보)만 남김. 말씀·광고·문구·PPT·HTML 은 예배 순서에 딸린 자료라
+// 어느 예배 순서에도 없으면 지움
+const ITEM_TYPES = ['song', 'score', 'bible', 'notice', 'text', 'ppt', 'html'];
+const KEEP_TYPES = new Set(['song', 'score']);
+function pruneOrphans() {
+  const used = new Set(db.services.flatMap(s => s.itemIds));
+  const gone = db.items.filter(i => !KEEP_TYPES.has(i.type) && !used.has(i.id));
+  if (!gone.length) return 0;
+  db.items = db.items.filter(i => !gone.includes(i));
+  // PPT에서 뽑아낸 그림(ppt_…)은 다른 자료가 쓰지 않으면 같이 지움
+  const still = JSON.stringify(db.items);
+  for (const f of JSON.stringify(gone).match(/\/media\/ppt_[^"\\]+/g) || []) {
+    if (!still.includes(f)) fs.rm(path.join(MEDIA_DIR, path.basename(f)), { force: true }, () => {});
+  }
+  return gone.length;
+}
+if (pruneOrphans()) store.save();
+
+// 새 자료를 지금 예배 순서에 넣기 (after: 이 자료 다음에, 없으면 맨 끝)
+function placeInService(id, after) {
+  let svc = db.services.find(s => s.id === db.currentServiceId);
+  if (!svc) {
+    svc = { id: store.uid(), name: '예배', date: new Date().toISOString().slice(0, 10), itemIds: [] };
+    db.services.push(svc); db.currentServiceId = svc.id;
+  }
+  const at = after ? svc.itemIds.indexOf(after) : -1;
+  if (at >= 0) svc.itemIds.splice(at + 1, 0, id); else svc.itemIds.push(id);
+}
+const THEME_RE = /^[a-z_]{0,30}$/;
+function itemFields(b, it = {}) {
+  return {
+    title: String(b.title ?? it.title ?? '새 자료').slice(0, 200),
+    type: ITEM_TYPES.includes(b.type) ? b.type : (it.type || 'song'),
+    slides: Array.isArray(b.slides) ? b.slides : (it.slides || []),
+    noBroadcast: b.noBroadcast !== undefined ? !!b.noBroadcast : !!it.noBroadcast,
+    bcFull: b.bcFull !== undefined ? !!b.bcFull : !!it.bcFull,
+    theme: THEME_RE.test(b.theme ?? '') ? (b.theme ?? it.theme ?? '') : (it.theme || ''),
+  };
+}
+function addItem(b) {
+  const it = { id: store.uid(), ...itemFields(b), updatedAt: Date.now() };
+  it.slides.forEach(s => (s.id ||= store.uid()));
+  db.items.push(it);
+  if (b.place || !KEEP_TYPES.has(it.type)) placeInService(it.id, b.after);
+  return it;
+}
+
 // ── 송출 상태 (메모리) ─────────────────────────────
 // overlayOff: 방송(OBS) 자막만 끔 — 예배당 TV에는 그대로 나감
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, rev: 0 };
+// pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, rev: 0 };
+let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
 const isLocal = req => {
   const a = (req.socket || req.connection).remoteAddress || '';
@@ -48,8 +99,9 @@ function snapshot() {
   const slide = item?.slides[live.index] || null;
   const next = item?.slides[live.index + 1] || null;
   return {
-    type: 'live', live: { ...live }, style: db.style, logo: db.settings.logo,
-    item: item ? { id: item.id, title: item.title, type: item.type, count: item.slides.length, noBroadcast: !!item.noBroadcast } : null,
+    type: 'live', live: { ...live }, style: db.style,
+    logo: { url: db.settings.logo, ...db.settings.logoStyle }, obs: db.settings.obsScenes,
+    item: item ? { id: item.id, title: item.title, type: item.type, count: item.slides.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '' } : null,
     slide, next,
   };
 }
@@ -92,6 +144,7 @@ app.use('/media', express.static(MEDIA_DIR, {
 app.use('/vendor/pdfjs', express.static(path.join(__dirname, 'node_modules', 'pdfjs-dist', 'build'), {
   setHeaders: (res, p) => { if (p.endsWith('.mjs')) res.setHeader('Content-Type', 'text/javascript'); },
 }));
+app.use('/fonts', express.static(path.join(__dirname, 'node_modules', '@fontsource'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const loginFails = new Map(); // ip -> { n, until }
@@ -116,7 +169,7 @@ app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(
 
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
-    items: db.items, services: db.services, currentServiceId: db.currentServiceId,
+    items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases,
     style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), port: PORT, live: snapshot(),
   });
@@ -125,15 +178,11 @@ app.get('/api/state', needAuth, (req, res) => {
 const changed = () => { store.save(); broadcast({ type: 'data' }); };
 
 // 자료(곡/말씀/광고/PPT)
-app.post('/api/items', needAuth, (req, res) => {
-  const it = { id: store.uid(), type: req.body.type || 'song', title: req.body.title || '새 자료', slides: req.body.slides || [], noBroadcast: !!req.body.noBroadcast, updatedAt: Date.now() };
-  it.slides.forEach(s => (s.id ||= store.uid()));
-  db.items.push(it); changed(); res.json(it);
-});
+app.post('/api/items', needAuth, (req, res) => { const it = addItem(req.body || {}); changed(); res.json(it); });
 app.put('/api/items/:id', needAuth, (req, res) => {
   const it = db.items.find(i => i.id === req.params.id);
   if (!it) return res.status(404).json({ error: '없음' });
-  Object.assign(it, { title: req.body.title ?? it.title, type: req.body.type ?? it.type, slides: req.body.slides ?? it.slides, noBroadcast: req.body.noBroadcast !== undefined ? !!req.body.noBroadcast : !!it.noBroadcast, updatedAt: Date.now() });
+  Object.assign(it, itemFields(req.body || {}, it), { updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
   if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, it.slides.length - 1)); pushLive(); }
   changed(); res.json(it);
@@ -147,19 +196,33 @@ app.post('/api/split', needAuth, (req, res) => res.json(store.splitLyrics(req.bo
 
 // 예배 순서
 app.post('/api/services', needAuth, (req, res) => {
-  const s = { id: store.uid(), name: req.body.name || '새 예배', date: req.body.date || new Date().toISOString().slice(0, 10), itemIds: [] };
-  db.services.push(s); db.currentServiceId = s.id; changed(); res.json(s);
+  const tpl = templates.SERVICES[req.body.template];
+  const s = { id: store.uid(), name: String(req.body.name || tpl?.name || '새 예배').slice(0, 100), date: String(req.body.date || new Date().toISOString().slice(0, 10)).slice(0, 20), itemIds: [] };
+  db.services.push(s); db.currentServiceId = s.id;
+  for (const step of tpl?.steps || []) {
+    const b = step === 'COMMUNION' ? templates.communionItem(bible)
+      : { type: 'text', title: step[0].split('\n')[0], theme: step[1], slides: [{ text: step[0] }] };
+    addItem(b);   // 찬양이 아니므로 지금 예배 순서 끝에 들어감
+  }
+  changed(); res.json(s);
+});
+// 템플릿 목록 · 내 문구
+app.get('/api/templates', needAuth, (req, res) => res.json({ phrases: templates.PHRASES, services: templates.SERVICE_LIST }));
+app.post('/api/templates/communion', needAuth, (req, res) => { const it = addItem({ ...templates.communionItem(bible), after: req.body?.after }); changed(); res.json(it); });
+app.put('/api/phrases', needAuth, (req, res) => {
+  db.phrases = (Array.isArray(req.body?.phrases) ? req.body.phrases : []).map(x => String(x).slice(0, 500)).filter(x => x.trim()).slice(0, 200);
+  changed(); res.json(db.phrases);
 });
 app.put('/api/services/:id', needAuth, (req, res) => {
   const s = db.services.find(x => x.id === req.params.id);
   if (!s) return res.status(404).json({ error: '없음' });
   Object.assign(s, { name: req.body.name ?? s.name, date: req.body.date ?? s.date, itemIds: req.body.itemIds ?? s.itemIds });
-  changed(); res.json(s);
+  pruneOrphans(); changed(); res.json(s);
 });
 app.delete('/api/services/:id', needAuth, (req, res) => {
   db.services = db.services.filter(s => s.id !== req.params.id);
   if (db.currentServiceId === req.params.id) db.currentServiceId = db.services[0]?.id || null;
-  changed(); res.json({ ok: true });
+  pruneOrphans(); changed(); res.json({ ok: true });
 });
 app.put('/api/current-service', needAuth, (req, res) => { db.currentServiceId = req.body.id; changed(); res.json({ ok: true }); });
 
@@ -169,7 +232,8 @@ const STYLE_RULES = {
   color: 'color', stroke: 'color', bg: 'color', box: 'color',
   size: [1, 30], strokeWidth: [0, 10], lineHeight: [0.8, 3], boxOpacity: [0, 1],
   align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'],
-  bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font',
+  bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
+  motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
 };
 function cleanStyle(src, base) {
   const out = { ...base };
@@ -179,6 +243,7 @@ function cleanStyle(src, base) {
     if (r === 'color') { if (/^#[0-9a-f]{3,8}$/i.test(String(v))) out[k] = v; }
     else if (r === 'bool') out[k] = !!v;
     else if (r === 'font') { if (/^[\w\s',\-가-힣]{1,120}$/.test(String(v))) out[k] = v; }
+    else if (r === 'media') { if (v === '' || /^\/media\/[^"'<>()\\\s]+$/.test(String(v))) out[k] = v; }
     else if (typeof r[0] === 'number') { const n = Number(v); if (Number.isFinite(n)) out[k] = Math.min(r[1], Math.max(r[0], n)); }
     else if (r.includes(v)) out[k] = v;
   }
@@ -194,7 +259,21 @@ app.put('/api/settings', needLocal, (req, res) => {
     if (!/^\w{6,12}$/.test(pin)) return res.status(400).json({ error: 'PIN은 6~12자리 숫자/영문으로 정하세요' });
     db.settings.pin = pin;
   }
-  if (req.body.logo != null) db.settings.logo = req.body.logo;
+  if (req.body.logo != null) db.settings.logo = /^\/media\/[^"'<>()\\\s]+$/.test(req.body.logo) ? req.body.logo : '';
+  if (req.body.logoStyle) {
+    const l = req.body.logoStyle, cur = db.settings.logoStyle, P = ['c', 'tl', 'tc', 'tr', 'bl', 'bc', 'br'];
+    const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
+    db.settings.logoStyle = {
+      screenPos: P.includes(l.screenPos) ? l.screenPos : cur.screenPos, screenSize: n(l.screenSize, 5, 95, cur.screenSize),
+      mark: l.mark !== undefined ? !!l.mark : cur.mark, markPos: P.includes(l.markPos) ? l.markPos : cur.markPos,
+      markSize: n(l.markSize, 3, 40, cur.markSize), markOpacity: n(l.markOpacity, 0.1, 1, cur.markOpacity),
+      markOverlay: l.markOverlay !== undefined ? !!l.markOverlay : cur.markOverlay,
+    };
+  }
+  if (req.body.obsScenes) {
+    const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
+    db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };
+  }
   if (req.body.pin != null) sessions.clear();
   changed(); pushLive(); res.json({ ok: true });
 });
@@ -253,7 +332,7 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
     const buf = fs.readFileSync(req.file.path);
     const it = await importPptx(buf, MEDIA_DIR, path.basename(req.file.originalname, path.extname(req.file.originalname)));
     it.updatedAt = Date.now();
-    db.items.push(it); changed(); res.json(it);
+    db.items.push(it); placeInService(it.id, req.body.after); changed(); res.json(it);
   } catch (e) {
     res.status(400).json({ error: 'PPT 가져오기 실패: ' + e.message });
   } finally { if (req.file) fs.unlink(req.file.path, () => {}); }
@@ -261,6 +340,9 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
 
 // 송출 제어 (운영 맥 전용)
 // 프로그램 종료 (운영 맥에서만)
+// 아이콘을 다시 눌렀을 때 (두 번째 실행이 이 주소를 부름)
+app.post('/api/show', needLocal, (req, res) => res.json({ result: showUI() }));
+
 app.post('/api/quit', needLocal, (req, res) => {
   res.json({ ok: true });
   broadcast({ type: 'quit' });
@@ -276,7 +358,7 @@ app.post('/api/live', needLocal, (req, res) => {
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), it.slides.length - 1);
     live.clear = false; live.black = false;
   }
-  for (const k of ['black', 'clear', 'logo', 'overlayOff']) if (b[k] !== undefined) live[k] = !!b[k];
+  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip']) if (b[k] !== undefined) live[k] = !!b[k];
   if (b.reset) Object.assign(live, { black: false, clear: true, logo: false });
   pushLive(); res.json(snapshot());
 });
@@ -296,8 +378,46 @@ function broadcast(msg) {
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
 }
 function pushLive() { live.rev++; broadcast(snapshot()); }
-wss.on('connection', ws => ws.send(JSON.stringify(snapshot())));
+// 운영 화면(창) 관리: 자막을 넘기는 운영 창은 하나만
+const controls = new Set();
+const sendTo = (ws, msg) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
+wss.on('connection', (ws, req) => {
+  ws.isLocal = isLocal(req);
+  ws.send(JSON.stringify(snapshot()));
+  ws.on('message', raw => {
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    // OBS 브라우저 소스(방송 PC)가 알려 주는 상태: 장면 전환 권한, 장면 이름 목록
+    if (m.type === 'obsStatus') {
+      obsStatus = { level: Math.max(-1, Math.min(9, parseInt(m.level) || 0)), scenes: (Array.isArray(m.scenes) ? m.scenes : []).slice(0, 60).map(x => String(x).slice(0, 100)), at: Date.now() };
+      for (const c of controls) sendTo(c, { type: 'obs', ...obsStatus });
+      return;
+    }
+    if (!ws.isLocal) return;
+    if (m.type === 'hello' && m.role === 'control') {
+      const others = [...controls].filter(c => c !== ws && c.readyState === 1);
+      controls.add(ws);
+      if (others.length) sendTo(ws, { type: 'dup' });       // 이미 다른 운영 창이 있음
+      if (obsStatus) sendTo(ws, { type: 'obs', ...obsStatus });
+    }
+    if (m.type === 'takeover') {                            // "이 창에서 계속"
+      for (const c of controls) if (c !== ws) { sendTo(c, { type: 'replaced' }); controls.delete(c); }
+      controls.add(ws);
+    }
+  });
+  ws.on('close', () => controls.delete(ws));
+});
 wss.on('error', () => {}); // 포트 문제는 아래 server.on('error') 에서 처리
+
+// 이미 열린 운영 창이 있으면 그 창을 앞으로, 없을 때만 새 창
+function showUI() {
+  const open = [...controls].filter(c => c.readyState === 1);
+  if (!open.length) { openUI(); return 'opened'; }
+  open.forEach(c => sendTo(c, { type: 'focus' }));
+  const { exec } = require('child_process');
+  if (process.platform === 'darwin' && fs.existsSync('/Applications/Google Chrome.app')) exec('open -a "Google Chrome"');
+  else if (process.platform === 'win32') exec(`powershell -NoProfile -Command "(New-Object -ComObject WScript.Shell).AppActivate('예배송출')"`);
+  return 'focused';
+}
 
 // 운영 화면 열기: 크롬/엣지가 있으면 주소창 없는 '앱 창'으로
 function openUI() {
@@ -314,7 +434,16 @@ function openUI() {
 
 // 이미 켜져 있으면(포트 사용 중) 창만 열고 끝냄 → 아이콘을 여러 번 눌러도 안전
 server.on('error', e => {
-  if (e.code === 'EADDRINUSE') { console.log('이미 실행 중입니다. 운영 화면만 엽니다.'); if (process.env.NO_OPEN !== '1') openUI(); setTimeout(() => process.exit(0), 1500); }
+  if (e.code === 'EADDRINUSE') {
+    // 이미 실행 중 → 실행 중인 프로그램에게 "창 보여 줘"라고만 전하고 끝냄 (새 창을 마구 열지 않음)
+    console.log('이미 실행 중입니다. 열려 있는 운영 화면을 앞으로 가져옵니다.');
+    if (process.env.NO_OPEN === '1') return process.exit(0);
+    fetch(`http://localhost:${PORT}/api/show`, { method: 'POST' })
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(j => console.log('결과:', j.result))
+      .catch(() => openUI())                     // 예전 버전이 실행 중이면 그냥 창 열기
+      .finally(() => setTimeout(() => process.exit(0), 1000));
+  }
   else { console.error(e); process.exit(1); }
 });
 

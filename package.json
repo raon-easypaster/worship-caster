@@ -1,6 +1,6 @@
 {
   "name": "worship-caster",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "예배송출 — 노트북 한 대로 예배당 화면(HDMI)과 유튜브 생중계 자막(OBS)을 함께 송출하는 교회 자막 프로그램 (맥·윈도우)",
   "main": "server.js",
   "type": "commonjs",
@@ -8,6 +8,16 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@fontsource/black-han-sans": "^5.3.0",
+    "@fontsource/do-hyeon": "^5.3.0",
+    "@fontsource/gowun-batang": "^5.3.0",
+    "@fontsource/gowun-dodum": "^5.3.0",
+    "@fontsource/jua": "^5.3.0",
+    "@fontsource/nanum-gothic": "^5.3.0",
+    "@fontsource/nanum-myeongjo": "^5.3.0",
+    "@fontsource/nanum-pen-script": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.1",
+    "@fontsource/song-myung": "^5.3.1",
     "express": "^4.22.3",
     "jszip": "^3.10.2",
     "multer": "^1.4.5-lts.1",

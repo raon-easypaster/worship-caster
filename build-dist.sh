@@ -38,6 +38,12 @@ cp -R server.js lib public package.json package-lock.json "$APPSRC/"
 P="$APPSRC/node_modules/pdfjs-dist"
 find "$P" -mindepth 1 -maxdepth 1 ! -name build ! -name package.json ! -name LICENSE -exec rm -rf {} +
 find "$P/build" -type f ! -name pdf.min.mjs ! -name pdf.worker.min.mjs -delete
+# 글꼴은 woff2 와 쓰는 굵기만 남김
+F="$APPSRC/node_modules/@fontsource"
+find "$F" -type f \( -name '*.woff' -o -name '*.scss' -o -name '*.md' -o -name '*.ts' \) -delete
+find "$F" -type d -name scss -prune -exec rm -rf {} +
+find "$F" -type f -name '*.woff2' | grep -E -- '-(100|200|300|500|600)-(normal|italic)\.woff2$' | xargs rm -f
+find "$F" -type f -name '*-italic.woff2' -delete
 rm -f "$APPSRC/package-lock.json"
 
 ABOUT_KO="예배송출 v$VERSION — 만든 사람: 쉬운목사 이광복 (무료로 나눕니다)"

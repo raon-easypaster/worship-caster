@@ -105,3 +105,19 @@ dialog::backdrop { background: rgba(10,14,22,.5); }
 .ov-off { color: var(--live); font-weight: 700; font-size: 12px; margin-left: 6px; }
 .badge.tv { background: #fff1e6; color: #b4530c; }
 @media (prefers-color-scheme: dark) { .badge.tv { background: #3a2a1c; color: #ffb27a; } }
+
+.sizes { display: grid; grid-template-columns: auto auto 3.2em auto; gap: 4px 6px; align-items: center; margin-top: 6px; font-size: 13px; }
+.sizes b { text-align: center; font-variant-numeric: tabular-nums; }
+.btn.toggle.on#motionOn, .btn.toggle.on#pip { background: var(--accent); border-color: var(--accent); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.cards .c { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--panel); }
+.cards .c:hover { outline: 2px solid var(--accent); }
+.cards .c .n { font-size: 12px; padding: 5px 8px; white-space: pre-line; overflow: hidden; text-overflow: ellipsis; max-height: 3.4em; }
+.cat { margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 700; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.notebox { background: var(--chip); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.notebox ol { margin: 4px 0 0; padding-left: 20px; }
+.ok { color: #1f9d55; font-weight: 700; } .warn { color: #c2410c; font-weight: 700; }
+.two > * { min-width: 0; }
+.form.narrow { grid-template-columns: 70px 1fr; margin: 6px 0; }
+.form > * { min-width: 0; }
