@@ -54,6 +54,25 @@ function snapshot() {
 
 // ── 앱 ─────────────────────────────────────────────
 const app = express();
+
+// ── 보안: 다른 사이트가 이 서버를 조종하지 못하게 ─────────────
+// 1) Host 헤더가 이 맥의 이름/주소일 때만 응답 (DNS 리바인딩 차단)
+// 2) 바꾸는 요청(POST/PUT/DELETE)은 같은 출처에서 온 것만 허용 (CSRF 차단)
+function allowedHosts() {
+  const hn = os.hostname().toLowerCase().replace(/\.local$/, '');
+  return new Set(['localhost', '127.0.0.1', '[::1]', hn, hn + '.local', ...lanAddresses()]);
+}
+const hostOk = h => !!h && allowedHosts().has(String(h).toLowerCase().replace(/:\d+$/, ''));
+function originOk(req) {
+  const o = req.headers.origin;
+  if (o) { try { return new URL(o).host.toLowerCase() === String(req.headers.host).toLowerCase(); } catch { return false; } }
+  return req.headers['sec-fetch-site'] !== 'cross-site';
+}
+app.use((req, res, next) => {
+  if (!hostOk(req.headers.host)) return res.status(403).send('허용되지 않은 주소입니다');
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !originOk(req)) return res.status(403).json({ error: '다른 사이트에서 온 요청은 막혀 있습니다' });
+  next();
+});
 app.use(express.json({ limit: '20mb' }));
 const upload = multer({ dest: path.join(os.tmpdir(), 'worship-caster-up'), limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
 
@@ -61,14 +80,31 @@ app.get('/', (req, res) => res.redirect(isLocal(req) ? '/control' : '/editor'));
 app.get('/control', (req, res) => isLocal(req) ? res.sendFile(path.join(__dirname, 'public', 'app.html')) : res.redirect('/editor'));
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 for (const p of ['output', 'overlay', 'stage']) app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, 'public', 'display.html')));
-app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }));
+app.use('/media', express.static(MEDIA_DIR, {
+  maxAge: '1h',
+  setHeaders: res => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self'; media-src 'self'");
+  },
+}));
 app.use('/vendor/pdfjs', express.static(path.join(__dirname, 'node_modules', 'pdfjs-dist', 'build'), {
   setHeaders: (res, p) => { if (p.endsWith('.mjs')) res.setHeader('Content-Type', 'text/javascript'); },
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const loginFails = new Map(); // ip -> { n, until }
 app.post('/api/login', (req, res) => {
-  if (String(req.body?.pin) !== String(db.settings.pin)) return res.status(401).json({ error: 'PIN이 맞지 않습니다' });
+  const ip = req.socket.remoteAddress || '';
+  const f = loginFails.get(ip) || { n: 0, until: 0 };
+  if (f.until > Date.now()) return res.status(429).json({ error: `잠시 후 다시 시도하세요 (${Math.ceil((f.until - Date.now()) / 1000)}초)` });
+  const a = Buffer.from(String(req.body?.pin ?? '')), b = Buffer.from(String(db.settings.pin));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    f.n++;
+    if (f.n >= 5) { f.until = Date.now() + 5 * 60 * 1000; f.n = 0; }  // 5번 틀리면 5분 잠금
+    loginFails.set(ip, f);
+    return res.status(401).json({ error: 'PIN이 맞지 않습니다' });
+  }
+  loginFails.delete(ip);
   const t = crypto.randomBytes(16).toString('hex');
   sessions.add(t);
   res.setHeader('Set-Cookie', `wc_session=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
@@ -126,12 +162,36 @@ app.delete('/api/services/:id', needAuth, (req, res) => {
 app.put('/api/current-service', needAuth, (req, res) => { db.currentServiceId = req.body.id; changed(); res.json({ ok: true }); });
 
 // 스타일·설정
+// 스타일 값 검증 (색은 #hex, 숫자는 범위, 글꼴은 안전한 문자만)
+const STYLE_RULES = {
+  color: 'color', stroke: 'color', bg: 'color', box: 'color',
+  size: [1, 30], strokeWidth: [0, 10], lineHeight: [0.8, 3], boxOpacity: [0, 1],
+  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'],
+  bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font',
+};
+function cleanStyle(src, base) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(src || {})) {
+    const r = STYLE_RULES[k];
+    if (!r) continue;
+    if (r === 'color') { if (/^#[0-9a-f]{3,8}$/i.test(String(v))) out[k] = v; }
+    else if (r === 'bool') out[k] = !!v;
+    else if (r === 'font') { if (/^[\w\s',\-가-힣]{1,120}$/.test(String(v))) out[k] = v; }
+    else if (typeof r[0] === 'number') { const n = Number(v); if (Number.isFinite(n)) out[k] = Math.min(r[1], Math.max(r[0], n)); }
+    else if (r.includes(v)) out[k] = v;
+  }
+  return out;
+}
 app.put('/api/style', needAuth, (req, res) => {
-  db.style = { main: { ...db.style.main, ...(req.body.main || {}) }, overlay: { ...db.style.overlay, ...(req.body.overlay || {}) } };
+  db.style = { main: cleanStyle(req.body.main, db.style.main), overlay: cleanStyle(req.body.overlay, db.style.overlay) };
   changed(); pushLive(); res.json(db.style);
 });
 app.put('/api/settings', needLocal, (req, res) => {
-  if (req.body.pin != null) db.settings.pin = String(req.body.pin).slice(0, 12);
+  if (req.body.pin != null) {
+    const pin = String(req.body.pin).trim();
+    if (!/^\w{6,12}$/.test(pin)) return res.status(400).json({ error: 'PIN은 6~12자리 숫자/영문으로 정하세요' });
+    db.settings.pin = pin;
+  }
   if (req.body.logo != null) db.settings.logo = req.body.logo;
   if (req.body.pin != null) sessions.clear();
   changed(); pushLive(); res.json({ ok: true });
@@ -161,7 +221,7 @@ app.put('/api/bible/folders', needLocal, (req, res) => {
 });
 
 // 미디어
-const mediaExt = /\.(png|jpe?g|gif|webp|svg|bmp|mp4|mov|m4v|webm|mp3|m4a|wav|aac)$/i;
+const mediaExt = /\.(png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|mp3|m4a|wav|aac)$/i;
 app.get('/api/media', needAuth, (req, res) => {
   const files = fs.readdirSync(MEDIA_DIR).filter(f => mediaExt.test(f) && !f.startsWith('ppt_'))
     .map(f => ({ url: '/media/' + f, name: f, size: fs.statSync(path.join(MEDIA_DIR, f)).size }));
@@ -221,7 +281,14 @@ app.post('/api/live', needLocal, (req, res) => {
 
 // ── WebSocket ──────────────────────────────────────
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server, path: '/ws',
+  verifyClient: ({ req }) => {
+    const ok = hostOk(req.headers.host) && originOk(req);
+    if (!ok) console.warn('[보안] 실시간 연결 거부:', req.headers.host, req.headers.origin || '-');
+    return ok;
+  },
+});
 function broadcast(msg) {
   const s = JSON.stringify(msg);
   for (const c of wss.clients) if (c.readyState === 1) c.send(s);
@@ -237,7 +304,7 @@ server.listen(PORT, () => {
   console.log(`  프롬프터      http://localhost:${PORT}/stage`);
   for (const ip of lan) {
     console.log(`  OBS 자막      http://${ip}:${PORT}/overlay   (OBS 브라우저 소스 1920×1080)`);
-    console.log(`  웹 편집기     http://${ip}:${PORT}/editor    (PIN: 설정에서 변경, 기본 0000)`);
+    console.log(`  웹 편집기     http://${ip}:${PORT}/editor    (PIN: ${db.settings.pin})`);
   }
   console.log('');
   if (process.env.NO_OPEN !== '1') require('child_process').exec(`open http://localhost:${PORT}/control`);

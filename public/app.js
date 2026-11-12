@@ -265,7 +265,7 @@ function openBible() {
       <label>함께 보일 번역본</label><select id="bV2"><option value="">없음</option>${S.bibleVersions.map(v => `<option>${esc(v)}</option>`).join('')}</select>
       <label>슬라이드당 절 수</label><select id="bN"><option>1</option><option>2</option><option>3</option></select>
     </div>
-    <p class="muted small">본문 전체가 없으면 ⚙︎ 설정 → 성경 텍스트 가져오기에서 파일을 넣으세요. (예시 번역본에는 몇 구절만 들어 있습니다)</p>
+    <p class="muted small">성경 본문은 ⚙︎ 설정 → 성경 폴더 또는 성경 텍스트 가져오기로 연결합니다.</p>
     <div id="bOut" class="verse-list muted">구절을 입력하고 Enter</div>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button><button class="btn primary" id="bMake" disabled>슬라이드 만들기</button></div>`);
   let res = null, res2 = null;
@@ -414,7 +414,7 @@ async function openMediaPicker(onPick, onCancel) {
   const files = await api('GET', '/api/media');
   const body = openDlg(`
     <div class="dlg-head"><h3>${onPick ? '배경·그림 선택' : '미디어 관리'}</h3><button class="icon" data-x>✕</button></div>
-    <div class="row"><label class="btn primary">＋ 사진·영상 올리기<input type="file" id="mUp" multiple accept="image/*,video/*,audio/*" hidden></label>
+    <div class="row"><label class="btn primary">＋ 사진·영상 올리기<input type="file" id="mUp" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,video/*,audio/*" hidden></label>
       <span class="muted small">jpg·png·mp4·mov·webm 등. 영상 배경은 소리 없이 반복 재생됩니다.</span></div>
     <div class="media-grid">${files.map(f => `<div class="m" data-url="${esc(f.url)}">
       ${/\.(mp4|mov|m4v|webm)$/i.test(f.url) ? `<video src="${esc(f.url)}" muted preload="metadata"></video>` : /\.(mp3|m4a|wav|aac)$/i.test(f.url) ? '<div style="aspect-ratio:16/9;display:grid;place-items:center;font-size:28px">🎵</div>' : `<img src="${esc(f.url)}" loading="lazy">`}
@@ -442,23 +442,23 @@ function openStyle() {
     <div class="two">
       <div><h4>예배당 화면 (HDMI)</h4><div class="form">
         <label>글꼴</label>${fontSel(st.main.font, 'm_font')}
-        <label>글자 크기</label><input type="range" id="m_size" min="3" max="12" step="0.1" value="${st.main.size}">
-        <label>글자 색</label><input type="color" id="m_color" value="${st.main.color}">
+        <label>글자 크기</label><input type="range" id="m_size" min="3" max="12" step="0.1" value="${esc(st.main.size)}">
+        <label>글자 색</label><input type="color" id="m_color" value="${esc(st.main.color)}">
         <label>굵게</label><input type="checkbox" id="m_bold" ${st.main.bold ? 'checked' : ''}>
         <label>그림자</label><input type="checkbox" id="m_shadow" ${st.main.shadow ? 'checked' : ''}>
-        <label>테두리 두께</label><input type="range" id="m_strokeWidth" min="0" max="5" step="0.5" value="${st.main.strokeWidth}">
-        <label>테두리 색</label><input type="color" id="m_stroke" value="${st.main.stroke}">
+        <label>테두리 두께</label><input type="range" id="m_strokeWidth" min="0" max="5" step="0.5" value="${esc(st.main.strokeWidth)}">
+        <label>테두리 색</label><input type="color" id="m_stroke" value="${esc(st.main.stroke)}">
         <label>가로 정렬</label><select id="m_align">${['left', 'center', 'right'].map(v => `<option value="${v}" ${v === st.main.align ? 'selected' : ''}>${{ left: '왼쪽', center: '가운데', right: '오른쪽' }[v]}</option>`).join('')}</select>
         <label>세로 위치</label><select id="m_valign">${['top', 'middle', 'bottom'].map(v => `<option value="${v}" ${v === st.main.valign ? 'selected' : ''}>${{ top: '위', middle: '가운데', bottom: '아래' }[v]}</option>`).join('')}</select>
-        <label>배경색</label><input type="color" id="m_bg" value="${st.main.bg}">
+        <label>배경색</label><input type="color" id="m_bg" value="${esc(st.main.bg)}">
       </div><div id="sPvMain" class="wc-screen pv" style="margin-top:10px"></div></div>
       <div><h4>방송 자막 (OBS)</h4><div class="form">
         <label>글꼴</label>${fontSel(st.overlay.font, 'o_font')}
-        <label>글자 크기</label><input type="range" id="o_size" min="2.5" max="9" step="0.1" value="${st.overlay.size}">
-        <label>글자 색</label><input type="color" id="o_color" value="${st.overlay.color}">
+        <label>글자 크기</label><input type="range" id="o_size" min="2.5" max="9" step="0.1" value="${esc(st.overlay.size)}">
+        <label>글자 색</label><input type="color" id="o_color" value="${esc(st.overlay.color)}">
         <label>굵게</label><input type="checkbox" id="o_bold" ${st.overlay.bold ? 'checked' : ''}>
-        <label>자막 바 색</label><input type="color" id="o_box" value="${st.overlay.box}">
-        <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${st.overlay.boxOpacity}">
+        <label>자막 바 색</label><input type="color" id="o_box" value="${esc(st.overlay.box)}">
+        <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${esc(st.overlay.boxOpacity)}">
         <label>위치</label><select id="o_position"><option value="bottom" ${st.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${st.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
         <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${st.overlay.showTitle ? 'checked' : ''}>
       </div><div id="sPvOv" class="wc-screen pv checker" style="margin-top:10px"></div></div>
@@ -489,7 +489,7 @@ function openOBS() {
     ${urls.map(u => `<div class="copy row"><input readonly value="${u}"><button class="btn" data-copy="${u}">복사</button></div>`).join('') || '<p class="err">네트워크 주소를 찾지 못했습니다. 와이파이/랜 연결을 확인하세요. 같은 맥에서 OBS를 쓰면: http://localhost:' + S.port + '/overlay</p>'}
     <p class="muted small">· 같은 맥에서 OBS를 돌릴 때: <code>http://localhost:${S.port}/overlay</code><br>
     · 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.<br>
-    · 웹 편집기(주중 준비): <code>${S.lan[0] ? `http://${S.lan[0]}:${S.port}/editor` : '-'}</code> (PIN 필요)</p>
+    · 웹 편집기(주중 준비): <code>${S.lan[0] ? `http://${S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> (⚙︎ 설정에서 변경)</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   $('#dlgBody').querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다'); });
   $('#dlgBody').querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -500,7 +500,7 @@ function openSettings() {
   const body = openDlg(`
     <div class="dlg-head"><h3>설정</h3><button class="icon" data-x>✕</button></div>
     <div class="form">
-      <label>웹 편집기 PIN</label><div class="row"><input id="stPin" value="${esc(S.settings.pin || '')}" maxlength="12"><button class="btn" id="stPinSave">저장</button></div>
+      <label>웹 편집기 PIN</label><div class="row"><input id="stPin" value="${esc(S.settings.pin || '')}" maxlength="12" placeholder="6~12자리"><button class="btn" id="stPinSave">저장</button></div>
       <label>로고 (L 키)</label><div class="row">${S.settings.logo ? `<img src="${esc(S.settings.logo)}" style="height:40px">` : '<span class="muted">없음</span>'}<button class="btn" id="stLogo">로고 선택</button></div>
       <label>성경 폴더</label><div>
         <div id="stFolders"></div>
@@ -509,7 +509,7 @@ function openSettings() {
       <label>기본 번역본</label><div class="muted">${esc(S.bibleDefault || '-')} (개역개정이 있으면 자동 선택)</div>
       <label>성경 텍스트 가져오기</label><div>
         <div class="row"><input id="stBName" placeholder="번역본 이름 (예: 개역한글)"><label class="btn">파일 선택<input type="file" id="stBFile" accept=".txt,.tsv" hidden></label></div>
-        <p class="muted small">형식: 한 줄에 한 절. "창1:1 태초에 하나님이…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
+        <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
@@ -602,7 +602,7 @@ function bind() {
     $('#loginForm').onsubmit = async e => {
       e.preventDefault();
       const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: $('#pin').value }) });
-      if (r.ok) location.reload(); else $('#loginErr').textContent = 'PIN이 맞지 않습니다';
+      if (r.ok) location.reload(); else $('#loginErr').textContent = (await r.json().catch(() => ({}))).error || 'PIN이 맞지 않습니다';
     };
     return;
   }

@@ -4,6 +4,26 @@
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const isVideo = u => /\.(mp4|mov|m4v|webm)$/i.test(u || '');
 
+  // ── 값 검증: 스타일 속성에 들어가는 값은 모두 여기서 걸러서 HTML/CSS 주입을 막음 ──
+  const col = (c, d) => (/^#[0-9a-f]{3,8}$/i.test(String(c || '')) ? c : d);
+  const num = (n, d, lo = -1e4, hi = 1e4) => { n = Number(n); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  const DEFAULT_FONT = "'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif";
+  const font = f => (/^[\w\s',\-가-힣]{1,120}$/.test(String(f || '')) ? f : DEFAULT_FONT);
+  const pick = (v, list, d) => (list.includes(v) ? v : d);
+  const safeMain = st => ({
+    ...st, font: font(st.font), size: num(st.size, 6.2, 1, 30), color: col(st.color, '#ffffff'), stroke: col(st.stroke, '#000000'),
+    strokeWidth: num(st.strokeWidth, 0, 0, 10), align: pick(st.align, ['left', 'center', 'right'], 'center'),
+    valign: pick(st.valign, ['top', 'middle', 'bottom'], 'middle'), bg: col(st.bg, '#000000'), lineHeight: num(st.lineHeight, 1.45, 0.8, 3),
+  });
+  const safeOverlay = st => ({
+    ...st, font: font(st.font), size: num(st.size, 4.6, 1, 20), color: col(st.color, '#ffffff'), box: col(st.box, '#0b1d3a'),
+    boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
+  });
+  const safeEl = e => ({
+    ...e, x: num(e.x, 0), y: num(e.y, 0), w: num(e.w, 100, 0), h: num(e.h, 100, 0), size: num(e.size, 24, 1, 400),
+    color: col(e.color, '#ffffff'), fill: col(e.fill, null), align: pick(e.align, ['left', 'center', 'right'], 'left'),
+  });
+
   function bgHTML(url, cover = true) {
     if (!url) return '';
     if (isVideo(url)) return `<video class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline></video>`;
@@ -17,22 +37,23 @@
   }
 
   function elementsHTML(slide) {
-    const ptH = slide.ptH || 540;
-    return (slide.elements || []).map(e => {
+    const ptH = num(slide.ptH, 540, 1, 1e5);
+    return (slide.elements || []).map(e0 => {
+      const e = safeEl(e0);
       const box = `left:${e.x}%;top:${e.y}%;width:${e.w}%;height:${e.h}%`;
       if (e.type === 'image') return `<img class="wc-el" style="${box};object-fit:contain" src="${esc(e.src)}">`;
       const fs = ((e.size || 24) / ptH * 100).toFixed(2) + 'cqh';
       if (e.type === 'table') {
-        return `<table class="wc-el wc-table" style="${box};font-size:${fs};color:${e.color || '#fff'}">` +
+        return `<table class="wc-el wc-table" style="${box};font-size:${fs};color:${e.color}">` +
           e.rows.map(r => '<tr>' + r.map(c => `<td>${esc(c).replace(/\n/g, '<br>')}</td>`).join('') + '</tr>').join('') + '</table>';
       }
-      return `<div class="wc-el wc-text" style="${box};font-size:${fs};color:${e.color || '#fff'};` +
-        `font-weight:${e.bold ? 700 : 400};text-align:${e.align || 'left'};${e.fill ? `background:${e.fill};` : ''}">${esc(e.text).replace(/\n/g, '<br>')}</div>`;
+      return `<div class="wc-el wc-text" style="${box};font-size:${fs};color:${e.color};` +
+        `font-weight:${e.bold ? 700 : 400};text-align:${e.align};${e.fill ? `background:${e.fill};` : ''}">${esc(e.text).replace(/\n/g, '<br>')}</div>`;
     }).join('');
   }
 
   function mainHTML(snap) {
-    const st = snap.style.main, s = snap.slide, L = snap.live;
+    const st = safeMain(snap.style.main), s = snap.slide, L = snap.live;
     if (L.black || !s) {
       const logo = L.logo && snap.logo ? `<div class="wc-bg" style="background-image:url('${esc(snap.logo)}');background-size:contain;background-position:center;background-repeat:no-repeat;inset:20%"></div>` : '';
       return `<div class="wc-layer" style="background:#000">${logo}</div>`;
@@ -48,7 +69,7 @@
             line-height:${st.lineHeight};text-shadow:${textShadow(st)};${st.strokeWidth ? `-webkit-text-stroke:${st.strokeWidth / 10}cqh ${st.stroke};paint-order:stroke fill;` : ''}">${esc(s.text).replace(/\n/g, '<br>')}</div>${ref}</div>`;
       }
     }
-    return `<div class="wc-layer" style="background:${s.bgColor || st.bg}">${inner}</div>`;
+    return `<div class="wc-layer" style="background:${col(s.bgColor, st.bg)}">${inner}</div>`;
   }
 
   function hexA(hex, a) {
@@ -57,7 +78,7 @@
   }
 
   function overlayHTML(snap) {
-    const st = snap.style.overlay, s = snap.slide, L = snap.live;
+    const st = safeOverlay(snap.style.overlay), s = snap.slide, L = snap.live;
     if (L.black || L.clear || !s || !String(s.text || '').trim()) return '<div class="wc-layer"></div>';
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : '')) ;
     const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
