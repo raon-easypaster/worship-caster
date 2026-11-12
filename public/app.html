@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>예배송출</title>
+<link rel="stylesheet" href="/render.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="loginForm" class="card">
+    <h2>예배송출 웹 편집기</h2>
+    <p class="muted">운영 맥에서 정한 PIN을 입력하세요.</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN" autocomplete="current-password">
+    <button class="btn primary">들어가기</button>
+    <p id="loginErr" class="err"></p>
+  </form>
+</div>
+
+<header class="top">
+  <div class="brand">✝ 예배송출 <span id="modeTag" class="tag"></span></div>
+  <div class="grow"></div>
+  <div class="ctrl-only">
+    <button class="btn" data-open="/output">📺 예배당 화면 열기</button>
+    <button class="btn" data-open="/stage">🎤 프롬프터 열기</button>
+    <button class="btn" id="obsBtn">🎥 OBS 자막 주소</button>
+  </div>
+  <button class="btn" id="styleBtn">🎨 자막 스타일</button>
+  <button class="btn" id="mediaBtn">🖼 미디어</button>
+  <button class="btn ctrl-only" id="settingsBtn">⚙︎ 설정</button>
+  <button class="btn ctrl-only danger" id="quitBtn" title="프로그램 종료">⏻ 종료</button>
+</header>
+
+<main class="layout">
+  <aside class="left">
+    <section>
+      <div class="row">
+        <select id="serviceSel" class="grow"></select>
+        <button class="icon" id="svcNew" title="새 예배 순서">＋</button>
+        <button class="icon" id="svcEdit" title="이름·날짜 변경">✎</button>
+        <button class="icon" id="svcDel" title="예배 순서 삭제">🗑</button>
+      </div>
+      <ol id="serviceList" class="list"></ol>
+    </section>
+    <section class="lib">
+      <div class="row"><b class="grow">자료실</b></div>
+      <div class="row wrap">
+        <button class="btn sm" id="newSong">＋ 찬양</button>
+        <button class="btn sm" id="newBible">＋ 성경</button>
+        <button class="btn sm" id="newNotice">＋ 광고</button>
+        <label class="btn sm">＋ PPT<input type="file" id="pptFile" accept=".pptx" hidden></label>
+        <button class="btn sm" id="newScore">＋ PDF·악보</button>
+      </div>
+      <input id="search" placeholder="자료 검색">
+      <ul id="libList" class="list"></ul>
+    </section>
+  </aside>
+
+  <section class="center">
+    <div class="row head">
+      <h2 id="itemTitle" class="grow">자료를 선택하세요</h2>
+      <button class="btn" id="editItem" disabled>✎ 편집</button>
+    </div>
+    <div id="slides" class="grid"></div>
+  </section>
+
+  <aside class="right ctrl-only">
+    <div class="pv-label">예배당 화면 <span id="liveInfo" class="muted"></span></div>
+    <div id="pvMain" class="wc-screen pv"></div>
+    <div class="pv-label">방송 자막 (OBS)</div>
+    <div id="pvOverlay" class="wc-screen pv checker"></div>
+    <div class="controls">
+      <button class="btn big" id="prev">◀ 이전</button>
+      <button class="btn big primary" id="next">다음 ▶</button>
+      <button class="btn toggle" id="black">■ 검은화면 <kbd>B</kbd></button>
+      <button class="btn toggle" id="clear">◻ 글자 지우기 <kbd>C</kbd></button>
+      <button class="btn toggle" id="logo">✝ 로고 <kbd>L</kbd></button>
+      <button class="btn" id="reset">모두 끄기 <kbd>Esc</kbd></button>
+    </div>
+    <div class="pv-label">다음 슬라이드</div>
+    <div id="pvNext" class="next-text muted"></div>
+    <p class="muted small">단축키: → Space 다음 · ← 이전 · 숫자키 1~9 슬라이드</p>
+  </aside>
+</main>
+
+<dialog id="dlg"><div id="dlgBody"></div></dialog>
+<div id="toast"></div>
+
+<script src="/render.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

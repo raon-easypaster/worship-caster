@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&family=Nanum+Myeongjo:wght@700&display=swap');
+
+.wc-screen { position: relative; aspect-ratio: 16 / 9; container-type: size; overflow: hidden; background: #000; }
+.wc-layer { position: absolute; inset: 0; transition: opacity .3s ease; overflow: hidden; }
+.wc-bg { position: absolute; inset: 0; width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; object-fit: cover; }
+.wc-textwrap { position: absolute; inset: 7cqh 6cqw; display: flex; flex-direction: column; }
+.wc-text-main { white-space: normal; word-break: keep-all; }
+.wc-ref { color: #ffe9a8; margin-top: 2cqh; font-weight: 700; text-shadow: 0 .3cqh 1cqh rgba(0,0,0,.8); }
+.wc-el { position: absolute; box-sizing: border-box; overflow: hidden; }
+.wc-text { white-space: normal; word-break: keep-all; line-height: 1.25; padding: .6cqh 1cqw; font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; }
+.wc-table { border-collapse: collapse; font-family: 'Noto Sans KR', sans-serif; }
+.wc-table td { border: .15cqh solid rgba(255,255,255,.5); padding: .5cqh .8cqw; }
+
+/* 방송 자막 */
+.wc-ov { position: absolute; left: 6cqw; right: 6cqw; padding: 1.6cqh 3cqw 2cqh; border-radius: 1.2cqh; text-align: center; }
+.wc-ov-title { color: #ffd76a; font-weight: 700; margin-bottom: .6cqh; letter-spacing: .05em; }
+.wc-ov-text { word-break: keep-all; text-shadow: 0 .2cqh .6cqh rgba(0,0,0,.6); }
+
+/* 프롬프터 */
+.wc-stage { background: #0d0f14; color: #fff; font-family: 'Noto Sans KR', sans-serif; display: flex; flex-direction: column; padding: 3cqh 4cqw; box-sizing: border-box; }
+.wc-st-top { display: flex; gap: 3cqw; font-size: 3.4cqh; color: #9aa4b8; align-items: center; }
+.wc-st-top span:first-child { color: #fff; font-weight: 700; flex: 1; }
+.wc-st-status { color: #ff6b6b; }
+.wc-clock { font-size: 5cqh; color: #7ee0a1; font-weight: 700; }
+.wc-st-cur { flex: 1; display: flex; flex-direction: column; justify-content: center; font-size: 8cqh; font-weight: 700; line-height: 1.35; word-break: keep-all; }
+.wc-st-ref { font-size: 4cqh; color: #ffd76a; margin-top: 2cqh; }
+.wc-st-next { font-size: 4cqh; color: #b9c2d3; border-top: .2cqh solid #2a3140; padding-top: 2cqh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-st-next b { color: #6aa8ff; margin-right: 1cqw; }
