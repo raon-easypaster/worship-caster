@@ -156,9 +156,11 @@
   }
   const isVisual = s => !!(s && (s.html || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
 
-  function slideInner(snap, st, still) {
+  // noScript: OBS 브라우저 소스에서는 HTML 속 스크립트를 돌리지 않음.
+  // (OBS가 페이지에 넣어 주는 장면 전환·방송 제어 기능을 HTML 자료가 건드리지 못하게)
+  function slideInner(snap, st, still, noScript) {
     const s = snap.slide;
-    if (s.html) return `<iframe class="wc-html" sandbox="${still ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
+    if (s.html) return `<iframe class="wc-html" sandbox="${still || noScript ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
     let inner = bgHTML(s.bg, s.fit !== 'contain');
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
@@ -206,7 +208,7 @@
     if (mode === 'full') {
       const st = mainStyle(snap), mk = motionKey(snap, st);
       const pip = snap.live?.pip && opts.preview ? '<div class="wc-pip-ph">👤 사람 화면<small>(OBS 장면 전환)</small></div>' : '';
-      return `<div class="wc-layer" style="background:${mk ? '#000' : col(s.bgColor, st.bg)}">${motionHTML(mk, opts.still)}${slideInner(snap, st, opts.still)}${pip}</div>`;
+      return `<div class="wc-layer" style="background:${mk ? '#000' : col(s.bgColor, st.bg)}">${motionHTML(mk, opts.still)}${slideInner(snap, st, opts.still, true)}${pip}</div>`;
     }
     const st = safeOverlay(snap.style.overlay);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
