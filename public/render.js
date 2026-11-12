@@ -79,7 +79,7 @@
 
   function overlayHTML(snap) {
     const st = safeOverlay(snap.style.overlay), s = snap.slide, L = snap.live;
-    if (L.black || L.clear || !s || !String(s.text || '').trim()) return '<div class="wc-layer"></div>';
+    if (L.black || L.clear || L.overlayOff || snap.item?.noBroadcast || !s || !String(s.text || '').trim()) return '<div class="wc-layer"></div>';
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : '')) ;
     const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
     return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
@@ -91,7 +91,8 @@
   function stageHTML(snap) {
     const s = snap.slide, n = snap.next, L = snap.live;
     const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-    const status = L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중';
+    const status = (L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중') +
+      (L.overlayOff || snap.item?.noBroadcast ? ' · 방송 자막 꺼짐' : '');
     return `<div class="wc-layer wc-stage">
       <div class="wc-st-top"><span>${esc(snap.item?.title || '대기')}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
       <div class="wc-st-cur" dir="auto">${esc(s?.text || '').replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>

@@ -100,3 +100,8 @@ dialog::backdrop { background: rgba(10,14,22,.5); }
   .slide-edit { grid-template-columns: 1fr; }
   .two, .form { grid-template-columns: 1fr; }
 }
+
+.controls .wide { grid-column: 1 / -1; }
+.ov-off { color: var(--live); font-weight: 700; font-size: 12px; margin-left: 6px; }
+.badge.tv { background: #fff1e6; color: #b4530c; }
+@media (prefers-color-scheme: dark) { .badge.tv { background: #3a2a1c; color: #ffb27a; } }

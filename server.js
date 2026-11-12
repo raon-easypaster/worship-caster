@@ -21,7 +21,8 @@ const db = store.load();
 bible.loadAll(db.settings.bibleFolders);
 
 // ── 송출 상태 (메모리) ─────────────────────────────
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, rev: 0 };
+// overlayOff: 방송(OBS) 자막만 끔 — 예배당 TV에는 그대로 나감
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, rev: 0 };
 
 const isLocal = req => {
   const a = (req.socket || req.connection).remoteAddress || '';
@@ -48,7 +49,7 @@ function snapshot() {
   const next = item?.slides[live.index + 1] || null;
   return {
     type: 'live', live: { ...live }, style: db.style, logo: db.settings.logo,
-    item: item ? { id: item.id, title: item.title, type: item.type, count: item.slides.length } : null,
+    item: item ? { id: item.id, title: item.title, type: item.type, count: item.slides.length, noBroadcast: !!item.noBroadcast } : null,
     slide, next,
   };
 }
@@ -125,14 +126,14 @@ const changed = () => { store.save(); broadcast({ type: 'data' }); };
 
 // 자료(곡/말씀/광고/PPT)
 app.post('/api/items', needAuth, (req, res) => {
-  const it = { id: store.uid(), type: req.body.type || 'song', title: req.body.title || '새 자료', slides: req.body.slides || [], updatedAt: Date.now() };
+  const it = { id: store.uid(), type: req.body.type || 'song', title: req.body.title || '새 자료', slides: req.body.slides || [], noBroadcast: !!req.body.noBroadcast, updatedAt: Date.now() };
   it.slides.forEach(s => (s.id ||= store.uid()));
   db.items.push(it); changed(); res.json(it);
 });
 app.put('/api/items/:id', needAuth, (req, res) => {
   const it = db.items.find(i => i.id === req.params.id);
   if (!it) return res.status(404).json({ error: '없음' });
-  Object.assign(it, { title: req.body.title ?? it.title, type: req.body.type ?? it.type, slides: req.body.slides ?? it.slides, updatedAt: Date.now() });
+  Object.assign(it, { title: req.body.title ?? it.title, type: req.body.type ?? it.type, slides: req.body.slides ?? it.slides, noBroadcast: req.body.noBroadcast !== undefined ? !!req.body.noBroadcast : !!it.noBroadcast, updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
   if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, it.slides.length - 1)); pushLive(); }
   changed(); res.json(it);
@@ -275,7 +276,7 @@ app.post('/api/live', needLocal, (req, res) => {
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), it.slides.length - 1);
     live.clear = false; live.black = false;
   }
-  for (const k of ['black', 'clear', 'logo']) if (b[k] !== undefined) live[k] = !!b[k];
+  for (const k of ['black', 'clear', 'logo', 'overlayOff']) if (b[k] !== undefined) live[k] = !!b[k];
   if (b.reset) Object.assign(live, { black: false, clear: true, logo: false });
   pushLive(); res.json(snapshot());
 });

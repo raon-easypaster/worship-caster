@@ -44,7 +44,7 @@ function renderServices() {
     const it = item(id); if (!it) return;
     const li = document.createElement('li');
     li.className = (id === selId ? 'sel ' : '') + (snap?.live.itemId === id ? 'live' : '');
-    li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>
+    li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>${it.noBroadcast ? '<span class="badge tv" title="유튜브 방송에는 나가지 않음">TV만</span>' : ''}
       <span class="acts"><button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button><button class="icon" data-a="rm" title="순서에서 빼기">✕</button></span>`;
     li.onclick = e => {
       const a = e.target.dataset.a;
@@ -69,7 +69,7 @@ function renderLib() {
   for (const it of list) {
     const li = document.createElement('li');
     li.className = (it.id === selId ? 'sel ' : '') + (snap?.live.itemId === it.id ? 'live' : '');
-    li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>
+    li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>${it.noBroadcast ? '<span class="badge tv" title="유튜브 방송에는 나가지 않음">TV만</span>' : ''}
       <span class="acts"><button class="icon" data-a="add" title="예배 순서에 추가">＋</button><button class="icon" data-a="del" title="삭제">🗑</button></span>`;
     li.onclick = async e => {
       const a = e.target.dataset.a;
@@ -106,7 +106,11 @@ function renderLive() {
   WC.render($('#pvMain'), snap, 'main');
   WC.render($('#pvOverlay'), snap, 'overlay');
   const L = snap.live;
-  for (const k of ['black', 'clear', 'logo']) $('#' + k).classList.toggle('on', !!L[k]);
+  for (const k of ['black', 'clear', 'logo', 'overlayOff']) $('#' + k).classList.toggle('on', !!L[k]);
+  const ovOff = L.overlayOff || snap.item?.noBroadcast;
+  $('#ovState').classList.toggle('hidden', !ovOff);
+  $('#ovState').textContent = L.overlayOff ? '꺼짐 — 예배당 화면에만 나가는 중' : '이 자료는 방송에 내보내지 않음';
+  $('#overlayOff').innerHTML = (L.overlayOff ? '🎥 방송 자막 다시 켜기' : '🎥 방송 자막 끄기') + ' <kbd>O</kbd>';
   $('#liveInfo').textContent = snap.item ? `· ${snap.item.title} ${L.index + 1}/${snap.item.count}` : '· 대기';
   $('#pvNext').textContent = snap.next ? snap.next.text : (snap.item ? '— 마지막 슬라이드 —' : '');
 }
@@ -157,6 +161,7 @@ function openItemEditor(id, focusIndex) {
     <div class="form">
       <label>제목</label><input id="eTitle" value="${esc(it.title)}">
       <label>종류</label><select id="eType">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === it.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <label>방송(OBS)</label><label class="row" style="margin:0;color:inherit"><input type="checkbox" id="eNoBc" ${it.noBroadcast ? 'checked' : ''}> 유튜브 방송에는 내보내지 않기 <span class="muted small">(기도 제목·광고 등, 예배당 화면에만)</span></label>
       <label>가사 붙여넣기</label>
       <div><textarea id="ePaste" rows="5" placeholder="가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다."></textarea>
         <div class="row" style="margin-top:6px"><select id="eLines" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === 2 ? 'selected' : ''}>${n}</option>`).join('')}</select>
@@ -232,6 +237,7 @@ function openItemEditor(id, focusIndex) {
 
   body.querySelector('#eTitle').oninput = e => (it.title = e.target.value);
   body.querySelector('#eType').onchange = e => { it.type = e.target.value; draw(); };
+  body.querySelector('#eNoBc').onchange = e => { it.noBroadcast = e.target.checked; };
   const doSplit = async append => {
     const slides = await api('POST', '/api/split', { text: body.querySelector('#ePaste').value, lines: body.querySelector('#eLines').value });
     const bg = it.slides[0]?.bg; if (bg) slides.forEach(s => (s.bg = bg));
@@ -512,7 +518,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.3 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.3.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -578,6 +584,7 @@ function bind() {
   $('#clear').onclick = () => goLive({ clear: !snap.live.clear });
   $('#logo').onclick = () => goLive({ logo: !snap.live.logo, black: !snap.live.logo });
   $('#reset').onclick = () => goLive({ reset: true });
+  $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
 
   addEventListener('keydown', e => {
     if (dlg.open || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
@@ -587,6 +594,7 @@ function bind() {
     else if (k === 'b' || k === 'B') $('#black').click();
     else if (k === 'c' || k === 'C') $('#clear').click();
     else if (k === 'l' || k === 'L') $('#logo').click();
+    else if (k === 'o' || k === 'O') $('#overlayOff').click();
     else if (k === 'Escape') $('#reset').click();
     else if (/^[1-9]$/.test(k) && selId) goLive({ itemId: selId, index: +k - 1 }).catch(() => {});
   });

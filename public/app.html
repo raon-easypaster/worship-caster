@@ -69,7 +69,7 @@
   <aside class="right ctrl-only">
     <div class="pv-label">예배당 화면 <span id="liveInfo" class="muted"></span></div>
     <div id="pvMain" class="wc-screen pv"></div>
-    <div class="pv-label">방송 자막 (OBS)</div>
+    <div class="pv-label">방송 자막 (OBS) <span id="ovState" class="ov-off hidden">꺼짐 — 예배당 화면에만 나가는 중</span></div>
     <div id="pvOverlay" class="wc-screen pv checker"></div>
     <div class="controls">
       <button class="btn big" id="prev">◀ 이전</button>
@@ -78,10 +78,11 @@
       <button class="btn toggle" id="clear">◻ 글자 지우기 <kbd>C</kbd></button>
       <button class="btn toggle" id="logo">✝ 로고 <kbd>L</kbd></button>
       <button class="btn" id="reset">모두 끄기 <kbd>Esc</kbd></button>
+      <button class="btn toggle wide" id="overlayOff" title="예배당 TV에는 그대로 나가고, 유튜브(OBS)에만 자막을 끕니다">🎥 방송 자막 끄기 <kbd>O</kbd></button>
     </div>
     <div class="pv-label">다음 슬라이드</div>
     <div id="pvNext" class="next-text muted"></div>
-    <p class="muted small">단축키: → Space 다음 · ← 이전 · 숫자키 1~9 슬라이드</p>
+    <p class="muted small">단축키: → Space 다음 · ← 이전 · 숫자키 1~9 슬라이드 · O 방송 자막 끄기</p>
   </aside>
 </main>
 
