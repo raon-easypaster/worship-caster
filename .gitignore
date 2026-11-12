@@ -11,3 +11,7 @@ data/
 .claude/
 .DS_Store
 *.log
+
+# 배포 파일 만들기
+dist/
+.build-cache/

@@ -1,4 +1,5 @@
 // 예배송출 (Worship Caster) — 로컬 서버
+// 만든 사람: 쉬운목사 이광복
 // 예배당 화면(/output), OBS 투명 자막(/overlay), 프롬프터(/stage), 운영(/control), 웹 편집기(/editor)
 const express = require('express');
 const http = require('http');
@@ -74,7 +75,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '20mb' }));
-const upload = multer({ dest: path.join(os.tmpdir(), 'worship-caster-up'), limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
+const upload = multer({ dest: path.join(store.DATA_DIR, 'tmp'), limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
 
 app.get('/', (req, res) => res.redirect(isLocal(req) ? '/control' : '/editor'));
 app.get('/control', (req, res) => isLocal(req) ? res.sendFile(path.join(__dirname, 'public', 'app.html')) : res.redirect('/editor'));
@@ -295,10 +296,31 @@ function broadcast(msg) {
 }
 function pushLive() { live.rev++; broadcast(snapshot()); }
 wss.on('connection', ws => ws.send(JSON.stringify(snapshot())));
+wss.on('error', () => {}); // 포트 문제는 아래 server.on('error') 에서 처리
+
+// 운영 화면 열기: 크롬/엣지가 있으면 주소창 없는 '앱 창'으로
+function openUI() {
+  const url = `http://localhost:${PORT}/control`;
+  const { exec } = require('child_process');
+  if (process.platform === 'darwin') {
+    exec(fs.existsSync('/Applications/Google Chrome.app')
+      ? `open -na "Google Chrome" --args --app=${url} --window-size=1440,900`
+      : `open ${url}`);
+  } else if (process.platform === 'win32') {
+    exec(`start "" msedge --app=${url}`, { shell: 'cmd.exe' }, err => { if (err) exec(`start "" ${url}`, { shell: 'cmd.exe' }); });
+  } else exec(`xdg-open ${url}`);
+}
+
+// 이미 켜져 있으면(포트 사용 중) 창만 열고 끝냄 → 아이콘을 여러 번 눌러도 안전
+server.on('error', e => {
+  if (e.code === 'EADDRINUSE') { console.log('이미 실행 중입니다. 운영 화면만 엽니다.'); if (process.env.NO_OPEN !== '1') openUI(); setTimeout(() => process.exit(0), 1500); }
+  else { console.error(e); process.exit(1); }
+});
 
 server.listen(PORT, () => {
   const lan = lanAddresses();
-  console.log('\n  ✝  예배송출 (Worship Caster) 실행 중\n');
+  console.log('\n  ✝  예배송출 (Worship Caster) 실행 중 — 만든 사람: 쉬운목사 이광복\n');
+  console.log(`  자료 저장 위치 ${store.DATA_DIR}`);
   console.log(`  운영 화면     http://localhost:${PORT}/control`);
   console.log(`  예배당 화면   http://localhost:${PORT}/output   (TV로 옮긴 뒤 F 키 = 전체화면)`);
   console.log(`  프롬프터      http://localhost:${PORT}/stage`);
@@ -307,5 +329,5 @@ server.listen(PORT, () => {
     console.log(`  웹 편집기     http://${ip}:${PORT}/editor    (PIN: ${db.settings.pin})`);
   }
   console.log('');
-  if (process.env.NO_OPEN !== '1') require('child_process').exec(`open http://localhost:${PORT}/control`);
+  if (process.env.NO_OPEN !== '1') openUI();
 });
