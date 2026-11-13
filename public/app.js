@@ -1056,7 +1056,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.8.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.8.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
