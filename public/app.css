@@ -209,3 +209,7 @@ body.vresizing, body.vresizing * { cursor: row-resize !important; user-select: n
 .lyres:empty { display: none; }
 .lyrow { text-align: left; font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; cursor: pointer; }
 .lyrow:hover { border-color: var(--accent); } .lyrow.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+/* 콘티 */
+table.conti { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.conti th, table.conti td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line, #ddd); vertical-align: middle; }
+table.conti input { width: 100%; padding: 4px 6px; }

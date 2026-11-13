@@ -96,6 +96,8 @@ LAUNCH
 chmod +x "$MAC/Contents/MacOS/launcher" "$MAC/Contents/Resources/node/node"
 xattr -cr "$MAC"
 codesign --force --deep -s - "$MAC"
+# 서명이 앱 전체에 맞게 됐는지 점검 — 틀리면 받는 맥에서 「손상된 앱」이 나오므로 여기서 멈춤
+codesign --verify --deep --strict "$MAC" || { echo "맥 앱 서명 점검 실패"; exit 1; }
 cat > "$STAGE/mac/처음 실행 방법.txt" <<TXT
 $ABOUT_KO
 
@@ -106,7 +108,8 @@ $ABOUT_KO
 3. "네트워크의 다른 기기를 찾도록 허용" 또는 방화벽 질문이 나오면 [허용] 하세요. (OBS 자막·웹 편집기에 필요)
 4. 운영 화면이 열리면 끝! 끌 때는 오른쪽 위 [⏻ 종료].
 
-자료 저장 위치: ~/Library/Application Support/WorshipCaster  (백업하려면 이 폴더를 복사)
+자료 저장 위치: ~/Library/Application Support/WorshipCaster
+백업: 운영 화면 ⚙︎ 설정 → 💾 백업·복원 → 자료 전체 백업 받기
 TXT
 rm -f "$DIST/예배송출-mac.zip"
 (cd "$STAGE/mac" && ditto -c -k --sequesterRsrc . "$DIST/예배송출-mac.zip")
@@ -136,7 +139,8 @@ text = f"""{about}
 3. 엣지 창으로 운영 화면이 열립니다.
 4. 작업 표시줄의 'WorshipCaster' 창은 프로그램 본체입니다. 닫으면 꺼집니다. (운영 화면 오른쪽 위 [⏻ 종료]도 됩니다)
 
-자료 저장 위치: %APPDATA%\\WorshipCaster  (백업하려면 이 폴더를 복사)
+자료 저장 위치: %APPDATA%\\WorshipCaster
+백업: 운영 화면 ⚙︎ 설정 → 💾 백업·복원 → 자료 전체 백업 받기
 """
 open(path, 'w', encoding='utf-8-sig', newline='\r\n').write(text)
 PY
@@ -158,4 +162,6 @@ if [ "${1:-}" = "--install" ]; then
   ditto "$MAC" "$HOME/Applications/예배송출.app"
   echo "설치: ~/Applications/예배송출.app"
 fi
+# 받은 파일이 깨지지 않았는지 확인하는 값 (릴리스 설명에 붙임)
+(cd "$DIST" && shasum -a 256 예배송출-mac.zip 예배송출-windows.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
 ls -lh "$DIST"

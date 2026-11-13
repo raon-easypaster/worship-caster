@@ -11,6 +11,7 @@
   body.overlay .wc-screen { background: transparent; }
   body { display: flex; align-items: center; justify-content: center; }
   #screen { width: min(100vw, calc(100vh * 16 / 9)); }
+  #screen[data-ar="43"] { width: min(100vw, calc(100vh * 4 / 3)); }
   #hint { position: fixed; left: 12px; bottom: 12px; color: #888; font: 13px sans-serif; background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 6px; transition: opacity .6s; z-index: 9; }
   #offline { position: fixed; right: 10px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: #e33; display: none; z-index: 9; }
 </style>

@@ -85,6 +85,10 @@ function itemFields(b, it = {}) {
     // 곡 구성 순서 (예: ['1절','후렴','2절','후렴'])
     arr: Array.isArray(b.arr) ? b.arr.map(x => String(x).trim().slice(0, 20)).filter(Boolean).slice(0, 60) : (it.arr || []),
     theme: THEME_RE.test(b.theme ?? '') ? (b.theme ?? it.theme ?? '') : (it.theme || ''),
+    // 콘티: 키·빠르기(BPM)·흐름 메모
+    key: b.key !== undefined ? String(b.key ?? '').trim().slice(0, 10) : (it.key || ''),
+    bpm: b.bpm !== undefined ? (Number.isFinite(+b.bpm) && +b.bpm > 0 ? Math.min(300, Math.round(+b.bpm)) : 0) : (it.bpm || 0),
+    memo: b.memo !== undefined ? String(b.memo ?? '').slice(0, 200) : (it.memo || ''),
   };
 }
 function addItem(b) {
@@ -353,6 +357,7 @@ app.put('/api/services/:id', needAuth, (req, res) => {
   const s = db.services.find(x => x.id === req.params.id);
   if (!s) return res.status(404).json({ error: '없음' });
   Object.assign(s, { name: req.body.name ?? s.name, date: req.body.date ?? s.date, itemIds: req.body.itemIds ?? s.itemIds });
+  if (req.body.note !== undefined) s.note = String(req.body.note ?? '').slice(0, 1000);   // 콘티 인도자 메모
   pruneOrphans(); changed(); res.json(s);
 });
 app.delete('/api/services/:id', needAuth, (req, res) => {
@@ -367,7 +372,7 @@ app.put('/api/current-service', needAuth, (req, res) => { db.currentServiceId = 
 const STYLE_RULES = {
   color: 'color', stroke: 'color', bg: 'color', box: 'color',
   size: [1, 30], strokeWidth: [0, 10], lineHeight: [0.8, 3], boxOpacity: [0, 1],
-  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'],
+  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'], aspect: ['16:9', '4:3'],
   bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
   motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
   imgMode: ['full', 'part', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
@@ -464,6 +469,65 @@ app.delete('/api/media/:name', needAuth, (req, res) => {
   const p = path.join(MEDIA_DIR, path.basename(req.params.name));
   if (live.mediaBg === '/media/' + path.basename(req.params.name)) { live.mediaBg = null; pushLive(); }
   fs.rm(p, { force: true }, () => res.json({ ok: true }));
+});
+
+// ── 백업·복원: 자료 전체(찬양·순서·설정·사진·영상·HTML)를 zip 하나로 ──
+// 운영 컴퓨터에서만 (PIN·설정이 들어 있음)
+app.get('/api/backup', needLocal, (req, res) => {
+  const JSZip = require('jszip');
+  const zip = new JSZip();
+  zip.file('db.json', JSON.stringify(db, null, 2));
+  zip.file('예배송출-백업.txt', `예배송출 백업 — 가져온 성경 텍스트가 들어 있을 수 있으니 이 파일은 남에게 나누지 마세요 (${new Date().toLocaleString('ko-KR')})\n⚙︎ 설정 → 백업·복원 → 백업 파일로 되살리기 에서 이 zip 파일을 고르세요.\n`);
+  for (const [dir, sub] of [[MEDIA_DIR, 'media'], [SLIDES_DIR, 'slides'], [bible.BIBLE_DIR, 'bible']]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      const p = path.join(dir, f);
+      if (fs.statSync(p).isFile()) zip.file(`${sub}/${f}`, fs.createReadStream(p), { binary: true, compression: 'STORE' });
+    }
+  }
+  const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="worship-caster-backup-${day}.zip"; filename*=UTF-8''${encodeURIComponent(`예배송출-백업-${day}.zip`)}`);
+  zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE', compressionOptions: { level: 6 } })
+    .on('error', e => { console.log('  백업 실패:', e.message); res.destroy(e); })
+    .pipe(res);
+});
+app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
+  const tmp = req.file?.path;
+  try {
+    if (!tmp) throw new Error('백업 파일(zip)을 고르세요');
+    const JSZip = require('jszip');
+    const zip = await JSZip.loadAsync(fs.readFileSync(tmp)).catch(() => { throw new Error('zip 파일이 아니거나 깨졌습니다'); });
+    const dbf = zip.file('db.json');
+    if (!dbf) throw new Error('예배송출 백업 파일이 아닙니다 (db.json 없음)');
+    const next = JSON.parse(await dbf.async('string'));
+    if (!Array.isArray(next?.items) || !Array.isArray(next?.services)) throw new Error('예배송출 백업 파일이 아닙니다');
+    // 되살리기 전 지금 자료를 한 벌 남겨 둠
+    fs.copyFileSync(store.DB_FILE, store.DB_FILE.replace(/\.json$/, `.before-restore-${Date.now()}.json`));
+    let files = 0;
+    for (const [name, f] of Object.entries(zip.files)) {
+      if (f.dir) continue;
+      const m = name.match(/^(media|slides|bible)\/([^/\\]+)$/);
+      if (!m || m[2].startsWith('.')) continue;
+      const base = path.basename(m[2]);   // zip 안 경로로 폴더 밖에 쓰는 것 막기
+      if (m[1] === 'media' && !mediaExt.test(base)) continue;
+      if (m[1] === 'slides' && !/^[a-f0-9]{12}\.html$/.test(base)) continue;
+      if (m[1] === 'bible' && !/\.(txt|tsv)$/i.test(base)) continue;
+      const dir = { media: MEDIA_DIR, slides: SLIDES_DIR, bible: bible.BIBLE_DIR }[m[1]];
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, base), await f.async('nodebuffer'));
+      files++;
+    }
+    const keepPin = db.settings.pin;
+    store.replace(next);
+    if (!db.settings.pin) db.settings.pin = keepPin;
+    Object.assign(live, { itemId: null, index: 0, mediaBg: null });
+    bible.loadAll(db.settings.bibleFolders);
+    changed(); pushLive();
+    res.json({ ok: true, items: db.items.length, services: db.services.length, files });
+  } catch (e) {
+    res.status(400).json({ error: e.message || '되살리지 못했습니다' });
+  } finally { if (tmp) fs.rm(tmp, { force: true }, () => {}); }
 });
 
 // PPT

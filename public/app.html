@@ -41,6 +41,7 @@
         <button class="icon" id="svcNew" title="새 예배 순서">＋</button>
         <button class="icon" id="svcEdit" title="이름·날짜 변경">✎</button>
         <button class="icon" id="svcDel" title="예배 순서 삭제">🗑</button>
+        <button class="icon" id="svcConti" title="콘티 — 키·빠르기·메모, 카톡용 복사, 인쇄">📋</button>
       </div>
       <ol id="serviceList" class="list"></ol>
     </section>
@@ -57,6 +58,7 @@
       </div>
       <p class="muted small" style="margin:0">새 자료는 순서에서 고른 자료 <b>다음</b>에 들어갑니다.</p>
       <div class="row" style="margin:6px 0 0"><b class="grow">찬양 자료실</b>
+        <label class="btn sm" title="세라핌·동역 콘티에서 받은 곡 파일(.json)이나 가사 글 파일(.txt)을 자료실에 넣기">가져오기<input type="file" id="songImport" accept=".json,.txt,application/json,text/plain" multiple hidden></label>
         <select id="libSort" style="width:auto;padding:3px 6px;font-size:12px"><option value="recent">최근순</option><option value="abc">가나다순</option></select></div>
       <input id="search" placeholder="찬양 검색 (제목·가사)">
       <ul id="libList" class="list"></ul>

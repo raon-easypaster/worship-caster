@@ -1,6 +1,7 @@
 @import url('/fonts.css');
 
 .wc-screen { position: relative; aspect-ratio: 16 / 9; container-type: size; overflow: hidden; background: #000; }
+.wc-screen[data-ar="43"] { aspect-ratio: 4 / 3; }
 .wc-layer { position: absolute; inset: 0; transition: opacity .3s ease; overflow: hidden; }
 .wc-bg { position: absolute; inset: 0; width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; object-fit: cover; }
 .wc-textwrap { position: absolute; inset: 7cqh 6cqw; display: flex; flex-direction: column; }

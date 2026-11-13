@@ -237,6 +237,126 @@ function connectWS() {
 
 // ── 예배 순서 ───────────────────────────────────
 async function saveService(ids) { await api('PUT', '/api/services/' + S.currentServiceId, { itemIds: ids }); }
+// ── 콘티: 예배 순서를 찬양팀과 나누기 (키·빠르기·메모 / 카톡용 복사 / 인쇄) ──
+// 가사는 넣지 않음 (저작권) — 곡 제목·키·흐름만
+const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const KEY_IDX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
+function shiftKey(k, d) {   // 'G' → 'Ab', 'F#m' → 'Gm', 모르는 글자는 그대로
+  const m = String(k || '').trim().replace(/♯/g, '#').replace(/♭/g, 'b').match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if (!m) return k;
+  const i = KEY_IDX[m[1].toUpperCase() + m[2]];
+  return i == null ? k : KEYS[(i + d + 120) % 12] + m[3];
+}
+function contiRows(s) {
+  return (s?.itemIds || []).map(item).filter(Boolean);
+}
+function contiText(s) {
+  const rows = contiRows(s);
+  const head = `[${s.date || ''} ${s.name || ''}] 콘티`.replace('[ ', '[');
+  const lines = rows.map((it, i) => {
+    const meta = [it.key, it.bpm ? it.bpm + 'bpm' : ''].filter(Boolean).join(', ');
+    const kind = KEEP.has(it.type) ? '' : `${TYPE[it.type] || ''}: `;
+    return `${i + 1}. ${kind}${it.title}${meta ? ` (${meta})` : ''}${it.memo ? `\n   └ ${it.memo}` : ''}`;
+  });
+  return [head, ...lines, ...(s.note ? ['', '📝 ' + s.note] : [])].join('\n');
+}
+function printConti(s) {
+  const rows = contiRows(s);
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>콘티</title><style>
+    body{font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;margin:18mm 16mm;color:#111}
+    h1{font-size:20pt;margin:0 0 4px}.d{color:#555;margin-bottom:14px}
+    table{width:100%;border-collapse:collapse;font-size:12pt}th,td{border-bottom:1px solid #ccc;padding:8px 6px;text-align:left;vertical-align:top}
+    th{background:#eee}td.n{width:28px;color:#666}td.k{width:70px;font-weight:700}td.b{width:60px}.memo{color:#444;font-size:10.5pt}
+    .note{margin-top:14px;padding:10px;border:1px solid #ccc;white-space:pre-wrap}</style></head><body>
+    <h1>${esc(s.name || '예배')} 콘티</h1><div class="d">${esc(s.date || '')}</div>
+    <table><tr><th></th><th>순서</th><th>키</th><th>BPM</th><th>흐름 메모</th></tr>
+    ${rows.map((it, i) => `<tr><td class="n">${i + 1}</td><td>${KEEP.has(it.type) ? '' : `<span class="memo">${esc(TYPE[it.type] || '')}</span> `}${esc(it.title)}</td>
+      <td class="k">${esc(it.key || '')}</td><td class="b">${it.bpm || ''}</td><td class="memo">${esc(it.memo || '')}</td></tr>`).join('')}</table>
+    ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}</body></html>`;
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
+  document.body.append(f);
+  f.srcdoc = html;
+  f.onload = () => { f.contentWindow.print(); setTimeout(() => f.remove(), 60000); };
+}
+function openConti() {
+  const s = service(); if (!s) return toast('예배 순서를 먼저 만드세요');
+  const rows = contiRows(s);
+  const body = openDlg(`
+    <div class="dlg-head"><h3>📋 콘티 — ${esc(s.date || '')} ${esc(s.name || '')}</h3><button class="icon" data-x>✕</button></div>
+    <p class="muted small">찬양팀에 미리 보낼 순서표입니다. 가사는 들어가지 않습니다(저작권). 키·빠르기·메모는 곡에 저장되어 다음에도 그대로 나옵니다.</p>
+    <table class="conti"><tr><th></th><th>순서</th><th>키</th><th>BPM</th><th>흐름 메모</th></tr>
+      ${rows.map((it, i) => `<tr data-id="${it.id}"><td class="muted">${i + 1}</td><td>${KEEP.has(it.type) ? '' : `<span class="muted small">${esc(TYPE[it.type] || '')}</span> `}${esc(it.title)}</td>
+        ${KEEP.has(it.type) ? `<td><input data-f="key" value="${esc(it.key || '')}" maxlength="10" style="width:64px"></td>
+        <td><input data-f="bpm" type="number" min="0" max="300" value="${it.bpm || ''}" style="width:64px"></td>
+        <td><input data-f="memo" value="${esc(it.memo || '')}" maxlength="200" placeholder="예: 후렴 2번"></td>` : '<td></td><td></td><td></td>'}</tr>`).join('') || '<tr><td colspan="5" class="muted">예배 순서가 비어 있습니다</td></tr>'}
+    </table>
+    <label class="small" style="display:block;margin-top:10px">인도자 메모</label>
+    <textarea id="cNote" rows="2" maxlength="1000" placeholder="예: 3번 곡 끝나고 바로 기도로">${esc(s.note || '')}</textarea>
+    <div class="dlg-foot" style="justify-content:space-between">
+      <div class="row" style="margin:0"><button class="btn sm" id="cDown" title="모든 곡 키를 반음 내림">전체 키 ♭</button><button class="btn sm" id="cUp" title="모든 곡 키를 반음 올림">전체 키 ♯</button></div>
+      <div class="row" style="margin:0"><button class="btn" id="cPrint">🖨 인쇄</button><button class="btn primary" id="cCopy">💬 카톡용 복사</button></div>
+    </div>`);
+  // 칸을 고치면 곡에 바로 저장
+  const save = async (tr, f, v) => {
+    const it = item(tr.dataset.id); if (!it) return;
+    it[f] = f === 'bpm' ? (+v || 0) : v;
+    await api('PUT', '/api/items/' + it.id, { [f]: it[f] }).catch(e => toast(e.message));
+  };
+  body.querySelectorAll('tr[data-id] input').forEach(inp => inp.onchange = () => save(inp.closest('tr'), inp.dataset.f, inp.value));
+  const note = body.querySelector('#cNote');
+  note.onchange = () => { s.note = note.value; api('PUT', '/api/services/' + s.id, { note: note.value }).catch(e => toast(e.message)); };
+  const shiftAll = async d => {
+    for (const inp of body.querySelectorAll('input[data-f=key]')) {
+      if (!inp.value.trim()) continue;
+      const nv = shiftKey(inp.value, d); if (nv === inp.value) continue;
+      inp.value = nv; await save(inp.closest('tr'), 'key', nv);
+    }
+    toast(d > 0 ? '키를 반음 올렸습니다' : '키를 반음 내렸습니다');
+  };
+  body.querySelector('#cUp').onclick = () => shiftAll(1);
+  body.querySelector('#cDown').onclick = () => shiftAll(-1);
+  const sync = () => { s.note = note.value; body.querySelectorAll('tr[data-id] input').forEach(inp => { const it = item(inp.closest('tr').dataset.id); if (it) it[inp.dataset.f] = inp.dataset.f === 'bpm' ? (+inp.value || 0) : inp.value; }); };
+  body.querySelector('#cCopy').onclick = async () => {
+    sync();
+    try { await navigator.clipboard.writeText(contiText(s)); toast('복사했습니다. 카톡에 붙여넣으세요'); }
+    catch { prompt('아래 글을 복사하세요', contiText(s)); }
+  };
+  body.querySelector('#cPrint').onclick = () => { sync(); printConti(s); };
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+}
+
+// ── 곡 가져오기: 세라핌·동역 콘티 곡 파일(.json {songs:[{title, lyrics}]}) · 가사 글 파일(.txt) ──
+function songsFromJson(data) {
+  const list = Array.isArray(data) ? data : Array.isArray(data?.songs) ? data.songs : data ? [data] : [];
+  return list.filter(s => s && typeof s === 'object').map(s => {
+    let lyrics = typeof s.lyrics === 'string' ? s.lyrics : typeof s.text === 'string' ? s.text : '';
+    const parts = Array.isArray(s.verses) ? s.verses : Array.isArray(s.slides) ? s.slides : null;   // [{label, text}] 모양도 받음
+    if (!lyrics && parts) lyrics = parts.map(v => typeof v === 'string' ? v : `${v?.label ? '#' + v.label + '\n' : ''}${v?.text || v?.lyrics || ''}`).join('\n\n');
+    return { title: String(s.title || s.name || '').trim(), lyrics: lyrics.trim(), key: typeof s.key === 'string' ? s.key : '' };
+  });
+}
+async function importSongs(files) {
+  const songs = [];
+  for (const f of files) {
+    const t = await f.text();
+    if (/\.json$/i.test(f.name) || /^\s*[[{]/.test(t)) {
+      try { songs.push(...songsFromJson(JSON.parse(t))); } catch { toast(`${f.name}: 곡 파일 모양이 아닙니다`); }
+    } else songs.push({ title: f.name.replace(/\.[^.]+$/, ''), lyrics: t.trim() });
+  }
+  const have = new Set(S.items.filter(i => KEEP.has(i.type)).map(i => i.title.trim()));
+  let added = 0, same = 0, empty = 0;
+  for (const s of songs) {
+    if (!s.title) continue;
+    if (!s.lyrics) { empty++; continue; }
+    if (have.has(s.title)) { same++; continue; }
+    const slides = await api('POST', '/api/split', { text: s.lyrics, lines: 2 });
+    await api('POST', '/api/items', { type: 'song', title: s.title, slides, key: s.key || '' });
+    have.add(s.title); added++;
+  }
+  toast([`찬양 ${added}곡을 자료실에 넣었습니다`, same && `같은 제목 ${same}곡은 건너뜀`, empty && `가사 없는 ${empty}곡은 건너뜀`].filter(Boolean).join(' · '));
+}
+
 async function newService() {
   const T = await api('GET', '/api/templates');
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -326,6 +446,10 @@ function openItemEditor(id, focusIndex, preset) {
     <div class="dlg-head"><h3>${src ? '자료 편집' : '새 자료'}</h3><button class="icon" data-x>✕</button></div>
     <div class="form">
       <label>제목</label><input id="eTitle" value="${esc(it.title)}">
+      <label class="conti-f">콘티</label><div class="row conti-f" style="margin:0;gap:6px">
+        <input id="eKey" placeholder="키 (예: G)" value="${esc(it.key || '')}" style="width:90px" maxlength="10">
+        <input id="eBpm" type="number" min="0" max="300" placeholder="BPM" value="${it.bpm || ''}" style="width:80px">
+        <input id="eMemo" class="grow" placeholder="흐름 메모 (예: 후렴 2번, 마지막 조용히)" value="${esc(it.memo || '')}" maxlength="200"></div>
       <label>종류</label><div class="row" style="margin:0"><select id="eType" style="width:auto">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === it.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <span class="muted small" id="eKeepNote"></span></div>
       <label>모양 (테마)</label><select id="eTheme">${Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}" ${k === (it.theme || '') ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
@@ -430,6 +554,9 @@ function openItemEditor(id, focusIndex, preset) {
   const pickMedia = (onPick, back) => { saved = [...$('#dlgBody').childNodes]; openMediaPicker(url => { onPick(url); back(); }, back); };
 
   body.querySelector('#eTitle').oninput = e => (it.title = e.target.value);
+  body.querySelector('#eKey').oninput = e => (it.key = e.target.value);
+  body.querySelector('#eBpm').oninput = e => (it.bpm = +e.target.value || 0);
+  body.querySelector('#eMemo').oninput = e => (it.memo = e.target.value);
   // 곡 구성: 입력칸 + 이름 단추(누르면 뒤에 붙음)
   const arrIn = body.querySelector('#eArr');
   const readArr = () => (it.arr = arrIn.value.split(/[\s,·→>]+/).map(x => x.trim()).filter(Boolean));
@@ -468,6 +595,7 @@ function openItemEditor(id, focusIndex, preset) {
   const typeUI = () => {
     body.querySelectorAll('.song-only').forEach(x => x.classList.toggle('hidden', it.type !== 'song'));
     body.querySelectorAll('.no-html').forEach(x => x.classList.toggle('hidden', it.type === 'html'));
+    body.querySelectorAll('.conti-f').forEach(x => x.classList.toggle('hidden', !KEEP.has(it.type)));
     body.querySelector('#eKeepNote').textContent = KEEP.has(it.type) ? '찬양 자료실에 남습니다' : '예배 순서에서 빼면 지워집니다';
   };
   drawChips();
@@ -786,6 +914,7 @@ function openStyle(pre) {
         <label>테두리 색</label><input type="color" id="m_stroke" value="${esc(st.main.stroke)}">
         <label>가로 정렬</label><select id="m_align">${['left', 'center', 'right'].map(v => `<option value="${v}" ${v === st.main.align ? 'selected' : ''}>${{ left: '왼쪽', center: '가운데', right: '오른쪽' }[v]}</option>`).join('')}</select>
         <label>세로 위치</label><select id="m_valign">${['top', 'middle', 'bottom'].map(v => `<option value="${v}" ${v === st.main.valign ? 'selected' : ''}>${{ top: '위', middle: '가운데', bottom: '아래' }[v]}</option>`).join('')}</select>
+        <label>화면 비율</label><select id="m_aspect" title="옛 프로젝터(4:3)면 4:3으로. 방송(OBS)은 늘 16:9">${[['16:9', '16:9 (TV·요즘 프로젝터)'], ['4:3', '4:3 (옛 프로젝터)']].map(([v, t]) => `<option value="${v}" ${(st.main.aspect || '16:9') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <label>배경색</label><input type="color" id="m_bg" value="${esc(st.main.bg)}">
         <label>움직이는 배경</label><select id="m_motion">${Object.entries(WC.MOTIONS).map(([k, n]) => `<option value="${k}" ${k === (st.main.motion || 'none') ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <label>배경 동영상</label><div class="row" style="margin:0"><span class="muted small grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(vidName)}</span><button class="btn sm" id="mvPick">동영상 고르기</button></div>
@@ -909,6 +1038,10 @@ function openSettings() {
     <h4 style="margin:18px 0 8px">📱 휴대폰 리모컨</h4>
     <div class="row wrap"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stRemote" ${S.settings.remote ? 'checked' : ''}> 휴대폰에서 자막 넘기기 허용</label>
       ${S.lan[0] ? `<code>http://${esc(S.lan[0])}:${S.port}/remote</code>` : ''} <span class="muted small">같은 와이파이의 휴대폰 브라우저에서 이 주소 → PIN 입력</span></div>
+    <h4 style="margin:18px 0 8px">💾 백업·복원</h4>
+    <div class="row wrap"><a class="btn" href="/api/backup" download>자료 전체 백업 받기 (zip)</a>
+      <label class="btn">백업 파일로 되살리기<input type="file" id="stRestore" accept=".zip,application/zip" hidden></label></div>
+    <p class="muted small">찬양·예배 순서·모양·설정·사진·영상을 파일 하나로 내려받습니다. 컴퓨터를 바꿀 때나 고장에 대비해 가끔 USB에 받아 두세요. 되살리면 지금 자료가 백업 내용으로 바뀝니다(바뀌기 전 자료도 data 폴더에 한 벌 남깁니다).</p>
     <h4 style="margin:18px 0 8px">성경</h4>
     <div class="form">
       <label>성경 폴더</label><div>
@@ -921,7 +1054,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.7.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.8.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -934,6 +1067,14 @@ function openSettings() {
   body.querySelector('#stPinSave').onclick = async () => { await api('PUT', '/api/settings', { pin: body.querySelector('#stPin').value }); toast('PIN을 바꿨습니다 (기존 접속은 로그아웃)'); };
   body.querySelector('#stLogo').onclick = () => openMediaPicker(async url => { await api('PUT', '/api/settings', { logo: url }); await reload(); openSettings(); }, openSettings);
   body.querySelector('#stLogoDel')?.addEventListener('click', async () => { await api('PUT', '/api/settings', { logo: '' }); await reload(); openSettings(); });
+  body.querySelector('#stRestore').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f || !confirm(`'${f.name}' 백업으로 되살릴까요?\n지금 찬양·예배 순서·설정이 백업 내용으로 바뀝니다.`)) return;
+    const fd = new FormData(); fd.append('file', f);
+    toast('되살리는 중…');
+    try { const r = await api('POST', '/api/restore', fd); await reload(); closeDlg(); toast(`되살렸습니다 — 자료 ${r.items}개, 예배 순서 ${r.services}개, 파일 ${r.files}개`); }
+    catch (err) { toast(err.message); }
+  };
   body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
     if (!/\.(png|jpe?g|gif|webp)$/i.test(url)) { toast('타이틀 로고는 사진 파일(png·jpg)만 됩니다'); return openSettings(); }
@@ -1368,6 +1509,8 @@ function bind() {
   $('#libSort').onchange = e => { try { localStorage.setItem('wc-libSort', e.target.value); } catch {} renderLib(); };
   $('#serviceSel').onchange = async e => { await api('PUT', '/api/current-service', { id: e.target.value }); };
   $('#svcNew').onclick = newService;
+  $('#songImport').onchange = e => { const fs = [...e.target.files]; e.target.value = ''; importSongs(fs); };
+  $('#svcConti').onclick = () => openConti();
   $('#svcEdit').onclick = async () => {
     const s = service(); if (!s) return;
     const name = prompt('예배 이름', s.name); if (name == null) return;

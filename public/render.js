@@ -321,6 +321,8 @@
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
     const L0 = snap.live || {};
+    // 예배당 화면 비율: 4:3 프로젝터면 화면 틀을 4:3 으로 (방송·프롬프터는 늘 16:9)
+    if (mode === 'main' && snap.style) container.dataset.ar = snap.style.main?.aspect === '4:3' ? '43' : '';
     if (mode === 'main' || mode === 'overlay') {
       // 미디어 배경: 예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만 (검은 화면·방송 자막 끄기면 안 나감)
       const url = mediaUrl(L0.mediaBg);
