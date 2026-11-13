@@ -235,7 +235,9 @@
     if (L.black || !s) {
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
-      return `<div class="wc-layer" style="background:#000">${logo}</div>`;
+      // 띄운 슬라이드가 없어도 미디어 배경은 보이게 (검은 화면을 직접 켠 때만 가림)
+      const see = !L.black && !L.logo && mediaUrl(L.mediaBg);
+      return `<div class="wc-layer" style="background:${see ? 'transparent' : '#000'}">${logo}</div>`;
     }
     const mk = motionKey(snap, st);
     const under = mk || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게

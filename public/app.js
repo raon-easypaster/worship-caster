@@ -333,9 +333,11 @@ function openItemEditor(id, focusIndex, preset) {
         <option value="caption" ${bcVal === 'caption' ? 'selected' : ''}>자동 — 글자는 자막 바로, 그림은 화면 그대로</option>
         <option value="full" ${bcVal === 'full' ? 'selected' : ''}>예배당 화면 그대로 보내기 (배경·글꼴까지)</option>
         <option value="none" ${bcVal === 'none' ? 'selected' : ''}>보내지 않기 — 예배당 화면에만 (기도 제목 등)</option></select>
-      <label class="song-only">가사 찾기</label><div class="row wrap song-only" style="margin:0">
-        <button class="btn sm" id="eFindG">🔎 구글에서 가사 검색</button><button class="btn sm" id="eFindN">🔎 네이버</button>
-        <button class="btn sm" id="eClip" title="인터넷에서 복사한 가사를 붙여넣고, 코드·[후렴] 표시·작사/작곡 줄을 지웁니다">📋 복사한 가사 붙여넣고 정리</button></div>
+      <label class="song-only">가사 찾기</label><div class="song-only"><div class="row" style="margin:0">
+        <input id="eLyQ" style="flex:1;min-width:160px" placeholder="곡 제목 (가수를 함께 쓰면 더 잘 찾습니다)"><button class="btn sm" id="eLyGo">🔎 가사 찾아 넣기</button></div>
+      <div id="eLyRes" class="lyres"></div>
+      <div class="row wrap" style="margin:4px 0 0"><span class="muted small">못 찾으면</span><button class="btn sm" id="eFindG">구글</button><button class="btn sm" id="eFindN">네이버</button>
+        <button class="btn sm" id="eClip" title="인터넷에서 복사한 가사를 붙여넣고, 코드·[후렴] 표시·작사/작곡 줄을 지웁니다">📋 복사한 가사 붙여넣고 정리</button></div></div>
       <label class="no-html">가사·글 붙여넣기</label>
       <div class="no-html"><textarea id="ePaste" rows="5" placeholder="가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다.&#10;묶음 첫 줄에 #1절 · #후렴 · #브리지 처럼 쓰면 곡 구성 이름이 붙습니다."></textarea>
         <div class="row" style="margin-top:6px"><select id="eLines" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === 2 ? 'selected' : ''}>${n}</option>`).join('')}</select>
@@ -481,6 +483,34 @@ function openItemEditor(id, focusIndex, preset) {
     window.open(site === 'n' ? `https://search.naver.com/search.naver?query=${q}` : `https://www.google.com/search?q=${q}`, '_blank');
     toast('가사를 찾아 복사(⌘C / Ctrl+C)한 뒤 📋 버튼을 누르세요');
   };
+  // 프로그램 안에서 바로 가사 받기
+  const lyQ = body.querySelector('#eLyQ'), lyRes = body.querySelector('#eLyRes');
+  const lyFind = async () => {
+    const q = lyQ.value.trim();
+    if (!q) return toast('곡 제목을 넣으세요');
+    lyQ.value = q;
+    lyRes.innerHTML = '<div class="muted small">인터넷에서 찾는 중…</div>';
+    try {
+      const list = await api('GET', '/api/lyrics?q=' + encodeURIComponent(q));
+      if (!list.length) { lyRes.innerHTML = '<div class="muted small">가사를 찾지 못했습니다. 제목을 줄이거나 가수 이름을 넣어 보세요. 아래 구글·네이버로 찾아도 됩니다.</div>'; return; }
+      lyRes.innerHTML = '<div class="muted small">고르면 아래 가사 칸에 들어갑니다</div>' + list.map((x, i) => {
+        const pre = x.text.split('\n').filter(Boolean).slice(0, 2).join(' / ');
+        return `<button type="button" class="lyrow" data-ly="${i}"><b>${esc(x.title)}</b> <span class="muted">${esc(x.artist)} · ${esc(x.src)}</span><br><span class="muted small">${esc(pre)}</span></button>`;
+      }).join('');
+      lyRes.querySelectorAll('[data-ly]').forEach(b => b.onclick = () => {
+        const x = list[+b.dataset.ly];
+        body.querySelector('#ePaste').value = cleanLyrics(x.text);
+        const tt = body.querySelector('#eTitle'); if (!tt.value.trim() || tt.value.trim() === '새 찬양') tt.value = q;
+        lyRes.querySelectorAll('.lyrow').forEach(y => y.classList.toggle('on', y === b));
+        toast('가사를 넣었습니다. 확인 후 [나누어 슬라이드 만들기]를 누르세요');
+      });
+    } catch (e) { lyRes.innerHTML = `<div class="err small">${esc(e.message)}</div>`; }
+  };
+  const t0 = body.querySelector('#eTitle').value.trim();
+  lyQ.value = t0 === '새 찬양' ? '' : t0;
+  body.querySelector('#eTitle').addEventListener('change', e => { if (!lyQ.value.trim()) lyQ.value = e.target.value.trim(); });
+  body.querySelector('#eLyGo').onclick = lyFind;
+  lyQ.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); lyFind(); } };
   body.querySelector('#eFindG').onclick = () => find('g');
   body.querySelector('#eFindN').onclick = () => find('n');
   body.querySelector('#eClip').onclick = async () => {
@@ -891,7 +921,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.6.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.7.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };

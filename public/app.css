@@ -205,3 +205,7 @@ body.vresizing, body.vresizing * { cursor: row-resize !important; user-select: n
 .tm-left.over { color: var(--live); }
 /* 곡 구성 이름표 (슬라이드 왼쪽 위) */
 .glabel { position: absolute; right: 6px; top: 6px; z-index: 2; background: var(--g); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 5px; }
+.lyres { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; margin: 4px 0 6px; }
+.lyres:empty { display: none; }
+.lyrow { text-align: left; font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; cursor: pointer; }
+.lyrow:hover { border-color: var(--accent); } .lyrow.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }

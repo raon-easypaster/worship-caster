@@ -21,6 +21,21 @@ fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const db = store.load();
 bible.loadAll(db.settings.bibleFolders);
 
+// 기본 배경 영상 (직접 만든 반복 영상, 저작권 걱정 없음) — 처음 한 번만 미디어 칸에 넣음.
+// 사용자가 지운 영상은 다시 생기지 않음. 새 영상을 더 넣으면 SAMPLES_VER 를 올림
+const SAMPLES_VER = 1;
+if ((db.settings.samplesAdded || 0) < SAMPLES_VER) {
+  const src = path.join(__dirname, 'public', 'samples');
+  try {
+    for (const f of fs.readdirSync(src)) {
+      const to = path.join(MEDIA_DIR, f.normalize('NFC'));
+      if (/\.mp4$/i.test(f) && !fs.existsSync(to)) fs.copyFileSync(path.join(src, f), to);
+    }
+    db.settings.samplesAdded = SAMPLES_VER;
+    store.save();
+  } catch (e) { console.log('  기본 배경 영상을 넣지 못했습니다:', e.message); }
+}
+
 // ── 자료 정리 규칙 ─────────────────────────────────
 // 자료실에는 찬양(가사·악보)만 남김. 말씀·광고·문구·PPT·HTML 은 예배 순서에 딸린 자료라
 // 어느 예배 순서에도 없으면 지움
@@ -269,6 +284,41 @@ app.delete('/api/items/:id', needAuth, (req, res) => {
   changed(); res.json({ ok: true });
 });
 app.post('/api/split', needAuth, (req, res) => res.json(store.splitLyrics(req.body.text, Math.max(1, +req.body.lines || 2))));
+
+// 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB) 먼저, 모자라면 벅스
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
+const getText = (url, ms = 7000) => fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(ms) })
+  .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)));
+const unent = s => s.replace(/&(lt|gt|quot|#39|apos|nbsp|amp);/g, (_, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ', amp: '&' }[e]));
+const lyricTidy = s => unent(String(s || '')).replace(/\r/g, '').replace(/<[^>]*>/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 20000);
+async function lrclib(q) {
+  const j = JSON.parse(await getText('https://lrclib.net/api/search?q=' + encodeURIComponent(q)));
+  return (Array.isArray(j) ? j : []).filter(x => x && x.plainLyrics && !x.instrumental).slice(0, 6)
+    .map(x => ({ src: 'LRCLIB', title: String(x.trackName || ''), artist: String(x.artistName || ''), text: lyricTidy(x.plainLyrics) }));
+}
+async function bugs(q) {
+  const html = await getText('https://music.bugs.co.kr/search/track?q=' + encodeURIComponent(q));
+  const rows = [], seen = new Set();
+  for (const m of html.matchAll(/<tr [^>]*trackId="(\d+)"[^>]*rowType="track"[\s\S]*?<p class="title"[\s\S]*?title="([^"]*)"[\s\S]*?<p class="artist">[\s\S]*?title="([^"]*)"/g)) {
+    if (seen.has(m[1])) continue; seen.add(m[1]);
+    rows.push({ id: m[1], title: unent(m[2]), artist: unent(m[3]) });
+    if (rows.length >= 10) break;
+  }
+  const got = await Promise.all(rows.map(r => getText('https://music.bugs.co.kr/track/' + r.id).then(h => {
+    const m = h.match(/class="lyricsContainer">\s*<p><xmp>([\s\S]*?)<\/xmp>/);
+    return m ? { src: '벅스', title: r.title, artist: r.artist, text: lyricTidy(m[1]) } : null;
+  }).catch(() => null)));
+  return got.filter(x => x && x.text);
+}
+app.get('/api/lyrics', needAuth, async (req, res) => {
+  const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!q) return res.status(400).json({ error: '곡 제목을 넣으세요' });
+  const [a, b] = await Promise.allSettled([lrclib(q), bugs(q)]);
+  const seen = new Set();   // 같은 가사(편곡만 다른 곡)는 하나만
+  const list = [...(a.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
+  if (!list.length && a.status === 'rejected' && b.status === 'rejected') return res.status(502).json({ error: '인터넷에 연결할 수 없습니다' });
+  res.json(list);
+});
 
 // 예배 순서
 app.post('/api/services', needAuth, (req, res) => {
