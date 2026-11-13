@@ -395,25 +395,29 @@ app.put('/api/style', needAuth, (req, res) => {
   db.style = { main: cleanStyle(req.body.main, db.style.main), overlay: cleanStyle(req.body.overlay, db.style.overlay) };
   changed(); pushLive(); res.json(db.style);
 });
+const LOGO_RE = /^\/media\/[^"'<>()\\\s]+$/;
+const TITLE_LOGO_RE = /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp)$/i;
+function cleanLogoStyle(l, cur) {
+  const P = ['c', 'tl', 'tc', 'tr', 'bl', 'bc', 'br'];
+  const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
+  l = l && typeof l === 'object' ? l : {};
+  return {
+    screenPos: P.includes(l.screenPos) ? l.screenPos : cur.screenPos, screenSize: n(l.screenSize, 5, 95, cur.screenSize),
+    mark: l.mark !== undefined ? !!l.mark : cur.mark, markPos: P.includes(l.markPos) ? l.markPos : cur.markPos,
+    markSize: n(l.markSize, 3, 40, cur.markSize), markOpacity: n(l.markOpacity, 0.1, 1, cur.markOpacity),
+    markOverlay: l.markOverlay !== undefined ? !!l.markOverlay : cur.markOverlay,
+  };
+}
 app.put('/api/settings', needLocal, (req, res) => {
   if (req.body.pin != null) {
     const pin = String(req.body.pin).trim();
     if (!/^\w{6,12}$/.test(pin)) return res.status(400).json({ error: 'PIN은 6~12자리 숫자/영문으로 정하세요' });
     db.settings.pin = pin;
   }
-  if (req.body.logo != null) db.settings.logo = /^\/media\/[^"'<>()\\\s]+$/.test(req.body.logo) ? req.body.logo : '';
-  if (req.body.logoStyle) {
-    const l = req.body.logoStyle, cur = db.settings.logoStyle, P = ['c', 'tl', 'tc', 'tr', 'bl', 'bc', 'br'];
-    const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
-    db.settings.logoStyle = {
-      screenPos: P.includes(l.screenPos) ? l.screenPos : cur.screenPos, screenSize: n(l.screenSize, 5, 95, cur.screenSize),
-      mark: l.mark !== undefined ? !!l.mark : cur.mark, markPos: P.includes(l.markPos) ? l.markPos : cur.markPos,
-      markSize: n(l.markSize, 3, 40, cur.markSize), markOpacity: n(l.markOpacity, 0.1, 1, cur.markOpacity),
-      markOverlay: l.markOverlay !== undefined ? !!l.markOverlay : cur.markOverlay,
-    };
-  }
+  if (req.body.logo != null) db.settings.logo = LOGO_RE.test(req.body.logo) ? req.body.logo : '';
+  if (req.body.logoStyle) db.settings.logoStyle = cleanLogoStyle(req.body.logoStyle, db.settings.logoStyle);
   // 운영 화면 맨 위 '예배송출' 앞에 붙는 교회 로고 (비우면 ✝)
-  if (req.body.titleLogo != null) db.settings.titleLogo = /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp)$/i.test(req.body.titleLogo) ? req.body.titleLogo : '';
+  if (req.body.titleLogo != null) db.settings.titleLogo = TITLE_LOGO_RE.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
@@ -492,6 +496,40 @@ app.get('/api/backup', needLocal, (req, res) => {
     .on('error', e => { console.log('  백업 실패:', e.message); res.destroy(e); })
     .pipe(res);
 });
+// 백업 파일은 남이 준 것일 수도 있으므로, 평소 API 와 같은 규칙으로 한 칸씩 다시 검사
+// PIN·휴대폰 리모컨 허용은 백업에서 가져오지 않고 이 컴퓨터 값을 그대로 둠
+function cleanRestore(src) {
+  const ID = /^[a-f0-9]{12}$/, arr = (v, n) => (Array.isArray(v) ? v : []).filter(x => x && typeof x === 'object').slice(0, n);
+  const t = (v, n) => String(v ?? '').slice(0, n);
+  const items = arr(src.items, 20000).map(x => {
+    const it = { id: ID.test(x.id) ? x.id : store.uid(), ...itemFields(x), updatedAt: Number.isFinite(+x.updatedAt) ? +x.updatedAt : Date.now() };
+    it.slides.forEach(sl => { if (!ID.test(sl.id)) sl.id = store.uid(); });
+    return it;
+  });
+  const ids = new Set(items.map(i => i.id));
+  const services = arr(src.services, 2000).map(s => ({
+    id: ID.test(s.id) ? s.id : store.uid(), name: t(s.name, 100), date: t(s.date, 20),
+    itemIds: (Array.isArray(s.itemIds) ? s.itemIds : []).filter(i => ids.has(i)), ...(s.note ? { note: t(s.note, 1000) } : {}),
+  }));
+  const S0 = src.settings && typeof src.settings === 'object' ? src.settings : {};
+  const folders = (Array.isArray(S0.bibleFolders) ? S0.bibleFolders : []).map(f => String(f)).filter(f => { try { return fs.statSync(f).isDirectory(); } catch { return false; } });
+  return {
+    items, services,
+    currentServiceId: services.some(s => s.id === src.currentServiceId) ? src.currentServiceId : (services[0]?.id || null),
+    style: { main: cleanStyle(src.style?.main, store.DEFAULT_STYLE.main), overlay: cleanStyle(src.style?.overlay, store.DEFAULT_STYLE.overlay) },
+    phrases: (Array.isArray(src.phrases) ? src.phrases : []).map(x => t(x, 500)).filter(x => x.trim()).slice(0, 200),
+    props: arr(src.props, 50).map(p => ({ id: ID.test(p.id) ? p.id : store.uid(), text: t(p.text, 80).trim(), sub: t(p.sub, 120).trim(),
+      where: ['both', 'tv', 'obs'].includes(p.where) ? p.where : 'both', pos: p.pos === 'top' ? 'top' : 'bottom' })).filter(p => p.text),
+    settings: {
+      ...db.settings,   // PIN·리모컨·창 크기 등 이 컴퓨터 값
+      logo: LOGO_RE.test(S0.logo) ? S0.logo : '',
+      titleLogo: TITLE_LOGO_RE.test(S0.titleLogo) ? S0.titleLogo : '',
+      logoStyle: cleanLogoStyle(S0.logoStyle, store.DEFAULT_LOGO),
+      obsScenes: { base: t(S0.obsScenes?.base, 100), pip: t(S0.obsScenes?.pip, 100) },
+      bibleFolders: folders,
+    },
+  };
+}
 app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
   const tmp = req.file?.path;
   try {
@@ -518,9 +556,7 @@ app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
       fs.writeFileSync(path.join(dir, base), await f.async('nodebuffer'));
       files++;
     }
-    const keepPin = db.settings.pin;
-    store.replace(next);
-    if (!db.settings.pin) db.settings.pin = keepPin;
+    store.replace(cleanRestore(next));
     Object.assign(live, { itemId: null, index: 0, mediaBg: null });
     bible.loadAll(db.settings.bibleFolders);
     changed(); pushLive();

@@ -271,7 +271,7 @@ function printConti(s) {
     <h1>${esc(s.name || '예배')} 콘티</h1><div class="d">${esc(s.date || '')}</div>
     <table><tr><th></th><th>순서</th><th>키</th><th>BPM</th><th>흐름 메모</th></tr>
     ${rows.map((it, i) => `<tr><td class="n">${i + 1}</td><td>${KEEP.has(it.type) ? '' : `<span class="memo">${esc(TYPE[it.type] || '')}</span> `}${esc(it.title)}</td>
-      <td class="k">${esc(it.key || '')}</td><td class="b">${it.bpm || ''}</td><td class="memo">${esc(it.memo || '')}</td></tr>`).join('')}</table>
+      <td class="k">${esc(it.key || '')}</td><td class="b">${esc(String(it.bpm || ''))}</td><td class="memo">${esc(it.memo || '')}</td></tr>`).join('')}</table>
     ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}</body></html>`;
   const f = document.createElement('iframe');
   f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
@@ -286,9 +286,9 @@ function openConti() {
     <div class="dlg-head"><h3>📋 콘티 — ${esc(s.date || '')} ${esc(s.name || '')}</h3><button class="icon" data-x>✕</button></div>
     <p class="muted small">찬양팀에 미리 보낼 순서표입니다. 가사는 들어가지 않습니다(저작권). 키·빠르기·메모는 곡에 저장되어 다음에도 그대로 나옵니다.</p>
     <table class="conti"><tr><th></th><th>순서</th><th>키</th><th>BPM</th><th>흐름 메모</th></tr>
-      ${rows.map((it, i) => `<tr data-id="${it.id}"><td class="muted">${i + 1}</td><td>${KEEP.has(it.type) ? '' : `<span class="muted small">${esc(TYPE[it.type] || '')}</span> `}${esc(it.title)}</td>
+      ${rows.map((it, i) => `<tr data-id="${esc(it.id)}"><td class="muted">${i + 1}</td><td>${KEEP.has(it.type) ? '' : `<span class="muted small">${esc(TYPE[it.type] || '')}</span> `}${esc(it.title)}</td>
         ${KEEP.has(it.type) ? `<td><input data-f="key" value="${esc(it.key || '')}" maxlength="10" style="width:64px"></td>
-        <td><input data-f="bpm" type="number" min="0" max="300" value="${it.bpm || ''}" style="width:64px"></td>
+        <td><input data-f="bpm" type="number" min="0" max="300" value="${esc(String(it.bpm || ''))}" style="width:64px"></td>
         <td><input data-f="memo" value="${esc(it.memo || '')}" maxlength="200" placeholder="예: 후렴 2번"></td>` : '<td></td><td></td><td></td>'}</tr>`).join('') || '<tr><td colspan="5" class="muted">예배 순서가 비어 있습니다</td></tr>'}
     </table>
     <label class="small" style="display:block;margin-top:10px">인도자 메모</label>
@@ -448,7 +448,7 @@ function openItemEditor(id, focusIndex, preset) {
       <label>제목</label><input id="eTitle" value="${esc(it.title)}">
       <label class="conti-f">콘티</label><div class="row conti-f" style="margin:0;gap:6px">
         <input id="eKey" placeholder="키 (예: G)" value="${esc(it.key || '')}" style="width:90px" maxlength="10">
-        <input id="eBpm" type="number" min="0" max="300" placeholder="BPM" value="${it.bpm || ''}" style="width:80px">
+        <input id="eBpm" type="number" min="0" max="300" placeholder="BPM" value="${esc(String(it.bpm || ''))}" style="width:80px">
         <input id="eMemo" class="grow" placeholder="흐름 메모 (예: 후렴 2번, 마지막 조용히)" value="${esc(it.memo || '')}" maxlength="200"></div>
       <label>종류</label><div class="row" style="margin:0"><select id="eType" style="width:auto">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === it.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <span class="muted small" id="eKeepNote"></span></div>
@@ -1054,7 +1054,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.8.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.8.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
