@@ -61,7 +61,7 @@ bash build-dist.sh --install  # + 이 맥의 ~/Applications 에 설치
 - 예배 중 음악 재생
 - ProPresenter 파일 가져오기, 파노라마 LED 출력 나누기
 
-불편한 점이나 아이디어는 [Issues](https://github.com/raon-easypaster/worship-caster/issues)에 남겨 주세요.
+버그나 바라는 기능은 언제든 [카카오 오픈채팅](https://open.kakao.com/o/pDEupVWi)이나 [Issues](https://github.com/raon-easypaster/worship-caster/issues)로 알려 주세요.
 
 ## 함께 만든 분
 - **smdjoo-stack** 님 — [worship-caster-on](https://github.com/smdjoo-stack/worship-caster-on)에서 미디어 배경 칸, 방송 화면 일부, 색 카드 패널, 모니터 고르기, HTML 발표 파일 가져오기, OBS 투명·옛 OBS 글자 크기·검은 화면 수정을 만들어 주셨고, 0.5.0에 함께 담았습니다. 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md).
