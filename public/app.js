@@ -789,7 +789,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.5.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.5.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1091,6 +1091,38 @@ function initSplits() {
   });
 }
 
+// ── 슬라이드와 미디어 배경 사이 높이 조절 (기억, 두 번 누르면 처음대로) ──
+function initHSplit() {
+  const h = $('[data-hsplit]'), bin = $('.mbin'), center = $('.center');
+  if (!h || !bin) return;
+  const apply = px => { bin.style.setProperty('--mbh', px + 'px'); bin.classList.add('sized'); };
+  try { const v = +localStorage.getItem('wc-split-m'); if (v) apply(v); } catch {}
+  h.addEventListener('pointerdown', e => {
+    e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add('drag'); document.body.classList.add('vresizing');
+    if (bin.classList.contains('fold')) { bin.classList.remove('fold'); try { localStorage.setItem('wc-mb-fold', '0'); } catch {} }
+    const y0 = e.clientY, h0 = bin.getBoundingClientRect().height;
+    let px = h0;
+    const move = ev => {
+      // 위쪽 슬라이드 칸은 최소 160px, 미디어 칸은 최소 90px
+      const max = center.clientHeight - 160 - h.offsetHeight;
+      px = Math.round(Math.max(90, Math.min(max, h0 - (ev.clientY - y0))));
+      apply(px);
+    };
+    const up = () => {
+      h.removeEventListener('pointermove', move); h.classList.remove('drag'); document.body.classList.remove('vresizing');
+      try { localStorage.setItem('wc-split-m', px); } catch {}
+    };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up, { once: true });
+    h.addEventListener('pointercancel', up, { once: true });
+  });
+  h.addEventListener('dblclick', () => {
+    bin.classList.remove('sized'); bin.style.removeProperty('--mbh');
+    try { localStorage.removeItem('wc-split-m'); } catch {}
+    toast('처음 높이로 되돌렸습니다');
+  });
+}
+
 // ── 프로그램 창 크기·위치 기억: 다음에 켤 때 그 크기로 열림 ──
 function initWinMemory() {
   let t;
@@ -1166,6 +1198,7 @@ function bind() {
   initMediaBin();
   initOverlayQuick();
   initWinMemory();
+  initHSplit();
 
   addEventListener('keydown', e => {
     if (inactive) return;

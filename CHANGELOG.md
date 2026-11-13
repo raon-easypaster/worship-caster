@@ -1,5 +1,8 @@
 # 바뀐 내용 (CHANGELOG)
 
+## v0.5.1 (2026-11-13)
+- 가운데 슬라이드와 미디어 배경 사이 경계를 위아래로 끌어 높이 조절 (기억됨, 미디어 칸을 높이면 여러 줄로)
+
 ## v0.5.0 (2026-11-13)
 smdjoo-stack 님 버전([worship-caster-on](https://github.com/smdjoo-stack/worship-caster-on), 원작 v0.3.1 기반)에서 원작에 없던 것을 골라 v0.4.0 위에 합쳤습니다.
 

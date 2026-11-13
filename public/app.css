@@ -181,3 +181,14 @@ body.editor .center-main { padding: 14px 18px; }
 .ovq-v { min-width: 34px; text-align: right; color: var(--muted); }
 .ovq-chk { display: flex; gap: 4px; align-items: center; color: var(--text) !important; }
 .ovq.no-part .part-only { display: none; }
+
+/* 슬라이드와 미디어 배경 사이 경계: 위아래로 끌어 높이 조절 */
+.hsplit { flex: none; height: 6px; cursor: row-resize; background: var(--line); position: relative; touch-action: none; }
+.hsplit::after { content: ''; position: absolute; top: 1px; bottom: 1px; left: 50%; width: 36px; margin-left: -18px; border-radius: 3px; background: var(--muted); opacity: .35; }
+.hsplit:hover, .hsplit.drag { background: var(--accent); }
+body.vresizing, body.vresizing * { cursor: row-resize !important; user-select: none !important; }
+.mbin { border-top: 0; display: flex; flex-direction: column; }
+.mbin.sized { height: var(--mbh); }
+.mbin.sized .mbin-grid { flex: 1; min-height: 0; flex-wrap: wrap; align-content: flex-start; overflow-y: auto; overflow-x: hidden; }
+.mbin.fold { height: auto !important; }
+.mbin.fold .mbin-grid { display: none; }
