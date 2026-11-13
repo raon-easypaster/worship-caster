@@ -393,9 +393,9 @@
   function seq(it) {
     const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
     if (!arr.length || !sl.some(s => s.label)) return sl;
-    const groups = {}; let cur = null;
-    for (const s of sl) { if (s.label) { cur = s.label; groups[cur] ||= []; } if (cur) groups[cur].push(s); }
-    const out = arr.flatMap(l => groups[l] || []);
+    const groups = new Map(); let cur = null;   // Map: 이름이 '__proto__' 같아도 안전
+    for (const s of sl) { if (s.label) { cur = String(s.label); if (!groups.has(cur)) groups.set(cur, []); } if (cur) groups.get(cur).push(s); }
+    const out = arr.flatMap(l => groups.get(String(l)) || []);
     return out.length ? out : sl;
   }
 

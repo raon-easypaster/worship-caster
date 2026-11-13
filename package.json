@@ -1,6 +1,6 @@
 {
   "name": "worship-caster",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "예배송출 — 노트북 한 대로 예배당 화면(HDMI)과 유튜브 생중계 자막(OBS)을 함께 송출하는 교회 자막 프로그램 (맥·윈도우)",
   "main": "server.js",
   "type": "commonjs",

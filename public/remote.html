@@ -67,9 +67,9 @@ function login() {
 const seq = it => {   // 곡 구성 순서 (운영 화면과 같은 규칙)
   const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
   if (!arr.length || !sl.some(s => s.label)) return sl;
-  const g = {}; let c = null;
-  for (const s of sl) { if (s.label) { c = s.label; g[c] ||= []; } if (c) g[c].push(s); }
-  const out = arr.flatMap(l => g[l] || []); return out.length ? out : sl;
+  const g = new Map(); let c = null;
+  for (const s of sl) { if (s.label) { c = String(s.label); if (!g.has(c)) g.set(c, []); } if (c) g.get(c).push(s); }
+  const out = arr.flatMap(l => g.get(String(l)) || []); return out.length ? out : sl;
 };
 const txt = s => s ? (s.text || (s.bg || s.elements?.length ? '[그림]' : s.html || s.htmlFile ? '[HTML]' : '')) : '';
 

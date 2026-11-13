@@ -60,7 +60,11 @@ function itemFields(b, it = {}) {
   return {
     title: String(b.title ?? it.title ?? '새 자료').slice(0, 200),
     type: ITEM_TYPES.includes(b.type) ? b.type : (it.type || 'song'),
-    slides: Array.isArray(b.slides) ? b.slides : (it.slides || []),
+    // 슬라이드 이름(곡 구성)은 짧은 글자만
+    slides: Array.isArray(b.slides) ? b.slides.filter(x => x && typeof x === 'object').map(x => {
+      if (x.label == null || x.label === '') { const { label, ...rest } = x; return rest; }
+      return { ...x, label: String(x.label).trim().slice(0, 20) };
+    }) : (it.slides || []),
     noBroadcast: b.noBroadcast !== undefined ? !!b.noBroadcast : !!it.noBroadcast,
     bcFull: b.bcFull !== undefined ? !!b.bcFull : !!it.bcFull,
     // 곡 구성 순서 (예: ['1절','후렴','2절','후렴'])
@@ -175,6 +179,8 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '20mb' }));
 const upload = multer({ dest: path.join(store.DATA_DIR, 'tmp'), limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
+// 브라우저는 파일 이름을 UTF-8 로 보내는데 multer 는 latin1 로 읽음 → 한글 이름이 깨지지 않게 되돌림
+const fname = f => { const n = f?.originalname || ''; try { const u = Buffer.from(n, 'latin1').toString('utf8'); return (u.includes('\ufffd') ? n : u).normalize('NFC'); } catch { return n; } };
 
 app.get('/', (req, res) => res.redirect(isLocal(req) ? '/control' : '/editor'));
 app.get('/control', (req, res) => isLocal(req) ? res.sendFile(path.join(__dirname, 'public', 'app.html')) : res.redirect('/editor'));
@@ -366,7 +372,7 @@ app.put('/api/settings', needLocal, (req, res) => {
 app.get('/api/bible', needAuth, (req, res) => res.json(bible.lookup(req.query.q, req.query.v)));
 app.post('/api/bible/upload', needAuth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '파일 없음' });
-  const name = (req.body.name || req.file.originalname).replace(/[^\w가-힣().\- ]/g, '').replace(/\.(txt|tsv)$/i, '') || 'bible';
+  const name = (req.body.name || fname(req.file)).normalize('NFC').replace(/[^\w가-힣().\- ]/g, '').replace(/\.(txt|tsv)$/i, '') || 'bible';
   fs.renameSync(req.file.path, path.join(bible.BIBLE_DIR, name + '.txt'));
   bible.loadAll(db.settings.bibleFolders);
   const v = bible.versions[name];
@@ -395,9 +401,9 @@ app.get('/api/media', needAuth, (req, res) => {
 app.post('/api/media', needAuth, upload.array('files', 50), (req, res) => {
   const out = [];
   for (const f of req.files || []) {
-    const ext = path.extname(f.originalname).toLowerCase();
+    const ext = path.extname(fname(f)).toLowerCase();
     if (!mediaExt.test(ext)) { fs.unlink(f.path, () => {}); continue; }
-    const base = path.basename(f.originalname, ext).replace(/[^\w가-힣\-]/g, '_').slice(0, 40);
+    const base = path.basename(fname(f), path.extname(fname(f))).replace(/[^\w가-힣\-]/g, '_').slice(0, 40);
     const name = `${base}_${store.uid().slice(0, 4)}${ext}`;
     fs.renameSync(f.path, path.join(MEDIA_DIR, name));
     out.push({ url: '/media/' + name, name });
@@ -415,7 +421,7 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) throw new Error('파일 없음');
     const buf = fs.readFileSync(req.file.path);
-    const it = await importPptx(buf, MEDIA_DIR, path.basename(req.file.originalname, path.extname(req.file.originalname)));
+    const it = await importPptx(buf, MEDIA_DIR, path.basename(fname(req.file), path.extname(fname(req.file))));
     it.updatedAt = Date.now();
     db.items.push(it); placeInService(it.id, req.body.after); changed(); res.json(it);
   } catch (e) {
