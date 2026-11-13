@@ -111,3 +111,29 @@
 /* 방송 '화면 일부': 원래 크기로 그린 뒤 줄여서 구석에 */
 .wc-part { position: absolute; width: 100%; height: 100%; border-radius: 2.2cqh; overflow: hidden; box-shadow: 0 1cqh 4cqh rgba(0,0,0,.6); outline: .55cqh solid rgba(255,255,255,.85); }
 .wc-media { position: absolute; background-position: center; background-repeat: no-repeat; }
+
+/* ── 타이머 ── */
+.wc-extra { z-index: 6 !important; }
+.wc-tm { color: #fff; font-family: 'Noto Sans KR', sans-serif; font-variant-numeric: tabular-nums; text-align: center; }
+.wc-tm-big { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
+.wc-tm-big .wc-tm-l { font-size: 6cqh; font-weight: 700; margin-bottom: 1cqh; text-shadow: 0 .4cqh 1.2cqh rgba(0,0,0,.7); }
+.wc-tm-big .wc-tm-v { font-size: 24cqh; font-weight: 900; letter-spacing: .03em; text-shadow: 0 .6cqh 2cqh rgba(0,0,0,.7); }
+.wc-tm-corner { position: absolute; right: 3cqw; bottom: 4cqh; background: rgba(0,0,0,.62); padding: 1cqh 2.2cqw; border-radius: 1.4cqh; }
+.wc-tm-corner .wc-tm-l { font-size: 2.6cqh; opacity: .85; }
+.wc-tm-corner .wc-tm-v { font-size: 5.5cqh; font-weight: 800; }
+.wc-tm-stage { position: absolute; right: 4cqw; bottom: 14cqh; background: #1d2433; border: .3cqh solid #3b4660; padding: 1.2cqh 2.4cqw; border-radius: 1.6cqh; }
+.wc-tm-stage .wc-tm-l { font-size: 3cqh; color: #9aa4b8; }
+.wc-tm-stage .wc-tm-v { font-size: 9cqh; font-weight: 800; color: #7ee0a1; }
+.wc-tm.over .wc-tm-v { color: #ff6b6b !important; }
+/* ── 이름 자막 (화면 아래·위 왼쪽 띠) ── */
+.wc-prop { position: absolute; left: 5cqw; max-width: 70cqw; padding: 1.4cqh 3cqw 1.6cqh 2.4cqw; color: #fff; font-family: 'Noto Sans KR', sans-serif;
+  background: linear-gradient(90deg, rgba(11,29,58,.94), rgba(11,29,58,.78)); border-left: .9cqh solid #ffd76a; border-radius: 0 1.2cqh 1.2cqh 0;
+  box-shadow: 0 .6cqh 2.4cqh rgba(0,0,0,.45); animation: wc-prop-in .45s ease-out both; }
+.wc-prop-bottom { bottom: 8cqh; } .wc-prop-top { top: 6cqh; }
+.wc-prop-t { font-size: 4.6cqh; font-weight: 800; line-height: 1.25; }
+.wc-prop-s { font-size: 2.8cqh; opacity: .88; margin-top: .4cqh; }
+@keyframes wc-prop-in { from { transform: translateX(-6cqw); opacity: 0 } to { transform: none; opacity: 1 } }
+/* ── 무대 메시지 (프롬프터에만) ── */
+.wc-msg { position: absolute; left: 0; right: 0; top: 0; background: #ffd400; color: #111; font: 800 6.5cqh 'Noto Sans KR', sans-serif; text-align: center;
+  padding: 2cqh 3cqw; word-break: keep-all; animation: wc-msg-blink 1.2s ease-in-out 3; }
+@keyframes wc-msg-blink { 50% { background: #ff8a00; } }

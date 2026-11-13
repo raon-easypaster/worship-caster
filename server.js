@@ -63,6 +63,8 @@ function itemFields(b, it = {}) {
     slides: Array.isArray(b.slides) ? b.slides : (it.slides || []),
     noBroadcast: b.noBroadcast !== undefined ? !!b.noBroadcast : !!it.noBroadcast,
     bcFull: b.bcFull !== undefined ? !!b.bcFull : !!it.bcFull,
+    // 곡 구성 순서 (예: ['1절','후렴','2절','후렴'])
+    arr: Array.isArray(b.arr) ? b.arr.map(x => String(x).trim().slice(0, 20)).filter(Boolean).slice(0, 60) : (it.arr || []),
     theme: THEME_RE.test(b.theme ?? '') ? (b.theme ?? it.theme ?? '') : (it.theme || ''),
   };
 }
@@ -79,7 +81,8 @@ function addItem(b) {
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, mediaBg: null, mediaObs: false, mediaFit: 'auto', rev: 0 };
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, mediaBg: null, mediaObs: false, mediaFit: 'auto',
+  msg: '', timer: null, prop: null, auto: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
 const isLocal = req => {
@@ -93,6 +96,9 @@ const cookieToken = req => (req.headers.cookie || '').match(/wc_session=([a-f0-9
 const authed = req => isLocal(req) || sessions.has(cookieToken(req));
 const needAuth = (req, res, next) => authed(req) ? next() : res.status(401).json({ error: 'PIN 로그인이 필요합니다' });
 const needLocal = (req, res, next) => isLocal(req) ? next() : res.status(403).json({ error: '송출 제어는 운영 맥에서만 가능합니다' });
+// 송출 조작: 운영 컴퓨터, 또는 '휴대폰 리모컨'을 켜 두었을 때 PIN으로 들어온 기기
+const canControl = req => isLocal(req) || (!!db.settings.remote && authed(req));
+const needControl = (req, res, next) => canControl(req) ? next() : res.status(403).json({ error: '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)' });
 
 function lanAddresses() {
   const out = [];
@@ -103,14 +109,47 @@ function lanAddresses() {
 
 function snapshot() {
   const item = db.items.find(i => i.id === live.itemId);
-  const slide = item?.slides[live.index] || null;
-  const next = item?.slides[live.index + 1] || null;
+  const sl = item ? store.seq(item) : [];
+  const slide = sl[live.index] || null;
+  const next = sl[live.index + 1] || null;
+  const prop = live.prop ? db.props.find(p => p.id === live.prop) || null : null;
   return {
-    type: 'live', live: { ...live }, style: db.style,
+    type: 'live', live: { ...live }, style: db.style, now: Date.now(), prop,
     logo: { url: db.settings.logo, ...db.settings.logoStyle }, obs: db.settings.obsScenes,
-    item: item ? { id: item.id, title: item.title, type: item.type, count: item.slides.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '' } : null,
+    item: item ? { id: item.id, title: item.title, type: item.type, count: sl.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '' } : null,
     slide, next,
   };
+}
+
+// ── 자동 넘김 (광고 반복 등): 몇 초마다 다음 슬라이드, 끝나면 처음부터(반복) 또는 멈춤 ──
+let autoTimer = null;
+function setAuto(a) {
+  clearInterval(autoTimer); autoTimer = null;
+  live.auto = a && a.sec ? { sec: Math.min(600, Math.max(2, Math.round(+a.sec) || 8)), loop: a.loop !== false } : null;
+  if (!live.auto) return;
+  autoTimer = setInterval(() => {
+    const it = db.items.find(i => i.id === live.itemId), n = it ? store.seq(it).length : 0;
+    if (!n) { setAuto(null); pushLive(); return; }
+    if (live.index + 1 < n) live.index++;
+    else if (live.auto.loop) live.index = 0;
+    else { setAuto(null); pushLive(); return; }
+    live.clear = false; live.black = false;
+    pushLive();
+  }, live.auto.sec * 1000);
+}
+// 타이머: 몇 분 뒤 또는 정한 시각까지
+function makeTimer(t) {
+  if (!t) return null;
+  let end = null;
+  if (t.min != null && Number.isFinite(+t.min)) end = Date.now() + Math.min(600, Math.max(0, +t.min)) * 60000;
+  else if (/^\d{1,2}:\d{2}$/.test(String(t.until || ''))) {
+    const [h, m] = t.until.split(':').map(Number), d = new Date();
+    d.setHours(h, m, 0, 0);
+    if (d.getTime() < Date.now() - 60000) d.setDate(d.getDate() + 1);   // 이미 지난 시각이면 내일
+    end = d.getTime();
+  }
+  if (!end) return null;
+  return { end, label: String(t.label || '').slice(0, 60), tv: ['none', 'corner', 'big'].includes(t.tv) ? t.tv : 'none' };
 }
 
 // ── 앱 ─────────────────────────────────────────────
@@ -156,6 +195,7 @@ app.get('/slides/:id([a-f0-9]{12}).html', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.send(html);
 });
+app.get('/remote', (req, res) => res.sendFile(path.join(__dirname, 'public', 'remote.html')));
 for (const p of ['output', 'overlay', 'stage']) app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, 'public', 'display.html')));
 app.use('/media', express.static(MEDIA_DIR, {
   maxAge: '1h',
@@ -199,7 +239,7 @@ app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(
 
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
-    items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases,
+    items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
     style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), port: PORT, live: snapshot(),
   });
@@ -214,7 +254,7 @@ app.put('/api/items/:id', needAuth, (req, res) => {
   if (!it) return res.status(404).json({ error: '없음' });
   Object.assign(it, itemFields(req.body || {}, it), { updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
-  if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, it.slides.length - 1)); pushLive(); }
+  if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, store.seq(it).length - 1)); pushLive(); }
   changed(); res.json(it);
 });
 app.delete('/api/items/:id', needAuth, (req, res) => {
@@ -239,6 +279,16 @@ app.post('/api/services', needAuth, (req, res) => {
 // 템플릿 목록 · 내 문구
 app.get('/api/templates', needAuth, (req, res) => res.json({ phrases: templates.PHRASES, services: templates.SERVICE_LIST }));
 app.post('/api/templates/communion', needAuth, (req, res) => { const it = addItem({ ...templates.communionItem(bible), after: req.body?.after }); changed(); res.json(it); });
+// 이름 자막 목록
+app.put('/api/props', needAuth, (req, res) => {
+  const t = (v, n) => String(v ?? '').trim().slice(0, n);
+  db.props = (Array.isArray(req.body?.props) ? req.body.props : []).slice(0, 50).map(p => ({
+    id: /^[a-f0-9]{12}$/.test(p.id) ? p.id : store.uid(), text: t(p.text, 80), sub: t(p.sub, 120),
+    where: ['both', 'tv', 'obs'].includes(p.where) ? p.where : 'both', pos: p.pos === 'top' ? 'top' : 'bottom',
+  })).filter(p => p.text);
+  if (live.prop && !db.props.some(p => p.id === live.prop)) live.prop = null;
+  changed(); pushLive(); res.json(db.props);
+});
 app.put('/api/phrases', needAuth, (req, res) => {
   db.phrases = (Array.isArray(req.body?.phrases) ? req.body.phrases : []).map(x => String(x).slice(0, 500)).filter(x => x.trim()).slice(0, 200);
   changed(); res.json(db.phrases);
@@ -303,6 +353,7 @@ app.put('/api/settings', needLocal, (req, res) => {
   }
   // 운영 화면 맨 위 '예배송출' 앞에 붙는 교회 로고 (비우면 ✝)
   if (req.body.titleLogo != null) db.settings.titleLogo = /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp)$/i.test(req.body.titleLogo) ? req.body.titleLogo : '';
+  if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
     db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };
@@ -392,13 +443,16 @@ app.post('/api/quit', needLocal, (req, res) => {
   setTimeout(() => process.exit(0), 300);
 });
 
-app.post('/api/live', needLocal, (req, res) => {
+app.post('/api/live', needControl, (req, res) => {
   const b = req.body || {};
-  if (b.itemId !== undefined) { live.itemId = b.itemId; live.index = 0; live.clear = false; live.black = false; }
+  if (b.itemId !== undefined) {
+    if (b.itemId !== live.itemId && b.auto === undefined) setAuto(null);   // 다른 자료로 가면 자동 넘김은 멈춤
+    live.itemId = b.itemId; live.index = 0; live.clear = false; live.black = false;
+  }
   if (b.index !== undefined) { live.index = Math.max(0, +b.index); live.clear = false; live.black = false; }
   if (b.step) {
     const it = db.items.find(i => i.id === live.itemId);
-    if (it) live.index = Math.min(Math.max(0, live.index + b.step), it.slides.length - 1);
+    if (it) live.index = Math.min(Math.max(0, live.index + b.step), store.seq(it).length - 1);
     live.clear = false; live.black = false;
   }
   for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
@@ -409,7 +463,11 @@ app.post('/api/live', needLocal, (req, res) => {
     if (ok) live.black = false;
   }
   if (['auto', 'cover', 'contain', 'small'].includes(b.mediaFit)) live.mediaFit = b.mediaFit;
-  if (b.reset) Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null });
+  if (b.msg !== undefined) live.msg = String(b.msg || '').trim().slice(0, 200);          // 무대 메시지 (프롬프터에만)
+  if (b.timer !== undefined) live.timer = makeTimer(b.timer);
+  if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
+  if (b.auto !== undefined) setAuto(b.auto);
+  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, prop: null }); setAuto(null); }
   pushLive(); res.json(snapshot());
 });
 
@@ -443,6 +501,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (!ws.isLocal) return;
+    if (m.type === 'audioBlocked') { for (const c of controls) sendTo(c, { type: 'audioBlocked' }); return; }   // 예배당 화면이 소리 재생을 막힘
     if (m.type === 'hello' && m.role === 'control') {
       const others = [...controls].filter(c => c !== ws && c.readyState === 1);
       controls.add(ws);

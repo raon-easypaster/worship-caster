@@ -134,6 +134,28 @@
       <button class="btn toggle" id="motionOn" title="움직이는 배경 켜기/끄기">🌌 움직이는 배경</button>
     </div>
     </section>
+    <section class="rp rp-tools" id="tools">
+      <div class="pv-label"><span class="rp-tag">🧰 도구</span> <span id="toolsSum" class="muted"></span></div>
+      <details><summary>⏱ 타이머 <span id="tmState" class="muted small"></span><b id="tmLeft" class="tm-left"></b></summary>
+        <div class="tgrid">
+          <input id="tmLabel" placeholder="이름 (예: 예배 시작까지)" style="grid-column:1/-1">
+          <div class="row"><input id="tmMin" type="number" min="1" max="600" value="5" style="width:70px"><span class="small">분</span><button class="btn sm" id="tmGo">시작</button></div>
+          <div class="row"><input id="tmUntil" type="time" style="width:120px"><button class="btn sm" id="tmUntilGo">까지</button></div>
+          <div class="row" style="grid-column:1/-1"><span class="small muted">예배당 화면</span><select id="tmTv" style="width:auto"><option value="none">안 보임 (프롬프터만)</option><option value="corner">구석에 작게</option><option value="big">화면 가득 크게</option></select>
+            <button class="btn sm" id="tmStop">정지</button></div>
+        </div></details>
+      <details><summary>💬 무대 메시지 <span class="muted small">(프롬프터에만)</span></summary>
+        <div class="row" style="margin-top:6px"><input id="msgIn" placeholder="설교자·찬양팀에게 보낼 말 (Enter)"><button class="btn sm" id="msgSend">보내기</button><button class="btn sm" id="msgClear">지우기</button></div>
+        <div class="row wrap"><button class="btn sm" data-msg="5분 남았습니다">5분 남음</button><button class="btn sm" data-msg="마무리해 주세요">마무리</button><button class="btn sm" data-msg="한 번 더 (후렴 반복)">한 번 더</button><button class="btn sm" data-msg="마이크를 확인해 주세요">마이크 확인</button></div>
+        <div id="msgState" class="small" style="color:var(--live)"></div></details>
+      <details><summary>🏷 이름 자막</summary>
+        <div class="row wrap" style="margin-top:6px"><span id="propList" class="row wrap" style="margin:0"></span><button class="icon" id="propEdit" title="이름 자막 만들기·고치기">✎</button></div></details>
+      <details><summary>⏩ 자동 넘김 <span class="muted small">(광고 반복 등)</span></summary>
+        <div class="row wrap" style="margin-top:6px"><select id="autoSec" style="width:auto"><option value="5">5초</option><option value="8" selected>8초</option><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option><option value="30">30초</option><option value="60">1분</option></select>
+          <label class="small row" style="margin:0;gap:4px"><input type="checkbox" id="autoLoop" checked> 끝나면 처음부터</label>
+          <button class="btn sm toggle" id="autoBtn">⏩ 자동 넘김 시작</button></div>
+        <p class="muted small" style="margin:4px 0 0">지금 띄운 자료의 슬라이드를 정한 시간마다 넘깁니다. 다른 자료를 띄우거나 모두 끄기(Esc)를 누르면 멈춥니다.</p></details>
+    </section>
     <section class="rp rp-next">
       <div class="pv-label"><span class="rp-tag">⏭ 다음 슬라이드</span></div>
       <div id="pvNext" class="next-text muted"></div>

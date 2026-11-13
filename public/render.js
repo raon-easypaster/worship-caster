@@ -126,9 +126,11 @@
     return M[key] ? `<div class="wc-motion m-${key}">${M[key]()}</div>` : '';
   }
 
-  function bgHTML(url, cover = true) {
+  // sound: 소리 켜고 한 번 재생 (예배당 화면에서만 — 미리보기·방송에서는 소리 없이)
+  function bgHTML(url, cover = true, sound = false) {
     if (!url) return '';
-    if (isVideo(url)) return `<video class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline></video>`;
+    if (isVideo(url) && sound) return `<video class="wc-bg" src="${esc(url)}" autoplay playsinline data-sound="1" style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
+    if (isVideo(url)) return `<video class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
     return `<div class="wc-bg" style="background-image:url('${esc(url)}');background-size:${cover ? 'cover' : 'contain'}"></div>`;
   }
 
@@ -208,11 +210,11 @@
 
   // noScript: OBS 브라우저 소스에서는 HTML 속 스크립트를 돌리지 않음.
   // (OBS가 페이지에 넣어 주는 장면 전환·방송 제어 기능을 HTML 자료가 건드리지 못하게)
-  function slideInner(snap, st, still, noScript) {
+  function slideInner(snap, st, still, noScript, audio) {
     const s = snap.slide;
     if (isHtmlFile(s)) return htmlFileHTML(s);
     if (s.html) return `<iframe class="wc-html" sandbox="${still || noScript ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
-    let inner = bgHTML(s.bg, s.fit !== 'contain');
+    let inner = bgHTML(s.bg, s.fit !== 'contain', !!(audio && s.sound));
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
     const ref = s.ref ? `<div class="wc-ref" style="font-size:${(st.size * 0.6).toFixed(2)}cqh;color:${st.refColor}">${esc(s.ref)}</div>` : '';
@@ -238,7 +240,7 @@
     const mk = motionKey(snap, st);
     const under = mk || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
     const bg = under ? 'transparent' : col(s.bgColor, st.bg);
-    return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still)}</div>`;
+    return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
 
   function hexA(hex, a) {
@@ -340,6 +342,7 @@
       const html = show ? logoImg(lg.url, lg.markPos || 'tr', lg.markSize || 10, lg.markOpacity ?? 0.85) : '';
       persist(container, 'wc-mark', html, () => html, true, false);
     }
+    if (!opts.still) extras(container, snap, mode);
     const html = toVp(RENDER[mode](snap, opts));
     if (container._wcHTML === html) return;
     // 같은 HTML 파일에서 장만 바뀌면 다시 불러오지 않고 '이 장 보여 줘' 신호만 보냄
@@ -385,5 +388,53 @@
     render(container, { slide, style, live: {}, item }, 'main', { fade: false, still });   // 썸네일에는 미디어 배경 없음
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS };
+  // ── 곡 구성(Arrangement): 슬라이드에 '1절·후렴·브리지' 이름을 붙이고, 부를 순서를 정함 ──
+  // 이름 붙은 슬라이드부터 다음 이름 전까지가 한 묶음. 순서(arr)가 없으면 원래 순서 그대로
+  function seq(it) {
+    const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
+    if (!arr.length || !sl.some(s => s.label)) return sl;
+    const groups = {}; let cur = null;
+    for (const s of sl) { if (s.label) { cur = s.label; groups[cur] ||= []; } if (cur) groups[cur].push(s); }
+    const out = arr.flatMap(l => groups[l] || []);
+    return out.length ? out : sl;
+  }
+
+  // ── 타이머·무대 메시지·이름 자막: 슬라이드와 따로 위에 얹는 층 (1초마다 숫자만 바뀜) ──
+  function timeLeft(snap) {
+    const t = snap.live?.timer; if (!t || !t.end) return null;
+    if (snap.now && !snap._recv) snap._recv = Date.now();
+    const now = snap.now ? snap.now + (Date.now() - snap._recv) : Date.now();
+    return Math.round((t.end - now) / 1000);
+  }
+  function fmt(sec) {
+    const neg = sec < 0, a = Math.abs(sec), h = Math.floor(a / 3600), m = Math.floor(a / 60) % 60, s = a % 60;
+    return (neg ? '+' : '') + (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+  }
+  function extrasHTML(snap, mode) {
+    const L = snap.live || {}, t = L.timer, p = snap.prop, parts = [];
+    const timerOn = t && t.end && (mode === 'stage' || (mode === 'main' && ['corner', 'big'].includes(t.tv)));
+    if (timerOn) {
+      const kind = mode === 'stage' ? 'stage' : t.tv;
+      parts.push(`<div class="wc-tm wc-tm-${kind}">${t.label ? `<div class="wc-tm-l">${esc(t.label)}</div>` : ''}<div class="wc-tm-v"></div></div>`);
+    }
+    if (p && p.text && !L.black && ((mode === 'main' && p.where !== 'obs') || (mode === 'overlay' && p.where !== 'tv' && !L.overlayOff))) {
+      parts.push(`<div class="wc-prop wc-prop-${p.pos === 'top' ? 'top' : 'bottom'}"><div class="wc-prop-t">${esc(p.text)}</div>${p.sub ? `<div class="wc-prop-s">${esc(p.sub)}</div>` : ''}</div>`);
+    }
+    if (mode === 'stage' && L.msg) parts.push(`<div class="wc-msg">${esc(L.msg)}</div>`);
+    return parts.join('');
+  }
+  function extras(container, snap, mode) {
+    const html = toVp(extrasHTML(snap, mode));
+    persist(container, 'wc-extra', html, () => html, true, false);
+    const el = container.querySelector(':scope > .wc-extra .wc-tm-v');
+    if (el) {
+      const left = timeLeft(snap);
+      el.textContent = left == null ? '' : fmt(left);
+      el.parentElement.classList.toggle('over', left != null && left < 0);
+    }
+  }
+  // 1초마다 부름: 타이머 숫자만 바꿈 (슬라이드는 다시 그리지 않음)
+  function tick(container, snap, mode) { if (snap) extras(container, snap, mode); }
+
+  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt };
 })();

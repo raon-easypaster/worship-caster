@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171d">
+<title>예배송출 리모컨</title>
+<style>
+  :root { --bg: #14171d; --panel: #1f2430; --line: #2f3646; --text: #eef1f6; --muted: #8b94a6; --accent: #2f6df6; --live: #e5383b; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; }
+  body { padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px); }
+  h1 { font-size: 17px; margin: 12px 0 8px; display: flex; align-items: center; gap: 8px; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .card { background: var(--panel); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .now-t { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+  .now { font-size: 22px; font-weight: 700; white-space: pre-line; min-height: 2.9em; margin-top: 4px; word-break: keep-all; }
+  .next { color: var(--muted); font-size: 14px; white-space: pre-line; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .big { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-bottom: 10px; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 8px; cursor: pointer; }
+  button:active { transform: scale(.98); }
+  .big button { font-size: 22px; font-weight: 800; padding: 26px 8px; }
+  .big .nx { background: var(--accent); border-color: var(--accent); }
+  .tg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .tg button.on { background: var(--live); border-color: var(--live); }
+  .list button { display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 10px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list button.live { border-color: var(--live); box-shadow: inset 4px 0 0 var(--live); }
+  .list button small { color: var(--muted); margin-right: 6px; }
+  .slides button { white-space: pre-line; }
+  .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .seg button { flex: 1; padding: 8px; font-size: 14px; }
+  .seg button.on { background: #2b3550; border-color: var(--accent); }
+  input { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); margin-bottom: 8px; }
+  .msg { text-align: center; color: var(--muted); padding: 30px 10px; }
+  .err { color: #ff8a8a; min-height: 1.2em; }
+  #off { position: fixed; top: 8px; right: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--live); display: none; }
+</style>
+</head>
+<body>
+<div id="off" title="연결 끊김"></div>
+<h1>✝ 예배송출 리모컨 <small id="svc"></small></h1>
+<div id="app"><p class="msg">불러오는 중…</p></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let S = null, snap = null, tab = 'slides';
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || '오류');
+  return j;
+}
+const go = b => api('POST', '/api/live', b).then(j => { snap = j; draw(); }).catch(e => alert(e.message));
+
+function login() {
+  $('#app').innerHTML = `<div class="card"><p>운영 컴퓨터의 <b>⚙︎ 설정 → 웹 편집기 PIN</b>을 넣으세요.</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN" autocomplete="current-password"><button id="lg" style="width:100%">들어가기</button><p class="err" id="er"></p></div>`;
+  const tryIt = async () => {
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: $('#pin').value }) });
+    if (r.ok) start(); else $('#er').textContent = (await r.json().catch(() => ({}))).error || 'PIN이 맞지 않습니다';
+  };
+  $('#lg').onclick = tryIt;
+  $('#pin').onkeydown = e => { if (e.key === 'Enter') tryIt(); };
+}
+
+const seq = it => {   // 곡 구성 순서 (운영 화면과 같은 규칙)
+  const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
+  if (!arr.length || !sl.some(s => s.label)) return sl;
+  const g = {}; let c = null;
+  for (const s of sl) { if (s.label) { c = s.label; g[c] ||= []; } if (c) g[c].push(s); }
+  const out = arr.flatMap(l => g[l] || []); return out.length ? out : sl;
+};
+const txt = s => s ? (s.text || (s.bg || s.elements?.length ? '[그림]' : s.html || s.htmlFile ? '[HTML]' : '')) : '';
+
+function draw() {
+  if (!S || !snap) return;
+  if (!S.canControl) {
+    $('#app').innerHTML = `<p class="msg">휴대폰 리모컨이 꺼져 있습니다.<br>운영 컴퓨터의 <b>⚙︎ 설정 → 📱 휴대폰 리모컨</b>을 켠 뒤 새로고침하세요.</p>`;
+    return;
+  }
+  const L = snap.live, svc = S.services.find(s => s.id === S.currentServiceId);
+  $('#svc').textContent = svc ? `${svc.date} ${svc.name}` : '';
+  const it = S.items.find(i => i.id === L.itemId);
+  const items = (svc?.itemIds || []).map(id => S.items.find(i => i.id === id)).filter(Boolean);
+  const slides = it ? seq(it) : [];
+  $('#app').innerHTML = `
+    <div class="card"><div class="now-t"><span>${esc(it?.title || '대기')}</span><span>${it ? `${L.index + 1} / ${slides.length}` : ''}${L.black ? ' · 검은 화면' : L.clear ? ' · 글자 지움' : ''}</span></div>
+      <div class="now">${esc(txt(snap.slide))}</div><div class="next">다음: ${esc(txt(snap.next) || '— 끝 —')}</div></div>
+    <div class="big"><button data-a="prev">◀ 이전</button><button class="nx" data-a="next">다음 ▶</button></div>
+    <div class="tg">
+      <button data-t="black" class="${L.black ? 'on' : ''}">■ 검은화면</button>
+      <button data-t="clear" class="${L.clear ? 'on' : ''}">◻ 글자 지움</button>
+      <button data-t="logo" class="${L.logo ? 'on' : ''}">✝ 로고</button>
+      <button data-t="overlayOff" class="${L.overlayOff ? 'on' : ''}">🎥 방송 끄기</button>
+      <button data-a="reset">모두 끄기</button>
+      <button data-a="reload">↻</button>
+    </div>
+    <div class="seg"><button data-tab="slides" class="${tab === 'slides' ? 'on' : ''}">슬라이드</button><button data-tab="items" class="${tab === 'items' ? 'on' : ''}">예배 순서</button></div>
+    <div class="list ${tab === 'slides' ? 'slides' : ''}">${tab === 'slides'
+      ? slides.map((s, i) => `<button data-i="${i}" class="${i === L.index ? 'live' : ''}"><small>${i + 1}${s.label ? ' ' + esc(s.label) : ''}</small>${esc(txt(s).split('\n')[0])}</button>`).join('') || '<p class="msg">예배 순서에서 자료를 고르세요</p>'
+      : items.map(x => `<button data-item="${x.id}" class="${x.id === L.itemId ? 'live' : ''}">${esc(x.title)}</button>`).join('') || '<p class="msg">예배 순서가 비어 있습니다</p>'}</div>`;
+  $('#app').querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
+    const a = b.dataset.a;
+    if (a === 'prev') go({ step: -1 }); if (a === 'next') go({ step: 1 });
+    if (a === 'reset') go({ reset: true }); if (a === 'reload') start();
+  });
+  $('#app').querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
+    const k = b.dataset.t;
+    go(k === 'logo' ? { logo: !L.logo, black: !L.logo } : { [k]: !L[k] });
+  });
+  $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
+  $('#app').querySelectorAll('[data-i]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.i }));
+  $('#app').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { tab = 'slides'; go({ itemId: b.dataset.item }); });
+  $('.list .live')?.scrollIntoView({ block: 'nearest' });
+}
+
+function connect() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => ($('#off').style.display = 'none');
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'live') { snap = m; draw(); }
+    if (m.type === 'data') api('GET', '/api/state').then(j => { S = j; draw(); }).catch(() => {});
+    if (m.type === 'quit') $('#app').innerHTML = '<p class="msg">예배송출이 종료되었습니다.</p>';
+  };
+  ws.onclose = () => { $('#off').style.display = 'block'; setTimeout(connect, 1500); };
+}
+
+async function start() {
+  const me = await fetch('/api/me').then(r => r.json()).catch(() => ({}));
+  if (!me.authed) return login();
+  S = await api('GET', '/api/state');
+  snap = S.live;
+  draw();
+  if (!start._ws) { start._ws = true; connect(); }
+}
+start();
+</script>
+</body>
+</html>

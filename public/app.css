@@ -192,3 +192,16 @@ body.vresizing, body.vresizing * { cursor: row-resize !important; user-select: n
 .mbin.sized .mbin-grid { flex: 1; min-height: 0; flex-wrap: wrap; align-content: flex-start; overflow-y: auto; overflow-x: hidden; }
 .mbin.fold { height: auto !important; }
 .mbin.fold .mbin-grid { display: none; }
+
+/* 도구 카드 */
+.rp-tools { --rp: #0ea5a4; }
+.rp-tools details { border-top: 1px solid var(--line); padding: 6px 0 4px; font-size: 13px; }
+.rp-tools details:first-of-type { border-top: 0; }
+.rp-tools summary { cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.rp-tools input, .rp-tools select { padding: 4px 7px; font-size: 13px; }
+.rp-tools .row { margin: 4px 0; }
+.tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 6px; }
+.tm-left { margin-left: auto; font-variant-numeric: tabular-nums; color: #22a06b; font-size: 15px; }
+.tm-left.over { color: var(--live); }
+/* 곡 구성 이름표 (슬라이드 왼쪽 위) */
+.glabel { position: absolute; right: 6px; top: 6px; z-index: 2; background: var(--g); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 5px; }

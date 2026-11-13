@@ -108,16 +108,52 @@ function renderSlides() {
   const grid = $('#slides');
   grid.innerHTML = '';
   if (!it) return;
-  it.slides.forEach((s, i) => {
+  // 곡 구성 순서대로 (같은 후렴이 여러 번 나오면 여러 칸)
+  const list = WC.seq(it), groupOf = new Map();
+  let g = '';
+  for (const x of it.slides) { if (x.label) g = x.label; groupOf.set(x, g); }
+  let prevGroup = null;
+  list.forEach((s, i) => {
     const d = document.createElement('div');
     const isLive = snap?.live.itemId === it.id && snap.live.index === i;
     d.className = 'slide' + (isLive ? ' live' : '');
-    d.innerHTML = `<span class="num">${i + 1}</span><div class="wc-screen"></div>`;
+    const grp = groupOf.get(s) || '';
+    const tag = grp && (grp !== prevGroup || s.label) ? `<span class="glabel" style="--g:${groupColor(grp)}">${esc(grp)}</span>` : '';
+    prevGroup = grp;
+    d.innerHTML = `<span class="num">${i + 1}</span>${tag}<div class="wc-screen"></div>`;
     WC.thumb(d.querySelector('.wc-screen'), s, S.style, it);
-    d.onclick = () => IS_EDITOR ? openItemEditor(it.id, i) : goLive({ itemId: it.id, index: i });
+    d.onclick = () => IS_EDITOR ? openItemEditor(it.id, it.slides.indexOf(s)) : goLive({ itemId: it.id, index: i });
+    // 오른쪽 클릭 = 빠른 수정 (오타 등)
+    if (!s.elements?.length && !s.html && !s.htmlFile) d.oncontextmenu = e => { e.preventDefault(); quickEdit(it, s); };
     grid.appendChild(d);
   });
   if (!it.slides.length) grid.innerHTML = '<p class="muted">슬라이드가 없습니다. ✎ 편집에서 내용을 넣으세요.</p>';
+}
+// 곡 구성 이름마다 색 (1절·2절 파랑 계열, 후렴 주황, 브리지 보라 …)
+function groupColor(g) {
+  if (/후렴|chorus/i.test(g)) return '#f08c2e';
+  if (/브리지|브릿지|bridge/i.test(g)) return '#8b5cf6';
+  if (/절|verse/i.test(g)) return '#2f6df6';
+  if (/엔딩|ending|outro|태그|tag/i.test(g)) return '#22a06b';
+  let h = 0; for (const c of g) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 60% 45%)`;
+}
+// 빠른 수정: 슬라이드 글자만 바로 고침 (운영 중 오타)
+function quickEdit(it, s) {
+  const body = openDlg(`
+    <div class="dlg-head"><h3>빠른 수정 — ${esc(it.title)}</h3><button class="icon" data-x>✕</button></div>
+    <textarea id="qeText" rows="5">${esc(s.text || '')}</textarea>
+    <p class="muted small">저장하면 바로 화면에도 바뀝니다. (⌘/Ctrl + Enter 저장)</p>
+    <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="qeSave">저장</button></div>`);
+  const ta = body.querySelector('#qeText');
+  const save = async () => {
+    const slides = it.slides.map(x => (x === s ? { ...x, text: ta.value } : x));
+    await api('PUT', '/api/items/' + it.id, { slides }); closeDlg(); toast('고쳤습니다');
+  };
+  body.querySelector('#qeSave').onclick = save;
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save(); });
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  setTimeout(() => { ta.focus(); ta.select(); }, 50);
 }
 // 새 자료를 넣을 자리: 예배 순서에서 고른 자료 다음
 const afterId = () => (service()?.itemIds.includes(selId) ? selId : null);
@@ -132,7 +168,7 @@ function renderLive() {
   $('#szMain').textContent = Math.round(+snap.style.main.size / 6.2 * 100) + '%';
   $('#szOv').textContent = Math.round(+snap.style.overlay.size / 4.6 * 100) + '%';
   $('#szMain').title = `글자 크기 ${snap.style.main.size} (기본 6.2)`; $('#szOv').title = `글자 크기 ${snap.style.overlay.size} (기본 4.6)`;
-  markMediaLive(); showOverlayQuick();
+  markMediaLive(); showOverlayQuick(); renderTools();
   const ovOff = L.overlayOff || snap.item?.noBroadcast;
   $('#ovState').classList.toggle('hidden', !ovOff);
   $('#ovState').textContent = L.overlayOff ? '꺼짐 — 예배당 화면에만 나가는 중' : '이 자료는 방송에 내보내지 않음';
@@ -191,6 +227,7 @@ function connectWS() {
     if (m.type === 'data') reload().catch(() => {});
     if (m.type === 'focus') { window.focus(); toast('예배송출 운영 화면입니다'); }
     if (m.type === 'obs') { obsInfo = m; document.dispatchEvent(new Event('obsinfo')); }
+    if (m.type === 'audioBlocked') toast('🔊 예배당 화면 창이 소리를 막았습니다 — TV 창을 한 번 클릭(또는 F 키)한 뒤 다시 띄우세요');
     if (m.type === 'dup' || m.type === 'replaced') showWindowNotice(m.type);
     if (m.type === 'quit') { stopped = true; ws.close(); closeOpenedWins(); setTimeout(() => window.close(), 800); }
     if (m.type === 'quit') document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px">예배송출이 종료되었습니다.</div>';
@@ -229,13 +266,28 @@ dlg.addEventListener('click', e => { if (e.target === dlg) closeDlg(); });
 
 // 자료 편집기
 // 인터넷에서 복사한 가사 정리: 코드(G D/F# Em…)·[후렴]·작사/작곡·주소 줄 지우기
+// 가사 사이 [후렴]·Verse 1 같은 표시 → 곡 구성 이름 (표시가 아니면 null, 이름 없는 표시면 '')
+function sectionName(line) {
+  const l = line.replace(/^[\[(<]\s*|\s*[\])>:.]\s*$/g, '').trim();
+  if (!/^(verse|chorus|bridge|intro|outro|pre-?chorus|tag|ending|후렴|간주|브릿지|브리지|전주|후주|엔딩|코러스|\d+\s*절)(\s*\d+)?\s*(x\s*\d+|×\s*\d+)?$/i.test(l) && !/^(\[.*\]|\(.*\)|<.*>)$/.test(line)) return null;
+  const n = (l.match(/\d+/) || [''])[0];
+  if (/^\d+\s*절/.test(l)) return n + '절';
+  if (/verse/i.test(l)) return (n || '1') + '절';
+  if (/pre-?chorus/i.test(l)) return '프리코러스';
+  if (/chorus|후렴|코러스/i.test(l)) return '후렴';
+  if (/bridge|브릿지|브리지/i.test(l)) return '브리지';
+  if (/ending|outro|tag|엔딩|후주/i.test(l)) return '엔딩';
+  if (/intro|전주|간주/i.test(l)) return '';
+  return '';
+}
 function cleanLyrics(t) {
   const chord = /^[\s|]*(([A-G][#b♯♭]?(m|maj|min|sus|dim|aug|add|M)?\d*(\/[A-G][#b♯♭]?)?)[\s|\-–~]*)+$/;
   const out = [];
   for (let line of t.replace(/\r/g, '').replace(/\u00a0/g, ' ').split('\n')) {
     line = line.trim();
     if (line && chord.test(line)) continue;
-    if (/^(\[.*\]|\(.*\)|<.*>)$/.test(line) || /^(verse|chorus|bridge|intro|outro|pre-?chorus|tag|ending|후렴|간주|브릿지|전주|후주|\d+\s*절)[\s\d.:)\]]*$/i.test(line)) { out.push(''); continue; }
+    const mk = sectionName(line);
+    if (mk !== null) { out.push(''); if (mk) out.push('#' + mk); continue; }   // [후렴]·Verse 2 → 곡 구성 이름 '#후렴' '#2절'
     if (/https?:\/\/|www\.|^(작사|작곡|편곡|노래|가수|출처|앨범|copyright)|ⓒ|©|^가사\s*$|^\d+\s*$|더보기|접기/i.test(line)) continue;
     out.push(line.replace(/\s{2,}/g, ' '));
   }
@@ -285,11 +337,17 @@ function openItemEditor(id, focusIndex, preset) {
         <button class="btn sm" id="eFindG">🔎 구글에서 가사 검색</button><button class="btn sm" id="eFindN">🔎 네이버</button>
         <button class="btn sm" id="eClip" title="인터넷에서 복사한 가사를 붙여넣고, 코드·[후렴] 표시·작사/작곡 줄을 지웁니다">📋 복사한 가사 붙여넣고 정리</button></div>
       <label class="no-html">가사·글 붙여넣기</label>
-      <div class="no-html"><textarea id="ePaste" rows="5" placeholder="가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다."></textarea>
+      <div class="no-html"><textarea id="ePaste" rows="5" placeholder="가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다.&#10;묶음 첫 줄에 #1절 · #후렴 · #브리지 처럼 쓰면 곡 구성 이름이 붙습니다."></textarea>
         <div class="row" style="margin-top:6px"><select id="eLines" style="width:auto">${[1, 2, 3, 4, 5, 6].map(n => `<option ${n === 2 ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <span class="muted">줄씩</span><button class="btn sm" id="eSplit">나누어 슬라이드 만들기 (덮어쓰기)</button><button class="btn sm" id="eAppend">뒤에 추가</button></div></div>
       <label>모든 슬라이드 배경</label><div class="row"><button class="btn sm" id="eBgAll">배경 선택</button><button class="btn sm" id="eBgNone">배경 없애기</button></div>
+      <label class="no-html">곡 구성 (부를 순서)</label><div class="no-html">
+        <input id="eArr" placeholder="예: 1절 후렴 2절 후렴 브리지 후렴 — 비우면 슬라이드 순서대로" value="${esc((it.arr || []).join(' '))}">
+        <div class="row wrap" id="eArrChips" style="margin:6px 0 0"></div>
+        <p class="muted small" style="margin:4px 0 0">슬라이드마다 '이름'(1절·후렴…)을 붙이면, 그 슬라이드부터 다음 이름 전까지가 한 묶음입니다. 후렴을 여러 번 불러도 복사할 필요가 없습니다.</p></div>
+      <label class="no-html">전체 글로 고치기</label><div class="no-html"><button class="btn sm" id="eReflow">📝 모든 슬라이드를 한 글로 보고 고치기</button></div>
     </div>
+    <datalist id="labelList"><option>1절</option><option>2절</option><option>3절</option><option>4절</option><option>후렴</option><option>프리코러스</option><option>브리지</option><option>엔딩</option></datalist>
     <div id="eSlides"></div>
     <div class="row"><button class="btn sm" id="eAdd">＋ 빈 슬라이드</button></div>
     <div class="dlg-foot">${src ? '<button class="btn danger" id="eDel">삭제</button><div class="grow"></div>' : ''}<button class="btn" data-x>취소</button><button class="btn primary" id="eSave">저장</button></div>`);
@@ -310,7 +368,9 @@ function openItemEditor(id, focusIndex, preset) {
           <div class="row wrap" style="margin-top:6px"><label class="btn sm">HTML 파일 열기<input type="file" data-hfile accept=".html,.htm,text/html" hidden></label>
           <button class="btn sm" data-hsample="count">예시: 예배 시작 카운트다운</button><button class="btn sm" data-hsample="verse">예시: 오늘의 말씀 카드</button></div>`
         : s.elements?.length ? elEdit : `${s.htmlFile ? `<div class="muted small" style="margin-bottom:4px">HTML 파일 ${(+s.page || 0) + 1}번째 장 · 아래 글은 프롬프터(설교자 화면)에만 보입니다</div>` : ''}<textarea data-text rows="4">${esc(s.text)}</textarea>`}
-          ${it.type === 'bible' ? `<input data-ref placeholder="구절 표시 (예: 요한복음 3:16)" value="${esc(s.ref || '')}" style="margin-top:6px">` : ''}</div>
+          ${it.type === 'bible' ? `<input data-ref placeholder="구절 표시 (예: 요한복음 3:16)" value="${esc(s.ref || '')}" style="margin-top:6px">` : ''}
+          ${isHtml || s.htmlFile || s.elements?.length ? '' : `<div class="row" style="margin:6px 0 0"><input data-label list="labelList" placeholder="이름 (1절·후렴…)" value="${esc(s.label || '')}" style="width:150px;padding:4px 8px;font-size:12px">
+            ${/\.(mp4|mov|m4v|webm)$/i.test(s.bg || '') ? `<label class="small" style="display:flex;gap:4px;align-items:center;color:var(--text)"><input type="checkbox" data-sound ${s.sound ? 'checked' : ''}> 🔊 소리 켜고 한 번 재생 (예배당 화면)</label>` : ''}</div>`}</div>
         <div class="tools">
           <button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button>
           ${s.elements?.length || s.htmlFile ? '' : '<button class="icon" data-a="split" title="커서 위치에서 나누기">✂</button>'}
@@ -325,6 +385,8 @@ function openItemEditor(id, focusIndex, preset) {
       row.querySelector('[data-hfile]')?.addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; s.html = await f.text(); if (!it.title || it.title === '새 HTML') it.title = f.name.replace(/\.html?$/i, ''); draw(); });
       row.querySelectorAll('[data-hsample]').forEach(b => (b.onclick = () => { s.html = HTML_SAMPLES[b.dataset.hsample]; draw(); }));
       row.querySelector('[data-ref]')?.addEventListener('input', e => { s.ref = e.target.value; repaint(); });
+      row.querySelector('[data-label]')?.addEventListener('input', e => { const v = e.target.value.trim().slice(0, 20); if (v) s.label = v; else delete s.label; drawChips(); });
+      row.querySelector('[data-sound]')?.addEventListener('change', e => { if (e.target.checked) s.sound = true; else delete s.sound; });
       row.querySelectorAll('[data-el]').forEach(t => t.addEventListener('input', e => {
         s.elements[+t.dataset.el].text = e.target.value;
         s.text = s.elements.filter(x => x.type === 'text').map(x => x.text).join('\n');
@@ -358,6 +420,7 @@ function openItemEditor(id, focusIndex, preset) {
       list.appendChild(row);
     });
     if (focusIndex != null) { list.children[focusIndex]?.scrollIntoView({ block: 'center' }); focusIndex = null; }
+    if (body.querySelector('#eArrChips')) drawChips();
   }
   // 미디어 고르기 뒤 다시 이 편집기로 돌아오기
   function openItemEditorResume() { dlg.showModal(); $('#dlgBody').replaceChildren(...saved); draw(); }
@@ -365,11 +428,47 @@ function openItemEditor(id, focusIndex, preset) {
   const pickMedia = (onPick, back) => { saved = [...$('#dlgBody').childNodes]; openMediaPicker(url => { onPick(url); back(); }, back); };
 
   body.querySelector('#eTitle').oninput = e => (it.title = e.target.value);
+  // 곡 구성: 입력칸 + 이름 단추(누르면 뒤에 붙음)
+  const arrIn = body.querySelector('#eArr');
+  const readArr = () => (it.arr = arrIn.value.split(/[\s,·→>]+/).map(x => x.trim()).filter(Boolean));
+  function drawChips() {
+    const names = [...new Set(it.slides.map(x => x.label).filter(Boolean))];
+    body.querySelector('#eArrChips').innerHTML = names.length
+      ? names.map(n => `<button class="btn sm" data-chip="${esc(n)}" style="border-color:${groupColor(n)};color:${groupColor(n)}">＋ ${esc(n)}</button>`).join('') + '<button class="btn sm" data-chip="">지우기</button>'
+      : '<span class="muted small">아래 슬라이드에 이름을 붙이면 여기 단추가 생깁니다.</span>';
+    body.querySelectorAll('[data-chip]').forEach(b => (b.onclick = () => {
+      arrIn.value = b.dataset.chip ? (arrIn.value.trim() + ' ' + b.dataset.chip).trim() : ''; readArr();
+    }));
+  }
+  arrIn.oninput = readArr;
+  // 전체 글로 고치기 (Reflow): 슬라이드 사이 = 빈 줄, 이름은 #후렴 처럼
+  body.querySelector('#eReflow').onclick = () => {
+    if (it.slides.some(x => x.elements?.length || x.html || x.htmlFile)) return toast('PPT·HTML 슬라이드가 있는 자료는 슬라이드마다 고쳐 주세요');
+    const old = it.slides;
+    const text = old.map(x => (x.label ? '#' + x.label + '\n' : '') + (x.text || '')).join('\n\n');
+    const box = document.createElement('div');
+    box.innerHTML = `<textarea rows="16" style="font-size:15px;line-height:1.6">${esc(text)}</textarea>
+      <div class="row" style="margin-top:6px"><button class="btn primary sm" data-ok>슬라이드로 다시 나누기</button><button class="btn sm" data-cancel>그만두기</button>
+      <span class="muted small">빈 줄 = 슬라이드 나눔 · #후렴 = 이름</span></div>`;
+    list.replaceChildren(box);
+    box.querySelector('[data-cancel]').onclick = draw;
+    box.querySelector('[data-ok]').onclick = () => {
+      const blocks = box.querySelector('textarea').value.replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+      it.slides = blocks.map((b, i) => {
+        let lines = b.split('\n'), label;
+        if (/^#\s*\S/.test(lines[0])) { label = lines[0].replace(/^#\s*/, '').slice(0, 20); lines = lines.slice(1); }
+        const keep = { ...(old[i] || {}) }; delete keep.id; delete keep.label;   // 배경 등은 같은 자리 슬라이드 것을 유지
+        return { ...keep, id: old[i]?.id, text: lines.join('\n'), ...(label ? { label } : {}) };
+      });
+      draw(); drawChips(); toast(`슬라이드 ${it.slides.length}장으로 나눴습니다`);
+    };
+  };
   const typeUI = () => {
     body.querySelectorAll('.song-only').forEach(x => x.classList.toggle('hidden', it.type !== 'song'));
     body.querySelectorAll('.no-html').forEach(x => x.classList.toggle('hidden', it.type === 'html'));
     body.querySelector('#eKeepNote').textContent = KEEP.has(it.type) ? '찬양 자료실에 남습니다' : '예배 순서에서 빼면 지워집니다';
   };
+  drawChips();
   body.querySelector('#eType').onchange = e => {
     it.type = e.target.value;
     if (it.type === 'html') it.slides.forEach(x => { if (x.html == null) x.html = ''; });
@@ -777,6 +876,9 @@ function openSettings() {
             <label>유튜브에도</label><input type="checkbox" id="lgMOv" ${ls.markOverlay ? 'checked' : ''}>
           </div><div id="lgPv2" class="wc-screen pv"></div></div>
         </div><div class="row" style="margin-top:8px"><button class="btn primary" id="lgSave">로고 설정 저장</button></div>` : '<p class="muted small">교회 로고 그림(png 권장, 배경이 투명하면 더 좋음)을 고르면 위치·크기를 정할 수 있습니다.</p>'}</div>
+    <h4 style="margin:18px 0 8px">📱 휴대폰 리모컨</h4>
+    <div class="row wrap"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stRemote" ${S.settings.remote ? 'checked' : ''}> 휴대폰에서 자막 넘기기 허용</label>
+      ${S.lan[0] ? `<code>http://${esc(S.lan[0])}:${S.port}/remote</code>` : ''} <span class="muted small">같은 와이파이의 휴대폰 브라우저에서 이 주소 → PIN 입력</span></div>
     <h4 style="margin:18px 0 8px">성경</h4>
     <div class="form">
       <label>성경 폴더</label><div>
@@ -789,7 +891,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.5.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.6.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -802,6 +904,7 @@ function openSettings() {
   body.querySelector('#stPinSave').onclick = async () => { await api('PUT', '/api/settings', { pin: body.querySelector('#stPin').value }); toast('PIN을 바꿨습니다 (기존 접속은 로그아웃)'); };
   body.querySelector('#stLogo').onclick = () => openMediaPicker(async url => { await api('PUT', '/api/settings', { logo: url }); await reload(); openSettings(); }, openSettings);
   body.querySelector('#stLogoDel')?.addEventListener('click', async () => { await api('PUT', '/api/settings', { logo: '' }); await reload(); openSettings(); });
+  body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
     if (!/\.(png|jpe?g|gif|webp)$/i.test(url)) { toast('타이틀 로고는 사진 파일(png·jpg)만 됩니다'); return openSettings(); }
     await api('PUT', '/api/settings', { titleLogo: url }); await reload(); openSettings();
@@ -1061,6 +1164,94 @@ function countHtmlSlides(url) {
   });
 }
 
+// ── 도구 카드: 타이머 · 무대 메시지 · 이름 자막 · 자동 넘김 (ProPresenter 의 Timers·Stage Messages·Props·Timeline 참고) ──
+function renderTools() {
+  const box = $('#tools'); if (!box || !snap) return;
+  const L = snap.live;
+  // 타이머
+  $('#tmState').textContent = L.timer ? `${L.timer.label || '타이머'} · ` : '꺼짐';
+  $('#tmStop').disabled = !L.timer;
+  // 무대 메시지
+  $('#msgState').textContent = L.msg ? `보내는 중: ${L.msg}` : '';
+  $('#msgClear').disabled = !L.msg;
+  // 이름 자막
+  const props = S?.props || [];
+  $('#propList').innerHTML = props.map(p => `<button class="btn sm toggle ${L.prop === p.id ? 'on' : ''}" data-prop="${p.id}" title="${esc(p.sub || '')}">${esc(p.text)}</button>`).join('')
+    || '<span class="muted small">✎ 로 이름 자막을 만드세요</span>';
+  $('#propList').querySelectorAll('[data-prop]').forEach(b => (b.onclick = () => goLive({ prop: L.prop === b.dataset.prop ? null : b.dataset.prop })));
+  // 자동 넘김
+  const a = L.auto;
+  $('#autoBtn').classList.toggle('on', !!a);
+  $('#autoBtn').textContent = a ? `⏩ 자동 넘김 중 (${a.sec}초)` : '⏩ 자동 넘김 시작';
+  if (a) { $('#autoSec').value = String(a.sec); $('#autoLoop').checked = a.loop; }
+  const tabs = $('#toolsSum'); tabs.textContent = [L.timer && '⏱', L.msg && '💬', L.prop && '🏷', a && '⏩'].filter(Boolean).join(' ');
+  tickTools();
+}
+function tickTools() {
+  if (!snap || !$('#tmLeft')) return;
+  const t = snap.live.timer;
+  if (!t) { $('#tmLeft').textContent = ''; return; }
+  if (snap.now && !snap._recv) snap._recv = Date.now();
+  const left = Math.round((t.end - (snap.now + (Date.now() - (snap._recv || Date.now())))) / 1000);
+  $('#tmLeft').textContent = WC.fmt(left);
+  $('#tmLeft').classList.toggle('over', left < 0);
+}
+function initTools() {
+  if (IS_EDITOR || !$('#tools')) return;
+  const timer = () => ({ label: $('#tmLabel').value.trim(), tv: $('#tmTv').value });
+  $('#tmGo').onclick = () => goLive({ timer: { ...timer(), min: +$('#tmMin').value || 5 } });
+  $('#tmUntilGo').onclick = () => { const v = $('#tmUntil').value; if (!v) return toast('시각을 고르세요'); goLive({ timer: { ...timer(), until: v } }); };
+  $('#tmStop').onclick = () => goLive({ timer: null });
+  $('#tmTv').onchange = () => { const t = snap?.live?.timer; if (t) goLive({ timer: { ...timer(), min: Math.max(0, (t.end - Date.now()) / 60000) } }); };
+  const send = () => { const v = $('#msgIn').value.trim(); if (!v) return; goLive({ msg: v }); $('#msgIn').value = ''; toast('프롬프터에 메시지를 보냈습니다'); };
+  $('#msgSend').onclick = send;
+  $('#msgIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+  $('#msgClear').onclick = () => goLive({ msg: '' });
+  document.querySelectorAll('[data-msg]').forEach(b => (b.onclick = () => { goLive({ msg: b.dataset.msg }); toast('프롬프터에 메시지를 보냈습니다'); }));
+  $('#propEdit').onclick = openProps;
+  $('#autoBtn').onclick = () => {
+    if (snap?.live?.auto) return goLive({ auto: null });
+    if (!snap?.live?.itemId) return toast('먼저 자료의 슬라이드를 하나 띄우세요');
+    goLive({ auto: { sec: +$('#autoSec').value, loop: $('#autoLoop').checked } });
+  };
+  setInterval(() => {
+    tickTools();
+    if (snap) { WC.tick($('#pvMain'), snap, 'main'); WC.tick($('#pvOverlay'), snap, 'overlay'); }
+  }, 1000);
+}
+// 이름 자막 목록 편집
+function openProps() {
+  const props = JSON.parse(JSON.stringify(S.props || []));
+  const body = openDlg(`
+    <div class="dlg-head"><h3>🏷 이름 자막</h3><button class="icon" data-x>✕</button></div>
+    <p class="muted small">설교자·특송·순서 맡은 분 이름을 화면 아래(또는 위) 띠로 띄웁니다. 운영 화면 도구 카드에서 누르면 켜지고, 다시 누르면 꺼집니다. 슬라이드를 넘겨도 계속 보입니다.</p>
+    <div id="pRows"></div>
+    <div class="row"><button class="btn sm" id="pAdd">＋ 이름 자막 추가</button></div>
+    <div id="pPv" class="wc-screen pv" style="max-width:480px;margin-top:10px"></div>
+    <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="pSave">저장</button></div>`);
+  const rows = body.querySelector('#pRows');
+  const paint = p => WC.render(body.querySelector('#pPv'), { slide: { text: '' }, style: S.style, live: {}, prop: p || props[0], item: null }, 'main', { fade: false });
+  function draw() {
+    rows.innerHTML = props.map((p, i) => `<div class="row wrap" data-i="${i}" style="border-top:1px solid var(--line);padding-top:8px">
+      <input data-k="text" placeholder="큰 글 (예: 설교 · 홍길동 목사)" value="${esc(p.text)}" style="flex:2;min-width:200px">
+      <input data-k="sub" placeholder="작은 글 (예: 말씀 제목)" value="${esc(p.sub || '')}" style="flex:2;min-width:200px">
+      <select data-k="where" style="width:auto"><option value="both" ${p.where === 'both' ? 'selected' : ''}>예배당+유튜브</option><option value="tv" ${p.where === 'tv' ? 'selected' : ''}>예배당만</option><option value="obs" ${p.where === 'obs' ? 'selected' : ''}>유튜브만</option></select>
+      <select data-k="pos" style="width:auto"><option value="bottom" ${p.pos !== 'top' ? 'selected' : ''}>아래</option><option value="top" ${p.pos === 'top' ? 'selected' : ''}>위</option></select>
+      <button class="icon" data-rm title="지우기">🗑</button></div>`).join('') || '<p class="muted">아직 없습니다.</p>';
+    rows.querySelectorAll('[data-i]').forEach(r => {
+      const p = props[+r.dataset.i];
+      r.querySelectorAll('[data-k]').forEach(el => el.addEventListener('input', () => { p[el.dataset.k] = el.value; paint(p); }));
+      r.querySelector('[data-rm]').onclick = () => { props.splice(+r.dataset.i, 1); draw(); };
+      r.addEventListener('focusin', () => paint(p));
+    });
+    paint();
+  }
+  body.querySelector('#pAdd').onclick = () => { props.push({ text: '', sub: '', where: 'both', pos: 'bottom' }); draw(); rows.lastElementChild?.querySelector('input')?.focus(); };
+  body.querySelector('#pSave').onclick = async () => { S.props = await api('PUT', '/api/props', { props }); closeDlg(); toast('저장했습니다'); };
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  draw();
+}
+
 // ── 칸 너비 조절: 경계를 끌면 바뀌고, 이 컴퓨터에 기억 (두 번 누르면 처음대로) ──
 const SPLIT = { l: { v: '--lw', min: 180, max: 560, def: 290 }, r: { v: '--rw', min: 300, max: 900, def: 420 } };
 function initSplits() {
@@ -1199,8 +1390,10 @@ function bind() {
   initOverlayQuick();
   initWinMemory();
   initHSplit();
+  initTools();
 
   addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && !dlg.open) { e.preventDefault(); $('#search').focus(); $('#search').select(); return; }   // 빠른 찾기
     if (inactive) return;
     if (dlg.open || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     const k = e.key;
