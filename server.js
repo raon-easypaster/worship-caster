@@ -419,12 +419,38 @@ app.put('/api/settings', needLocal, (req, res) => {
   // 운영 화면 맨 위 '예배송출' 앞에 붙는 교회 로고 (비우면 ✝)
   if (req.body.titleLogo != null) db.settings.titleLogo = TITLE_LOGO_RE.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
+  if (req.body.updateCheck !== undefined) db.settings.updateCheck = !!req.body.updateCheck;   // 새 버전 알림
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
     db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };
   }
   if (req.body.pin != null) sessions.clear();
   changed(); pushLive(); res.json({ ok: true });
+});
+
+// ── 새 버전 알림: GitHub 에서 최신 버전 번호만 확인 (6시간에 한 번, 이쪽 정보는 보내지 않음) ──
+const APP_VERSION = require('./package.json').version;
+const DOWNLOAD_PAGE = 'https://raon-easypaster.github.io/worship-caster/';
+const upd = { at: 0, latest: null };
+const isNewer = (a, b) => {
+  const p = s => String(s).split('.').map(n => +n || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+app.get('/api/update', needLocal, async (req, res) => {
+  if (db.settings.updateCheck === false) return res.json({ current: APP_VERSION, off: true });
+  if (Date.now() - upd.at > 6 * 3600e3) {
+    upd.at = Date.now();
+    try {
+      const r = await fetch('https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest',
+        { headers: { 'User-Agent': 'worship-caster', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(6000) });
+      const tag = r.ok ? String((await r.json()).tag_name || '').replace(/^v/, '') : '';
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(tag)) upd.latest = tag;
+      else upd.at = Date.now() - 6 * 3600e3 + 10 * 60e3;    // 실패하면 10분 뒤 다시
+    } catch { upd.at = Date.now() - 6 * 3600e3 + 10 * 60e3; }   // 인터넷이 없으면 조용히 넘어감
+  }
+  res.json({ current: APP_VERSION, latest: upd.latest, newer: !!upd.latest && isNewer(upd.latest, APP_VERSION), url: DOWNLOAD_PAGE });
 });
 
 // 성경

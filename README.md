@@ -4,7 +4,7 @@
 
 **만든 사람: 쉬운목사 이광복** · 무료로 나눕니다.
 
-📥 **다운로드**: [Releases](https://github.com/raon-easypaster/worship-caster/releases) — 맥은 `WorshipCaster-mac.zip`, 윈도우는 `WorshipCaster-windows.zip`
+📥 **받는 곳**: **https://raon-easypaster.github.io/worship-caster/** — 맥·윈도우 단추를 누르면 최신 버전이 바로 받아집니다 ([지난 버전](https://github.com/raon-easypaster/worship-caster/releases))
 📖 **사용설명서**: [docs/사용설명서.md](docs/사용설명서.md) — 설치부터 주일 진행, OBS 연결, 문제 해결까지
 
 ## 할 수 있는 것

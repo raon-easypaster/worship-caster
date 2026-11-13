@@ -1054,7 +1054,9 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.8.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
+      <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.8.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1075,6 +1077,7 @@ function openSettings() {
     try { const r = await api('POST', '/api/restore', fd); await reload(); closeDlg(); toast(`되살렸습니다 — 자료 ${r.items}개, 예배 순서 ${r.services}개, 파일 ${r.files}개`); }
     catch (err) { toast(err.message); }
   };
+  body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
   body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
     if (!/\.(png|jpe?g|gif|webp)$/i.test(url)) { toast('타이틀 로고는 사진 파일(png·jpg)만 됩니다'); return openSettings(); }
@@ -1603,4 +1606,16 @@ function bind() {
   const first = service()?.itemIds[0];
   if (first) select(first);
   connectWS();
+  if (!IS_EDITOR) { checkUpdate(); setInterval(checkUpdate, 6 * 3600e3); }
 })();
+
+// 새 버전이 나왔으면 맨 위에 알림 단추 (⚙︎ 설정에서 끌 수 있음)
+async function checkUpdate() {
+  const u = await fetch('/api/update').then(r => r.json()).catch(() => null);
+  $('#updBtn')?.remove();
+  if (!u?.newer || !/^https:\/\//.test(u.url)) return;
+  const a = Object.assign(document.createElement('a'), { id: 'updBtn', className: 'btn update', href: u.url, target: '_blank', rel: 'noopener',
+    title: `지금 v${u.current} → 새 버전 v${u.latest}. 받아서 앱(폴더)만 바꾸면 자료는 그대로 남습니다` });
+  a.textContent = `🔔 새 버전 v${u.latest}`;
+  $('#styleBtn').before(a);
+}

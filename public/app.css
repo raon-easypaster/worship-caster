@@ -213,3 +213,5 @@ body.vresizing, body.vresizing * { cursor: row-resize !important; user-select: n
 table.conti { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.conti th, table.conti td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line, #ddd); vertical-align: middle; }
 table.conti input { width: 100%; padding: 4px 6px; }
+/* 새 버전 알림 */
+.btn.update { background: #f5a524; border-color: #f5a524; color: #1d1a12; font-weight: 700; text-decoration: none; }

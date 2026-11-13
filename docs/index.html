@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>예배송출 — 작은 교회를 위한 무료 예배 자막 프로그램</title>
+<meta name="description" content="노트북 한 대로 예배당 TV 자막, 유튜브 생중계 자막, 설교자 프롬프터까지. 맥·윈도우 무료 프로그램.">
+<meta property="og:title" content="예배송출 — 작은 교회를 위한 무료 예배 자막 프로그램">
+<meta property="og:description" content="노트북 한 대로 예배당 TV 자막, 유튜브 생중계 자막, 설교자 프롬프터까지. 맥·윈도우 무료.">
+<meta property="og:image" content="https://raon-easypaster.github.io/worship-caster/img/01-control.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf8ff; --panel: #ffffff; --text: #1f1a2e; --muted: #625b75; --line: #e6e0f3;
+    --brand: #4b2a8a; --brand2: #6a3fb5; --accent: #2f6df6; --soft: #f0ebfb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14121b; --panel: #1d1a27; --text: #ece8f6; --muted: #a59fb8; --line: #2e2940; --brand: #b79cf0; --brand2: #9f7fe6; --accent: #5b8cff; --soft: #241f33; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.7 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; word-break: keep-all; }
+  a { color: var(--brand2); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  header.top { display: flex; align-items: center; gap: 10px; padding: 18px 0; }
+  header.top img { width: 34px; height: 34px; border-radius: 8px; }
+  header.top b { font-size: 18px; }
+  header.top .grow { flex: 1; }
+  header.top a { font-size: 14px; color: var(--muted); text-decoration: none; margin-left: 14px; }
+
+  .hero { padding: 36px 0 20px; text-align: center; }
+  .hero h1 { font-size: clamp(28px, 5.4vw, 46px); line-height: 1.3; margin: 0 0 14px; font-weight: 900; letter-spacing: -0.02em; }
+  .hero h1 em { font-style: normal; color: var(--brand2); }
+  .hero p.lead { font-size: clamp(16px, 2.3vw, 19px); color: var(--muted); margin: 0 auto 26px; max-width: 640px; }
+  .dl { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .btn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 230px; padding: 14px 22px; border-radius: 14px; text-decoration: none; font-weight: 700; font-size: 18px; border: 2px solid var(--brand2); color: var(--brand2); background: var(--panel); transition: transform .1s; }
+  .btn small { font-weight: 400; font-size: 13px; opacity: .85; }
+  .btn.main { background: var(--brand2); color: #fff; }
+  .btn:active { transform: scale(.98); }
+  .ver { margin-top: 12px; color: var(--muted); font-size: 14px; }
+  .mobile-note { display: none; margin: 14px auto 0; max-width: 520px; background: var(--soft); border-radius: 12px; padding: 12px 16px; font-size: 15px; }
+
+  .shot { margin: 34px auto 0; max-width: 980px; }
+  .shot img { width: 100%; display: block; border-radius: 12px; box-shadow: 0 10px 40px rgba(40, 20, 80, .22); }
+  .cap { text-align: center; color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+  section { padding: 56px 0 0; }
+  h2 { font-size: clamp(22px, 3.6vw, 30px); margin: 0 0 8px; font-weight: 900; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .card img { width: 100%; border-radius: 8px; display: block; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 4px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .feat { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 22px; padding: 0; margin: 0; list-style: none; }
+  .feat li { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .feat b { display: block; }
+  .feat span { color: var(--muted); font-size: 15px; }
+  .two { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: center; }
+  .two img { width: 100%; border-radius: 12px; border: 1px solid var(--line); }
+
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .steps ol { margin: 8px 0 0; padding-left: 20px; }
+  .steps li { margin: 6px 0; }
+  .need { background: var(--soft); border-radius: 14px; padding: 16px 20px; }
+  .need ul { margin: 6px 0 0; padding-left: 20px; }
+
+  footer { margin: 60px 0 0; padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; text-align: center; }
+  footer p { margin: 4px 0; }
+
+  @media (max-width: 760px) {
+    .three, .feat, .two, .steps { grid-template-columns: 1fr; }
+    header.top a.hide-m { display: none; }
+    .btn { min-width: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <img src="img/icon.png" alt="">
+    <b>예배송출</b>
+    <span class="grow"></span>
+    <a href="#features" class="hide-m">할 수 있는 것</a>
+    <a href="#install">설치 방법</a>
+    <a href="https://github.com/raon-easypaster/worship-caster/releases/latest" id="manualTop">설명서</a>
+  </header>
+
+  <div class="hero">
+    <h1>노트북 한 대로<br><em>예배 자막</em>을 TV와 유튜브에</h1>
+    <p class="lead">찬양 가사와 성경 말씀을 예배당 TV에 띄우고, 유튜브 생중계 화면에는 자막을 얹습니다. 작은 교회를 위해 만든 <b>무료</b> 프로그램입니다.</p>
+    <div class="dl" id="dl">
+      <a class="btn main" id="btnMac" href="https://github.com/raon-easypaster/worship-caster/releases/latest/download/WorshipCaster-mac.zip">맥용 받기<small>애플 칩 · 인텔 맥</small></a>
+      <a class="btn" id="btnWin" href="https://github.com/raon-easypaster/worship-caster/releases/latest/download/WorshipCaster-windows.zip">윈도우용 받기<small>윈도우 10 · 11 (64비트)</small></a>
+    </div>
+    <div class="ver" id="ver">최신 버전 · 회원 가입 없이 무료</div>
+    <div class="mobile-note" id="mobileNote">📱 휴대폰에서는 설치할 수 없습니다. 교회 <b>노트북(맥·윈도우)</b>에서 이 페이지를 열어 받으세요.
+      <br><button id="copyLink" style="margin-top:8px;font:inherit;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)">이 페이지 주소 복사</button></div>
+  </div>
+
+  <div class="shot">
+    <img src="img/01-control.jpg" alt="예배송출 운영 화면 — 왼쪽 예배 순서, 가운데 슬라이드, 오른쪽 미리보기와 송출 버튼">
+    <div class="cap">운영 화면 — 슬라이드를 누르면 바로 TV에 나갑니다</div>
+  </div>
+
+  <section>
+    <h2>화면 세 개를 한 번에</h2>
+    <p class="sub">노트북에서 넘기면 세 곳이 함께 바뀝니다.</p>
+    <div class="three">
+      <div class="card"><img src="img/02-output.jpg" alt=""><h3>📺 예배당 TV·프로젝터</h3><p>HDMI 선 하나. 움직이는 배경, 교회 로고, 4:3 옛 프로젝터도 됩니다.</p></div>
+      <div class="card"><img src="img/03-overlay.jpg" alt=""><h3>🎥 유튜브 생중계 자막</h3><p>OBS에 주소 하나만 넣으면 카메라 화면 위에 자막 바가 얹힙니다. 캡처 장비가 필요 없습니다.</p></div>
+      <div class="card"><img src="img/26-remote.jpg" alt="" style="max-height:220px;object-fit:contain;background:#14171d"><h3>📱 휴대폰 리모컨 · 프롬프터</h3><p>같은 와이파이의 휴대폰으로 넘기고, 설교자에게는 다음 슬라이드와 시계를 보여 줍니다.</p></div>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2>할 수 있는 것</h2>
+    <p class="sub">"어지간한 기능은 다 들어 있습니다."</p>
+    <ul class="feat">
+      <li><b>🎵 찬양 가사</b><span>곡 제목으로 가사를 찾아 바로 넣기, 2줄씩 자동 나누기, 1절·후렴 순서 정하기</span></li>
+      <li><b>📖 성경 말씀</b><span>"요 3:16"만 치면 말씀 슬라이드. 두 번역 함께 보기</span></li>
+      <li><b>📋 콘티</b><span>키·빠르기·메모를 적고 카톡으로 복사, 인쇄</span></li>
+      <li><b>🗂 예배 순서 템플릿</b><span>주일·성찬·오후·수요·금요·새벽 예배 순서를 한 번에</span></li>
+      <li><b>🖼 PPT·PDF·악보·사진</b><span>가져와서 바로 띄우기. 사진·악보는 유튜브에도</span></li>
+      <li><b>🎞 배경 영상</b><span>직접 만든 반복 배경 영상 5개 포함, 내 영상도 배경으로</span></li>
+      <li><b>⏱ 도구</b><span>예배 시작 카운트다운, 설교자 이름 자막, 광고 자동 넘김</span></li>
+      <li><b>💻 웹 편집기</b><span>주중에 집 컴퓨터 브라우저에서 미리 준비 (PIN)</span></li>
+      <li><b>💾 백업·복원</b><span>자료 전체를 파일 하나로, 새 컴퓨터로 옮기기</span></li>
+      <li><b>🔒 인터넷 없어도</b><span>글꼴이 프로그램 안에 들어 있어 예배당 와이파이가 없어도 됩니다</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="two">
+      <img src="img/23-tools.jpg" alt="도구 카드 — 타이머, 무대 메시지, 이름 자막, 자동 넘김">
+      <div>
+        <h2>준비물은 이것뿐</h2>
+        <div class="need"><ul>
+          <li>노트북 한 대 (맥 또는 윈도우 10·11)</li>
+          <li>TV·프로젝터와 HDMI 선</li>
+          <li>유튜브 생중계를 한다면: OBS(무료)와 카메라</li>
+        </ul></div>
+        <p class="sub" style="margin-top:14px">Node.js 같은 다른 프로그램을 따로 깔 필요가 없습니다. 받아서 압축을 풀면 끝입니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>설치 방법</h2>
+    <p class="sub">처음 한 번만 경고 창이 나옵니다. 유료 인증을 받지 않은 무료 프로그램이라 나오는 안내입니다.</p>
+    <div class="steps">
+      <div class="card"><h3>🍎 맥</h3><ol>
+        <li>위의 <b>맥용 받기</b>를 누르고, 받은 zip 파일을 더블클릭해 압축을 풉니다.</li>
+        <li><b>예배송출.app</b>을 <b>응용 프로그램</b> 폴더로 끌어다 놓습니다.</li>
+        <li>앱을 더블클릭합니다. "확인할 수 없습니다" 창이 뜨면 <b>[완료]</b>.</li>
+        <li><b>시스템 설정 → 개인정보 보호 및 보안</b> 맨 아래 "예배송출" 옆 <b>[그래도 열기]</b>.</li>
+        <li>네트워크·방화벽 질문은 <b>[허용]</b> (유튜브 자막·웹 편집기에 필요).</li>
+      </ol></div>
+      <div class="card"><h3>🪟 윈도우</h3><ol>
+        <li>위의 <b>윈도우용 받기</b>를 누르고, 받은 zip 파일을 오른쪽 클릭 → <b>모두 압축 풀기</b>.</li>
+        <li>'예배송출' 폴더를 문서 폴더 같은 곳에 둡니다.</li>
+        <li><b>예배송출 실행.cmd</b>를 더블클릭합니다.</li>
+        <li>"Windows의 PC 보호" 창이 뜨면 <b>[추가 정보] → [실행]</b>.</li>
+        <li>방화벽 질문은 <b>[액세스 허용]</b>.</li>
+      </ol></div>
+    </div>
+    <p class="sub" style="margin-top:16px">새 버전이 나오면 프로그램 안에 알림이 뜹니다. 같은 방법으로 받아 앱(폴더)만 바꾸면 자료는 그대로 남습니다.</p>
+    <div class="dl" style="justify-content:flex-start"><a class="btn" id="btnManual" href="https://github.com/raon-easypaster/worship-caster/releases/latest">📘 사진 설명서 (PDF)<small>화면 사진으로 처음부터 차근차근</small></a></div>
+  </section>
+
+  <footer>
+    <p>만든 사람: <b>쉬운목사 이광복</b> · 함께 만든 분: smdjoo-stack · 무료로 나눕니다</p>
+    <p>찬양 가사와 성경 번역본은 저작권이 있습니다. 교회의 이용 허락 범위 안에서 쓰세요.</p>
+    <p><a href="https://github.com/raon-easypaster/worship-caster/releases">지난 버전·바뀐 내용</a> · <a href="https://github.com/raon-easypaster/worship-caster/issues">불편한 점·아이디어 남기기</a> · <a href="https://github.com/raon-easypaster/worship-caster">소스 코드</a></p>
+  </footer>
+</div>
+
+<script>
+  // 들어온 컴퓨터에 맞는 단추를 앞에, 휴대폰이면 안내
+  (function () {
+    const ua = navigator.userAgent || '';
+    const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);   // 아이패드는 맥처럼 보임
+    const win = /Win/i.test(plat) || /Windows/i.test(ua);
+    const mac = $ => document.getElementById($);
+    if (win) {
+      mac('btnWin').classList.add('main'); mac('btnMac').classList.remove('main');
+      mac('dl').prepend(mac('btnWin'));
+    }
+    if (mobile) {
+      mac('mobileNote').style.display = 'block';
+      mac('copyLink').onclick = () => navigator.clipboard?.writeText(location.href.split('#')[0]).then(() => (mac('copyLink').textContent = '복사했습니다 — 카톡으로 보내 두세요'));
+    }
+  })();
+
+  // 최신 버전 정보 (버전·날짜·크기·설명서 링크) — 실패해도 위 고정 링크는 그대로 동작
+  fetch('https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest')
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(rel => {
+      const mb = n => Math.round(n / 1048576) + 'MB';
+      const find = re => (rel.assets || []).find(a => re.test(a.name));
+      const m = find(/mac\.zip$/i), w = find(/windows\.zip$/i), pdf = find(/manual.*\.pdf$/i);
+      if (m) document.querySelector('#btnMac small').textContent = `애플 칩 · 인텔 맥 · ${mb(m.size)}`;
+      if (w) document.querySelector('#btnWin small').textContent = `윈도우 10 · 11 · ${mb(w.size)}`;
+      if (pdf) for (const id of ['btnManual', 'manualTop']) document.getElementById(id).href = pdf.browser_download_url;
+      const d = (rel.published_at || '').slice(0, 10);
+      document.getElementById('ver').textContent = `최신 ${rel.tag_name}${d ? ' · ' + d : ''} · 회원 가입 없이 무료`;
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>
