@@ -22,7 +22,10 @@
 <script src="/render.js"></script>
 <script>
   const mode = { '/output': 'main', '/overlay': 'overlay', '/stage': 'stage' }[location.pathname] || 'main';
-  if (mode === 'overlay') document.body.classList.add('overlay');
+  if (mode === 'overlay') {
+    document.body.classList.add('overlay');
+    document.documentElement.style.background = 'transparent';   // html 바탕이 검게 남아 OBS에서 투명하지 않던 문제 (smdjoo-stack 님 수정)
+  }
   if (mode === 'overlay' || new URLSearchParams(location.search).has('nohint')) document.getElementById('hint').remove();
   else setTimeout(() => document.getElementById('hint')?.style.setProperty('opacity', 0), 5000);
   document.title = { main: '예배당 화면', overlay: '방송 자막(OBS)', stage: '프롬프터' }[mode];
@@ -31,9 +34,28 @@
   let snap = null;
   function connect() {
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-    ws.onopen = () => { document.getElementById('offline').style.display = 'none'; wsNow = ws; reportOBS(); };
-    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'live') { snap = m; WC.render(screen, snap, mode); syncScene(); } };
-    ws.onclose = () => { document.getElementById('offline').style.display = 'block'; setTimeout(connect, 1000); };
+    ws.onopen = () => {
+      document.getElementById('offline').style.display = 'none'; wsNow = ws; reportOBS();
+      // 예배송출이 다시 켜졌으면(업데이트·재시작) 새 화면 코드를 받도록 새로고침
+      fetch('/api/boot', { cache: 'no-store' }).then(r => r.json()).then(({ boot }) => {
+        if (window._wcBoot && window._wcBoot !== boot) location.reload();
+        window._wcBoot = boot;
+      }).catch(() => {});
+    };
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'live') { snap = m; WC.render(screen, snap, mode); syncScene(); }
+      // 예배송출을 끄면 예배당 화면·프롬프터 창도 닫힘 (OBS 자막은 OBS 안이라 화면만 비움)
+      if (m.type === 'quit') {
+        window._wcQuit = true;
+        screen.innerHTML = '';
+        if (mode !== 'overlay') {
+          window.close();
+          setTimeout(() => { document.body.innerHTML = '<div style="color:#666;font:16px sans-serif;margin:auto">예배송출이 종료되었습니다. 이 창은 닫으셔도 됩니다.</div>'; }, 400);
+        }
+      }
+    };
+    ws.onclose = () => { if (window._wcQuit) return; document.getElementById('offline').style.display = 'block'; setTimeout(connect, 1000); };
   }
   // ── OBS 장면 자동 전환 (방송 자막 화면에서만) ──────────────
   // 그림·악보·PPT를 방송에 보낼 때 '사람 화면 장면'으로, 끝나면 '평소 장면'으로.
@@ -55,7 +77,8 @@
     if (!obs || obsLevel < 4 || !snap?.obs) return;
     const { base, pip } = snap.obs;
     if (!base || !pip) return;
-    const want = WC.bcMode(snap) === 'full' && snap.live.pip ? pip : base;
+    const part = snap.style?.overlay?.imgMode === 'part' && !snap.item?.bcFull;   // '화면 일부'는 OBS 장면 전환 없이 카메라가 보임
+    const want = WC.bcMode(snap) === 'full' && snap.live.pip && !part ? pip : base;
     obs.getCurrentScene(cur => {
       const name = cur?.name;
       if ((name === base || name === pip) && name !== want) obs.setCurrentScene(want);  // 다른 장면(설교 전용 등)에 있을 땐 건드리지 않음

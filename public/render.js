@@ -12,6 +12,25 @@
   const pick = (v, list, d) => (list.includes(v) ? v : d);
   const mediaUrl = u => (/^\/media\/[^"'<>()\\\s]+$/.test(String(u || '')) ? u : '');
 
+  // 오래된 브라우저(OBS 28 이하 내장 브라우저 등)는 cqh/cqw 단위를 몰라 글자가 아주 작게 나옴.
+  // 송출 화면은 화면을 꽉 채우므로 vh/vw 로 바꿔도 결과가 같음. (smdjoo-stack 님 버전에서 가져옴)
+  const NO_CQ = !(window.CSS && CSS.supports && CSS.supports('height', '1cqh'));
+  const toVp = h => (NO_CQ ? String(h).replace(/(\d)cq([hw])\b/g, '$1v$2') : h);
+  if (NO_CQ) {
+    fetch('/render.css').then(r => r.text()).then(t => {
+      const el = document.createElement('style');
+      el.textContent = toVp(t.replace(/@import[^;]*;/g, ''));
+      document.head.appendChild(el);
+    }).catch(() => {});
+  }
+  // 창이 가려져 있어도 확실히 나타나게: requestAnimationFrame 은 창이 안 보이면 멈춰서
+  // 새 화면이 투명한 채로 남는 문제가 있었음 → 강제로 한 번 그린 뒤 바꾸고, 타이머로 한 번 더 보장
+  function fadeIn(el, ms = 320) {
+    void el.offsetWidth;
+    el.style.opacity = 1;
+    setTimeout(() => (el.style.opacity = 1), ms);
+  }
+
   // 글꼴 (프로그램에 함께 들어 있어 인터넷 없이도 나옴)
   const FONTS = [
     [DEFAULT_FONT, '본고딕 (Noto Sans KR)'],
@@ -56,6 +75,9 @@
   const safeOverlay = st => ({
     ...st, font: font(st.font), size: num(st.size, 4.6, 1, 20), color: col(st.color, '#ffffff'), box: col(st.box, '#0b1d3a'),
     boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
+    // 방송에 그림 보내는 방식: full 화면 가득 / part 화면 일부(크기·위치) / none 보내지 않음
+    imgMode: pick(st.imgMode, ['full', 'part', 'none'], 'full'), partSize: num(st.partSize, 35, 15, 70),
+    partPos: pick(st.partPos, ['tr', 'mr', 'br', 'tl', 'ml', 'bl'], 'tr'),
   });
   const safeEl = e => ({
     ...e, x: num(e.x, 0), y: num(e.y, 0), w: num(e.w, 100, 0), h: num(e.h, 100, 0), size: num(e.size, 24, 1, 400),
@@ -147,19 +169,48 @@
   // 이 슬라이드 뒤에 깔 움직이는 배경 (그림·PPT·HTML 슬라이드에는 깔지 않음)
   function motionKey(snap, st) {
     const L = snap.live || {}, s = snap.slide, main = snap.style.main || {};
-    if (L.black || !s || s.bg || s.html || (s.elements && s.elements.length) || main.motionOn === false) return '';
+    if (L.black || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
     const t = themeOf(snap);
     const m = t.motion !== undefined ? t.motion : st.motion;
     if (!MOTIONS[m] || m === 'none') return '';
     if (m === 'video') { const u = mediaUrl(main.motionVideo); return u ? 'video:' + u : ''; }
     return m;
   }
-  const isVisual = s => !!(s && (s.html || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
+  const isVisual = s => !!(s && (s.html || s.htmlFile || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
+  const isHtmlFile = s => /^\/slides\/[a-f0-9]{12}\.html$/.test(String(s?.htmlFile || ''));
+
+  // HTML 파일(여러 장짜리 발표 자료): 1920×1080 으로 그린 뒤 화면 크기에 맞춰 줄임. 몇 번째 장인지는 #wc=번호
+  function htmlFileHTML(s) {
+    const page = Math.max(0, Math.floor(num(s.page, 0, 0, 9999)));
+    return `<iframe class="wc-hfile" src="${esc(s.htmlFile)}#wc=${page}" sandbox="allow-scripts" scrolling="no" tabindex="-1" loading="lazy"></iframe>`;
+  }
+  function fitHtml(container) {
+    const k = container.clientWidth / 1920;
+    container.querySelectorAll('iframe.wc-hfile').forEach(f => (f.style.transform = `scale(${k})`));
+  }
+  const postPage = f => { try { f.contentWindow && f.contentWindow.postMessage({ wc: 'show', page: f._wcPage }, '*'); } catch {} };
+
+  // 미디어 배경(미디어 칸에서 고른 사진·영상): 슬라이드와 다른 층 → 슬라이드를 넘겨도 영상이 처음부터 다시 시작하지 않음
+  // fit: auto(영상 꽉 채우기·사진 전체 보이기) / cover / contain / small(가운데 작게 — 로고용)
+  const FITS = ['auto', 'cover', 'contain', 'small'];
+  const fitOf = (url, fit) => (['cover', 'contain', 'small'].includes(fit) ? fit : (isVideo(url) ? 'cover' : 'contain'));
+  function fitStyle(f) {
+    return `object-fit:${f === 'cover' ? 'cover' : 'contain'};background-size:${f === 'cover' ? 'cover' : 'contain'};` +
+      (f === 'small' ? 'left:30%;top:30%;width:40%;height:40%;' : 'left:0;top:0;width:100%;height:100%;');
+  }
+  function mediaHTML(url, fit, still) {
+    url = mediaUrl(url); if (!url) return '';
+    const f = fitOf(url, fit);
+    if (isVideo(url)) return still ? `<video class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}#t=1" muted preload="metadata"></video>`
+      : `<video class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}" autoplay muted loop playsinline></video>`;
+    return `<div class="wc-bg wc-media" style="${fitStyle(f)}background-image:url('${esc(url)}')"></div>`;
+  }
 
   // noScript: OBS 브라우저 소스에서는 HTML 속 스크립트를 돌리지 않음.
   // (OBS가 페이지에 넣어 주는 장면 전환·방송 제어 기능을 HTML 자료가 건드리지 못하게)
   function slideInner(snap, st, still, noScript) {
     const s = snap.slide;
+    if (isHtmlFile(s)) return htmlFileHTML(s);
     if (s.html) return `<iframe class="wc-html" sandbox="${still || noScript ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
     let inner = bgHTML(s.bg, s.fit !== 'contain');
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
@@ -185,8 +236,9 @@
       return `<div class="wc-layer" style="background:#000">${logo}</div>`;
     }
     const mk = motionKey(snap, st);
-    const bg = mk ? 'transparent' : col(s.bgColor, st.bg);
-    return `<div class="wc-layer"${mk ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still)}</div>`;
+    const under = mk || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
+    const bg = under ? 'transparent' : col(s.bgColor, st.bg);
+    return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still)}</div>`;
   }
 
   function hexA(hex, a) {
@@ -198,7 +250,9 @@
   function bcMode(snap) {
     const s = snap.slide, L = snap.live || {};
     if (L.black || L.clear || L.overlayOff || snap.item?.noBroadcast || !s) return 'off';
-    if (snap.item?.bcFull || isVisual(s)) return 'full';
+    if (isHtmlFile(s)) return 'off';   // HTML 파일 자료는 스크립트가 돌아야 해서 OBS에는 보내지 않음 (OBS 제어 기능 보호)
+    if (snap.item?.bcFull) return 'full';
+    if (isVisual(s)) return safeOverlay(snap.style.overlay || {}).imgMode === 'none' ? 'off' : 'full';
     return String(s.text || '').trim() ? 'caption' : 'off';
   }
 
@@ -206,9 +260,17 @@
     const mode = bcMode(snap), s = snap.slide;
     if (mode === 'off') return '<div class="wc-layer"></div>';
     if (mode === 'full') {
-      const st = mainStyle(snap), mk = motionKey(snap, st);
+      const st = mainStyle(snap), mk = motionKey(snap, st), ov = safeOverlay(snap.style.overlay || {});
+      const screen = `${motionHTML(mk, opts.still)}${slideInner(snap, st, opts.still, true)}`;
+      const bg = mk ? '#000' : col(s.bgColor, st.bg);
+      if (ov.imgMode === 'part' && !snap.item?.bcFull) {
+        // 화면 일부: 원래 크기로 그린 뒤 줄여서 구석에 → 나머지는 카메라가 보임
+        const v = { t: 'top', m: 'center', b: 'bottom' }[ov.partPos[0]], h = ov.partPos[1] === 'r' ? 'right' : 'left';
+        const vCss = v === 'center' ? 'top:0' : `${v}:4%`;
+        return `<div class="wc-layer"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
+      }
       const pip = snap.live?.pip && opts.preview ? '<div class="wc-pip-ph">👤 사람 화면<small>(OBS 장면 전환)</small></div>' : '';
-      return `<div class="wc-layer" style="background:${mk ? '#000' : col(s.bgColor, st.bg)}">${motionHTML(mk, opts.still)}${slideInner(snap, st, opts.still, true)}${pip}</div>`;
+      return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
     }
     const st = safeOverlay(snap.style.overlay);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
@@ -224,7 +286,7 @@
     const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     const status = (L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중') +
       (L.overlayOff || snap.item?.noBroadcast ? ' · 방송 자막 꺼짐' : '');
-    const txt = x => x?.html ? '[HTML 화면]' : (x?.text || (x?.bg || x?.elements?.length ? '[그림]' : ''));
+    const txt = x => x?.htmlFile ? (x.text || '[HTML 화면]') : x?.html ? '[HTML 화면]' : (x?.text || (x?.bg || x?.elements?.length ? '[그림]' : ''));
     return `<div class="wc-layer wc-stage">
       <div class="wc-st-top"><span>${esc(snap.item?.title || '대기')}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
       <div class="wc-st-cur" dir="auto">${esc(txt(s)).replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>
@@ -244,16 +306,30 @@
     }
     if (!key) return;
     const el = document.createElement('div');
-    el.className = cls; el._key = key; el.innerHTML = make();
+    el.className = cls; el._key = key; el.innerHTML = toVp(make());
     el.style.cssText = `position:absolute;inset:0;pointer-events:none;${top ? 'z-index:5;' : ''}`;
     if (top) container.appendChild(el); else container.prepend(el);
-    if (fade) { el.style.opacity = 0; el.style.transition = 'opacity .7s'; requestAnimationFrame(() => requestAnimationFrame(() => (el.style.opacity = 1))); }
+    if (fade) { el.style.opacity = 0; el.style.transition = 'opacity .7s'; fadeIn(el, 750); }
   }
 
   // 페이드 전환 렌더
   function render(container, snap, mode, opts = {}) {
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
+    const L0 = snap.live || {};
+    if (mode === 'main' || mode === 'overlay') {
+      // 미디어 배경: 예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만 (검은 화면·방송 자막 끄기면 안 나감)
+      const url = mediaUrl(L0.mediaBg);
+      const on = url && !L0.black && (mode === 'main' || (L0.mediaObs && !L0.overlayOff));
+      const key = on ? url + '|' + fitOf(url, L0.mediaFit) : '';
+      const cur = container.querySelector(':scope > .wc-mlayer');
+      if (cur && key && cur._url === url && cur._key !== key) {        // 같은 파일에서 맞춤만 바뀜 → 영상을 다시 불러오지 않음
+        cur.firstElementChild.style.cssText += ';' + fitStyle(fitOf(url, L0.mediaFit)); cur._key = key;
+      } else {
+        persist(container, 'wc-mlayer', key, () => mediaHTML(url, L0.mediaFit, opts.still), false, fade);
+        const n = container.querySelector(':scope > .wc-mlayer'); if (n) n._url = url;
+      }
+    }
     if (mode === 'main') {
       const mk = motionKey(snap, mainStyle(snap));
       persist(container, 'wc-mbase', mk, () => motionHTML(mk, opts.still), false, fade);
@@ -264,8 +340,16 @@
       const html = show ? logoImg(lg.url, lg.markPos || 'tr', lg.markSize || 10, lg.markOpacity ?? 0.85) : '';
       persist(container, 'wc-mark', html, () => html, true, false);
     }
-    const html = RENDER[mode](snap, opts);
+    const html = toVp(RENDER[mode](snap, opts));
     if (container._wcHTML === html) return;
+    // 같은 HTML 파일에서 장만 바뀌면 다시 불러오지 않고 '이 장 보여 줘' 신호만 보냄
+    const fm = html.match(/iframe class="wc-hfile" src="([^"#]+)#wc=(\d+)"/);
+    const frameKey = fm ? html.replace(/#wc=\d+"/, '"') : null;
+    if (frameKey && container._wcFrameKey === frameKey) {
+      const f = container.querySelector(':scope > .wc-layer:last-of-type iframe.wc-hfile');
+      if (f) { container._wcHTML = html; f._wcPage = +fm[2]; postPage(f); return; }
+    }
+    container._wcFrameKey = frameKey;
     container._wcHTML = html;
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
@@ -273,20 +357,33 @@
     const olds = [...container.querySelectorAll(':scope > .wc-layer')];
     const mark = container.querySelector(':scope > .wc-mark');
     container.insertBefore(layer, mark || null);
-    if (fade) {
-      layer.style.opacity = 0;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        layer.style.opacity = 1;
+    const frames = [...layer.querySelectorAll('iframe.wc-hfile')];
+    frames.forEach(f => { f._wcPage = fm ? +fm[2] : 0; f.addEventListener('load', () => postPage(f)); });
+    if (frames.length) {
+      fitHtml(container);
+      if (!container._wcRO && window.ResizeObserver) (container._wcRO = new ResizeObserver(() => fitHtml(container))).observe(container);
+    }
+    const swap = () => {
+      if (fade) {
+        fadeIn(layer);
         if (layer.dataset.tr || mode === 'overlay') olds.forEach(o => (o.style.opacity = 0));  // 투명 층은 서로 겹쳐 보이지 않게 같이 바꿈
-      }));
-      setTimeout(() => olds.forEach(o => o.remove()), 320);
-    } else olds.forEach(o => o.remove());
+        setTimeout(() => olds.forEach(o => o.remove()), 320);
+      } else olds.forEach(o => o.remove());
+    };
+    if (fade) layer.style.opacity = 0;
+    // HTML 파일은 다 그려진 뒤 바꿈 (깜빡임 방지, 최대 1.5초)
+    if (frames.length && fade) {
+      let done = false;
+      const go = () => { if (!done) { done = true; setTimeout(swap, 80); } };
+      frames[0].addEventListener('load', go, { once: true });
+      setTimeout(go, 1500);
+    } else swap();
   }
 
   // 썸네일용: 특정 슬라이드를 즉시 렌더 (움직임 멈춤)
   function thumb(container, slide, style, item, still = true) {
-    render(container, { slide, style, live: {}, item }, 'main', { fade: false, still });
+    render(container, { slide, style, live: {}, item }, 'main', { fade: false, still });   // 썸네일에는 미디어 배경 없음
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS };
+  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS };
 })();

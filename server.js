@@ -25,6 +25,8 @@ bible.loadAll(db.settings.bibleFolders);
 // 자료실에는 찬양(가사·악보)만 남김. 말씀·광고·문구·PPT·HTML 은 예배 순서에 딸린 자료라
 // 어느 예배 순서에도 없으면 지움
 const ITEM_TYPES = ['song', 'score', 'bible', 'notice', 'text', 'ppt', 'html'];
+const SLIDES_DIR = path.join(store.DATA_DIR, 'slides');   // 가져온 HTML 파일(여러 장짜리 발표 자료)
+fs.mkdirSync(SLIDES_DIR, { recursive: true });
 const KEEP_TYPES = new Set(['song', 'score']);
 function pruneOrphans() {
   const used = new Set(db.services.flatMap(s => s.itemIds));
@@ -35,6 +37,9 @@ function pruneOrphans() {
   const still = JSON.stringify(db.items);
   for (const f of JSON.stringify(gone).match(/\/media\/ppt_[^"\\]+/g) || []) {
     if (!still.includes(f)) fs.rm(path.join(MEDIA_DIR, path.basename(f)), { force: true }, () => {});
+  }
+  for (const f of JSON.stringify(gone).match(/\/slides\/[a-f0-9]{12}\.html/g) || []) {
+    if (!still.includes(f)) fs.rm(path.join(SLIDES_DIR, path.basename(f)), { force: true }, () => {});
   }
   return gone.length;
 }
@@ -72,7 +77,9 @@ function addItem(b) {
 // ── 송출 상태 (메모리) ─────────────────────────────
 // overlayOff: 방송(OBS) 자막만 끔 — 예배당 TV에는 그대로 나감
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, rev: 0 };
+// mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
+// mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, mediaBg: null, mediaObs: false, mediaFit: 'auto', rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
 const isLocal = req => {
@@ -133,6 +140,22 @@ const upload = multer({ dest: path.join(store.DATA_DIR, 'tmp'), limits: { fileSi
 app.get('/', (req, res) => res.redirect(isLocal(req) ? '/control' : '/editor'));
 app.get('/control', (req, res) => isLocal(req) ? res.sendFile(path.join(__dirname, 'public', 'app.html')) : res.redirect('/editor'));
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
+// 서버가 다시 켜졌는지 송출 화면이 알 수 있게 (켤 때마다 바뀌는 값) → 업데이트 뒤 스스로 새로고침
+const BOOT = String(Date.now());
+app.get('/api/boot', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ boot: BOOT }); });
+// HTML 파일 자료: 샌드박스(앱과 다른 출처)로만 열림 → 파일 안의 스크립트가 앱을 조종할 수 없음
+app.get('/slides/:id([a-f0-9]{12}).html', (req, res) => {
+  const file = path.join(SLIDES_DIR, req.params.id + '.html');
+  if (!fs.existsSync(file)) return res.status(404).send('슬라이드 파일이 없습니다');
+  let html = fs.readFileSync(file, 'utf8');
+  const helper = '<script src="/wc-html-slide.js"></script>';   // 맨 앞: '몇 번째 장'을 먼저 읽어야 함
+  html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + helper) : helper + html;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', 'sandbox allow-scripts');   // 앱과 다른 출처(opaque)로만 열림
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(html);
+});
 for (const p of ['output', 'overlay', 'stage']) app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, 'public', 'display.html')));
 app.use('/media', express.static(MEDIA_DIR, {
   maxAge: '1h',
@@ -165,12 +188,19 @@ app.post('/api/login', (req, res) => {
   res.setHeader('Set-Cookie', `wc_session=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
   res.json({ ok: true });
 });
+app.post('/api/html', needAuth, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '파일 없음' });
+  if (!/\.html?$/i.test(req.file.originalname) || req.file.size > 30 * 1024 * 1024) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: '30MB 이하의 .html 파일만 가져올 수 있습니다' }); }
+  const id = store.uid();
+  fs.renameSync(req.file.path, path.join(SLIDES_DIR, id + '.html'));
+  res.json({ url: `/slides/${id}.html` });
+});
 app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(req) }));
 
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases,
-    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo },
+    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), port: PORT, live: snapshot(),
   });
 });
@@ -234,6 +264,7 @@ const STYLE_RULES = {
   align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'],
   bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
   motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
+  imgMode: ['full', 'part', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
 };
 function cleanStyle(src, base) {
   const out = { ...base };
@@ -270,6 +301,8 @@ app.put('/api/settings', needLocal, (req, res) => {
       markOverlay: l.markOverlay !== undefined ? !!l.markOverlay : cur.markOverlay,
     };
   }
+  // 운영 화면 맨 위 '예배송출' 앞에 붙는 교회 로고 (비우면 ✝)
+  if (req.body.titleLogo != null) db.settings.titleLogo = /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp)$/i.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
     db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };
@@ -322,6 +355,7 @@ app.post('/api/media', needAuth, upload.array('files', 50), (req, res) => {
 });
 app.delete('/api/media/:name', needAuth, (req, res) => {
   const p = path.join(MEDIA_DIR, path.basename(req.params.name));
+  if (live.mediaBg === '/media/' + path.basename(req.params.name)) { live.mediaBg = null; pushLive(); }
   fs.rm(p, { force: true }, () => res.json({ ok: true }));
 });
 
@@ -343,6 +377,15 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
 // 아이콘을 다시 눌렀을 때 (두 번째 실행이 이 주소를 부름)
 app.post('/api/show', needLocal, (req, res) => res.json({ result: showUI() }));
 
+// 운영 화면 창 크기·위치 기억 (다음에 켤 때 그대로)
+app.put('/api/window', needLocal, (req, res) => {
+  const n = (v, lo, hi) => (Number.isFinite(+v) ? Math.round(Math.min(hi, Math.max(lo, +v))) : null);
+  const w = n(req.body?.w, 800, 8000), h = n(req.body?.h, 500, 5000), x = n(req.body?.x, -10000, 20000), y = n(req.body?.y, -10000, 20000);
+  if (w == null || h == null) return res.status(400).json({ error: '잘못된 값' });
+  db.settings.win = { w, h, x: x ?? 0, y: y ?? 0 };
+  store.save(); res.json({ ok: true });
+});
+
 app.post('/api/quit', needLocal, (req, res) => {
   res.json({ ok: true });
   broadcast({ type: 'quit' });
@@ -358,8 +401,15 @@ app.post('/api/live', needLocal, (req, res) => {
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), it.slides.length - 1);
     live.clear = false; live.black = false;
   }
-  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip']) if (b[k] !== undefined) live[k] = !!b[k];
-  if (b.reset) Object.assign(live, { black: false, clear: true, logo: false });
+  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
+  if (b.mediaBg !== undefined) {
+    const ok = typeof b.mediaBg === 'string' && /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm)$/i.test(b.mediaBg)
+      && fs.existsSync(path.join(MEDIA_DIR, path.basename(b.mediaBg)));
+    live.mediaBg = ok ? b.mediaBg : null;
+    if (ok) live.black = false;
+  }
+  if (['auto', 'cover', 'contain', 'small'].includes(b.mediaFit)) live.mediaFit = b.mediaFit;
+  if (b.reset) Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null });
   pushLive(); res.json(snapshot());
 });
 
@@ -419,16 +469,24 @@ function showUI() {
   return 'focused';
 }
 
+// 지난번 운영 화면 창 크기·위치 (없으면 1440×900)
+function winArgs() {
+  const w = db.settings.win;
+  if (!w) return '--window-size=1440,900';
+  const i = v => Math.round(+v) || 0;
+  return `--window-size=${i(w.w)},${i(w.h)} --window-position=${i(w.x)},${i(w.y)}`;
+}
+
 // 운영 화면 열기: 크롬/엣지가 있으면 주소창 없는 '앱 창'으로
 function openUI() {
   const url = `http://localhost:${PORT}/control`;
   const { exec } = require('child_process');
   if (process.platform === 'darwin') {
     exec(fs.existsSync('/Applications/Google Chrome.app')
-      ? `open -na "Google Chrome" --args --app=${url} --window-size=1440,900`
+      ? `open -na "Google Chrome" --args --app=${url} ${winArgs()}`
       : `open ${url}`);
   } else if (process.platform === 'win32') {
-    exec(`start "" msedge --app=${url}`, { shell: 'cmd.exe' }, err => { if (err) exec(`start "" ${url}`, { shell: 'cmd.exe' }); });
+    exec(`start "" msedge --app=${url} ${winArgs()}`, { shell: 'cmd.exe' }, err => { if (err) exec(`start "" ${url}`, { shell: 'cmd.exe' }); });
   } else exec(`xdg-open ${url}`);
 }
 

@@ -34,7 +34,15 @@ async function reload() {
 }
 
 // ── 화면 그리기 ─────────────────────────────────
-function renderAll() { renderServices(); renderLib(); renderSlides(); renderLive(); }
+function renderAll() { renderBrand(); renderServices(); renderLib(); renderSlides(); renderLive(); }
+// 맨 위 '예배송출' 앞 로고: ⚙︎ 설정 → 타이틀 로고 (없으면 ✝)
+function renderBrand() {
+  const url = S?.settings?.titleLogo || '', old = $('#brandMark');
+  if (!old || (old.dataset.url || '') === url) return;
+  const el = url ? Object.assign(document.createElement('img'), { className: 'brand-mark', src: url, alt: '' }) : Object.assign(document.createElement('span'), { className: 'brand-cross', textContent: '✝' });
+  el.id = 'brandMark'; el.dataset.url = url;
+  old.replaceWith(el);
+}
 
 function renderServices() {
   const sel = $('#serviceSel');
@@ -69,8 +77,9 @@ function renderLib() {
   const ul = $('#libList');
   ul.innerHTML = '';
   const q = search.trim().toLowerCase();
+  const abc = $('#libSort')?.value === 'abc';
   const list = S.items.filter(i => KEEP.has(i.type)).filter(i => !q || i.title.toLowerCase().includes(q) || i.slides.some(s => (s.text || '').toLowerCase().includes(q)))
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    .sort(abc ? (a, b) => a.title.localeCompare(b.title, 'ko') : (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   for (const it of list) {
     const li = document.createElement('li');
     li.className = (it.id === selId ? 'sel ' : '') + (snap?.live.itemId === it.id ? 'live' : '');
@@ -120,8 +129,10 @@ function renderLive() {
   const L = snap.live;
   for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip']) $('#' + k).classList.toggle('on', !!L[k]);
   $('#motionOn').classList.toggle('on', snap.style.main.motionOn !== false);
-  $('#szMain').textContent = (+snap.style.main.size).toFixed(1);
-  $('#szOv').textContent = (+snap.style.overlay.size).toFixed(1);
+  $('#szMain').textContent = Math.round(+snap.style.main.size / 6.2 * 100) + '%';
+  $('#szOv').textContent = Math.round(+snap.style.overlay.size / 4.6 * 100) + '%';
+  $('#szMain').title = `글자 크기 ${snap.style.main.size} (기본 6.2)`; $('#szOv').title = `글자 크기 ${snap.style.overlay.size} (기본 4.6)`;
+  markMediaLive(); showOverlayQuick();
   const ovOff = L.overlayOff || snap.item?.noBroadcast;
   $('#ovState').classList.toggle('hidden', !ovOff);
   $('#ovState').textContent = L.overlayOff ? '꺼짐 — 예배당 화면에만 나가는 중' : '이 자료는 방송에 내보내지 않음';
@@ -181,7 +192,7 @@ function connectWS() {
     if (m.type === 'focus') { window.focus(); toast('예배송출 운영 화면입니다'); }
     if (m.type === 'obs') { obsInfo = m; document.dispatchEvent(new Event('obsinfo')); }
     if (m.type === 'dup' || m.type === 'replaced') showWindowNotice(m.type);
-    if (m.type === 'quit') { stopped = true; ws.close(); }
+    if (m.type === 'quit') { stopped = true; ws.close(); closeOpenedWins(); setTimeout(() => window.close(), 800); }
     if (m.type === 'quit') document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px">예배송출이 종료되었습니다.</div>';
   };
   ws.onclose = () => { if (!stopped) setTimeout(connectWS, 1000); };
@@ -293,16 +304,16 @@ function openItemEditor(id, focusIndex, preset) {
         ? `<div class="el-edit"><span class="muted small">글자 ${j + 1}</span><textarea data-el="${j}" rows="${Math.min(6, (e.text.match(/\n/g) || []).length + 1)}">${esc(e.text)}</textarea></div>`
         : e.type === 'image' ? `<div class="el-edit"><span class="muted small">그림</span><div class="row"><button class="btn sm" data-img="${j}">그림 바꾸기</button><button class="btn sm" data-imgdel="${j}">그림 삭제</button></div></div>`
         : e.type === 'table' ? `<div class="el-edit"><span class="muted small">표</span><textarea data-tbl="${j}" rows="3" title="칸은 | 로, 줄은 줄바꿈으로">${esc(e.rows.map(r => r.join(' | ')).join('\n'))}</textarea></div>` : '').join('');
-      const isHtml = it.type === 'html' || s.html != null;
+      const isHtml = !s.htmlFile && (it.type === 'html' || s.html != null);
       row.innerHTML = `<div class="wc-screen" style="border-radius:6px"></div>
         <div>${isHtml ? `<textarea data-html class="mono" rows="7" placeholder="&lt;h1&gt;안녕하세요&lt;/h1&gt; 처럼 HTML 코드를 넣으세요">${esc(s.html || '')}</textarea>
           <div class="row wrap" style="margin-top:6px"><label class="btn sm">HTML 파일 열기<input type="file" data-hfile accept=".html,.htm,text/html" hidden></label>
           <button class="btn sm" data-hsample="count">예시: 예배 시작 카운트다운</button><button class="btn sm" data-hsample="verse">예시: 오늘의 말씀 카드</button></div>`
-        : s.elements?.length ? elEdit : `<textarea data-text rows="4">${esc(s.text)}</textarea>`}
+        : s.elements?.length ? elEdit : `${s.htmlFile ? `<div class="muted small" style="margin-bottom:4px">HTML 파일 ${(+s.page || 0) + 1}번째 장 · 아래 글은 프롬프터(설교자 화면)에만 보입니다</div>` : ''}<textarea data-text rows="4">${esc(s.text)}</textarea>`}
           ${it.type === 'bible' ? `<input data-ref placeholder="구절 표시 (예: 요한복음 3:16)" value="${esc(s.ref || '')}" style="margin-top:6px">` : ''}</div>
         <div class="tools">
           <button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button>
-          ${s.elements?.length ? '' : '<button class="icon" data-a="split" title="커서 위치에서 나누기">✂</button>'}
+          ${s.elements?.length || s.htmlFile ? '' : '<button class="icon" data-a="split" title="커서 위치에서 나누기">✂</button>'}
           <button class="icon" data-a="merge" title="다음 슬라이드와 합치기">⇣</button>
           <button class="icon" data-a="bg" title="배경">🖼</button>
           <button class="icon" data-a="rm" title="삭제">🗑</button></div>`;
@@ -617,10 +628,10 @@ async function openMediaPicker(onPick, onCancel) {
     <div class="dlg-foot"><button class="btn" data-x>${onPick ? '취소' : '닫기'}</button></div>`);
   body.querySelector('#mUp').onchange = async e => {
     const fd = new FormData(); [...e.target.files].forEach(f => fd.append('files', f));
-    toast('올리는 중…'); await api('POST', '/api/media', fd); openMediaPicker(onPick, onCancel);
+    toast('올리는 중…'); await api('POST', '/api/media', fd); loadMediaBin().catch(() => {}); openMediaPicker(onPick, onCancel);
   };
   body.querySelectorAll('.m').forEach(m => m.onclick = async e => {
-    if (e.target.dataset.del) { if (confirm('삭제할까요?')) { await api('DELETE', '/api/media/' + encodeURIComponent(e.target.dataset.del)); openMediaPicker(onPick, onCancel); } return; }
+    if (e.target.dataset.del) { if (await deleteMedia(m.dataset.url, e.target.dataset.del)) openMediaPicker(onPick, onCancel); return; }
     if (onPick) onPick(m.dataset.url);
   });
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = () => onCancel ? onCancel() : closeDlg()));
@@ -661,6 +672,10 @@ function openStyle(pre) {
         <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${esc(st.overlay.boxOpacity)}">
         <label>위치</label><select id="o_position"><option value="bottom" ${st.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${st.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
         <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${st.overlay.showTitle ? 'checked' : ''}>
+        <label>그림 보내기</label><select id="o_imgMode" title="악보·사진·PPT 그림 슬라이드를 방송에 어떻게 보낼지">
+          ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(st.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <label>일부 — 크기</label><input type="range" id="o_partSize" min="15" max="70" step="1" value="${esc(st.overlay.partSize ?? 35)}">
+        <label>일부 — 위치</label><select id="o_partPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(st.overlay.partPos || 'tr') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </div><div id="sPvOv" class="wc-screen pv checker" style="margin-top:10px"></div></div>
     </div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="sSave">적용</button></div>`);
@@ -668,6 +683,14 @@ function openStyle(pre) {
     if (!/\.(mp4|mov|m4v|webm)$/i.test(url)) return toast('동영상(mp4·mov·webm)을 골라 주세요');
     st.main.motionVideo = url; st.main.motion = 'video'; openStyle(st);
   }, () => openStyle(st));
+  // 슬라이더 옆에 지금 값 표시
+  body.querySelectorAll('input[type=range]').forEach(el => {
+    const out = document.createElement('span'); out.className = 'muted small'; out.style.cssText = 'min-width:36px;text-align:right';
+    const wrap = document.createElement('div'); wrap.className = 'row'; wrap.style.margin = '0';
+    el.replaceWith(wrap); wrap.append(el, out);
+    const upd = () => (out.textContent = el.id.endsWith('Opacity') ? Math.round(el.value * 100) + '%' : el.id.endsWith('partSize') ? el.value + '%' : el.value);
+    el.addEventListener('input', upd); upd();
+  });
   const paint = () => {
     const fake = { slide: sample, next: null, style: st, live: { black: false, clear: false }, item: { type: 'song', title: '예시 찬양' } };
     WC.render(body.querySelector('#sPvMain'), fake, 'main', { fade: false });
@@ -738,6 +761,9 @@ function openSettings() {
     <h4 style="margin:18px 0 8px">로고</h4><div>
         <div class="row">${S.settings.logo ? `<img src="${esc(S.settings.logo)}" style="height:40px;background:#333;border-radius:4px">` : '<span class="muted">없음</span>'}
           <button class="btn" id="stLogo">로고 선택</button>${S.settings.logo ? '<button class="btn" id="stLogoDel">빼기</button>' : ''}</div>
+        <div class="row" style="margin-top:8px"><b class="small">타이틀 로고</b> ${S.settings.titleLogo ? `<img src="${esc(S.settings.titleLogo)}" style="height:26px">` : '<span class="muted">✝ (기본)</span>'}
+          <button class="btn sm" id="stTitleLogo">고르기</button>${S.settings.titleLogo ? '<button class="btn sm" id="stTitleLogoOff">✝ 로 되돌리기</button>' : ''}
+          <span class="muted small">운영 화면 맨 위 '예배송출' 앞에 붙는 작은 로고</span></div>
         ${S.settings.logo ? `<div class="two">
           <div><b class="small">로고 화면 (✝ 로고 버튼 · L 키)</b><div class="form narrow">
             <label>위치</label>${posSel('lgSPos', ls.screenPos)}
@@ -763,7 +789,7 @@ function openSettings() {
         <p class="muted small">형식: 한 줄에 한 절. "창1:1 본문…" 또는 "창세기[탭]1[탭]1[탭]본문". UTF-8 또는 EUC-KR.
         현재 번역본: ${S.bibleVersions.map(esc).join(', ')}</p></div>
     </div>
-    <p class="muted small" style="margin-top:16px">예배송출 v0.4.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:16px">예배송출 v0.5.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -776,6 +802,11 @@ function openSettings() {
   body.querySelector('#stPinSave').onclick = async () => { await api('PUT', '/api/settings', { pin: body.querySelector('#stPin').value }); toast('PIN을 바꿨습니다 (기존 접속은 로그아웃)'); };
   body.querySelector('#stLogo').onclick = () => openMediaPicker(async url => { await api('PUT', '/api/settings', { logo: url }); await reload(); openSettings(); }, openSettings);
   body.querySelector('#stLogoDel')?.addEventListener('click', async () => { await api('PUT', '/api/settings', { logo: '' }); await reload(); openSettings(); });
+  body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
+    if (!/\.(png|jpe?g|gif|webp)$/i.test(url)) { toast('타이틀 로고는 사진 파일(png·jpg)만 됩니다'); return openSettings(); }
+    await api('PUT', '/api/settings', { titleLogo: url }); await reload(); openSettings();
+  }, openSettings);
+  body.querySelector('#stTitleLogoOff')?.addEventListener('click', async () => { await api('PUT', '/api/settings', { titleLogo: '' }); await reload(); openSettings(); });
   if (S.settings.logo) {
     const paintLogo = () => {
       const logo = { url: S.settings.logo, ...ls };
@@ -798,9 +829,290 @@ function openSettings() {
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
 }
 
+// ── 아래부터 smdjoo-stack 님 버전(worship-caster-on)의 아이디어를 옮겨 온 기능 ──────────────
+
+// 글자 크기 바로 조절 (빠르게 여러 번 눌러도 한 번만 저장)
+const SIZE_RANGE = { main: [3, 12, 0.4], overlay: [2.5, 9, 0.3] };
+let sizePending = null, sizeTimer = null;
+function bumpSize(grp, dir) {
+  if (!snap) return;
+  const st = JSON.parse(JSON.stringify(sizePending || snap.style));
+  const [lo, hi, step] = SIZE_RANGE[grp];
+  st[grp].size = Math.round(Math.min(hi, Math.max(lo, +st[grp].size + dir * step)) * 10) / 10;
+  sizePending = st;
+  $(grp === 'main' ? '#szMain' : '#szOv').textContent = Math.round(st[grp].size / (grp === 'main' ? 6.2 : 4.6) * 100) + '%';
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(async () => { const send = sizePending; sizePending = null; await api('PUT', '/api/style', { [grp]: { size: send[grp].size } }).catch(() => {}); }, 150);
+}
+
+// 방송 자막 카드의 바로 조절 (그림 보내기·화면 일부 크기·위치·자막 위치·바 진하기·곡명)
+const PART_POS = { tr: '오른쪽 위', mr: '오른쪽 중간', br: '오른쪽 아래', tl: '왼쪽 위', ml: '왼쪽 중간', bl: '왼쪽 아래' };
+const OV_DEF = { imgMode: 'full', partSize: 35, partPos: 'tr', position: 'bottom', boxOpacity: 0.72, showTitle: true };
+let ovTimer = null;
+function showOverlayQuick() {
+  const box = document.querySelector('.ovq'); if (!box || !snap) return;
+  const o = snap.style.overlay || {};
+  box.querySelectorAll('[data-ov]').forEach(el => {
+    if (el === document.activeElement && el.type === 'range') return;
+    const v = o[el.dataset.ov] ?? OV_DEF[el.dataset.ov];
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+  });
+  box.querySelectorAll('[data-ovv]').forEach(el => {
+    const v = +(o[el.dataset.ovv] ?? OV_DEF[el.dataset.ovv]);
+    el.textContent = Math.round(el.dataset.ovv === 'boxOpacity' ? v * 100 : v) + '%';
+  });
+  box.classList.toggle('no-part', (o.imgMode || 'full') !== 'part');
+  $('#ovMediaObs').checked = !!snap.live.mediaObs;
+}
+function initOverlayQuick() {
+  document.querySelectorAll('.ovq [data-ov]').forEach(el => el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
+    const v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? +el.value : el.value;
+    snap = { ...snap, style: { ...snap.style, overlay: { ...snap.style.overlay, [el.dataset.ov]: v } } };
+    renderLive();
+    clearTimeout(ovTimer);
+    ovTimer = setTimeout(() => api('PUT', '/api/style', { overlay: { [el.dataset.ov]: v } }).catch(() => {}), 200);
+  }));
+  $('#ovMediaObs').onchange = e => goLive({ mediaObs: e.target.checked }).catch(() => {});
+}
+
+// ── 미디어 칸: 누르면 예배당 화면 배경으로 계속 나옴 ──
+const isVid = u => /\.(mp4|mov|m4v|webm)$/i.test(u);
+let mbFiles = [], mbFilter = 'all';
+const fitMem = () => { try { return JSON.parse(localStorage.getItem('wc-mb-fit') || '{}') || {}; } catch { return {}; } };
+async function loadMediaBin() {
+  if (IS_EDITOR || !$('#mbGrid')) return;
+  mbFiles = (await api('GET', '/api/media')).filter(f => !/\.(mp3|m4a|wav|aac)$/i.test(f.url));
+  renderMediaBin();
+}
+function renderMediaBin() {
+  const grid = $('#mbGrid'); if (!grid) return;
+  const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
+  grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로">
+      <div class="mb-th">${isVid(f.url) ? `<video src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
+      <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button></div>
+      <div class="mb-name"><span class="t">${esc(f.name)}</span>${isVid(f.url) ? '<span title="반복 재생">🔁</span>' : ''}</div></div>`).join('')
+    || '<div class="mbin-empty">사진·영상을 ＋ 올리기로 넣으면 여기에 나옵니다. 누르면 예배당 화면 배경으로 계속 나오고, 슬라이드 글자는 그 위에 얹힙니다.</div>';
+  grid.querySelectorAll('.mb-item').forEach(el => {
+    const v = el.querySelector('video');
+    if (v) {
+      v.addEventListener('loadedmetadata', () => {
+        const s = Math.round(v.duration || 0);
+        el.querySelector('.mb-dur').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      });
+      el.addEventListener('mouseenter', () => v.play().catch(() => {}));   // 마우스를 올리면 미리 재생
+      el.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0.5; });
+    }
+    el.querySelector('.mb-del').onclick = e => { e.stopPropagation(); deleteMedia(el.dataset.url, e.currentTarget.dataset.del); };
+    el.onclick = () => goLive({ mediaBg: el.dataset.url, mediaFit: fitMem()[el.dataset.url] || 'auto' }).then(() => toast('예배당 화면 배경으로 내보냈습니다')).catch(() => {});
+  });
+  markMediaLive();
+}
+// 미디어 파일 삭제: 어디서 쓰는지 알려 주고, 지금 배경이면 끄고 지움
+async function deleteMedia(url, name) {
+  const used = (S?.items || []).filter(it => (it.slides || []).some(s => s.bg === url || (s.elements || []).some(e => e.src === url)));
+  const isLive = snap?.live?.mediaBg === url;
+  let msg = `'${name}' 파일을 삭제할까요?\n삭제하면 되돌릴 수 없습니다.`;
+  if (S?.settings?.logo === url || S?.settings?.titleLogo === url) msg += '\n\n※ 설정에서 로고로 쓰고 있는 파일입니다.';
+  if (S?.style?.main?.motionVideo === url) msg += '\n\n※ 움직이는 배경(내 동영상)으로 쓰고 있는 파일입니다.';
+  if (isLive) msg += '\n\n※ 지금 예배당 화면 배경으로 나가는 중입니다. 배경을 끄고 삭제합니다.';
+  if (used.length) msg += `\n\n※ 이 파일을 쓰는 자료가 ${used.length}개 있습니다 (${used.slice(0, 3).map(i => i.title).join(', ')}${used.length > 3 ? ' 등' : ''}).\n삭제하면 그 슬라이드에서는 그림이 안 나옵니다.`;
+  if (!confirm(msg)) return false;
+  await api('DELETE', '/api/media/' + encodeURIComponent(name));
+  await loadMediaBin().catch(() => {});
+  toast('삭제했습니다');
+  return true;
+}
+function markMediaLive() {
+  if (!$('#mbGrid') || !snap) return;
+  const cur = snap.live.mediaBg || null;
+  document.querySelectorAll('#mbGrid .mb-item').forEach(el => el.classList.toggle('live', el.dataset.url === cur));
+  const lab = $('#mbLive');
+  lab.classList.toggle('on', !!cur);
+  lab.textContent = cur ? '● 배경: ' + decodeURIComponent(cur.split('/').pop()) : '배경 없음';
+  $('#mbOff').disabled = !cur;
+  const obs = !!snap.live.mediaObs;
+  $('#mbObs').classList.toggle('on', obs);
+  $('#mbObs').textContent = obs ? '🎥 방송에도 나가는 중' : '🎥 방송에도';
+  $('#mbFit').value = snap.live.mediaFit || 'auto';
+}
+function initMediaBin() {
+  if (IS_EDITOR) return;
+  $('#mbFilter').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    mbFilter = b.dataset.f;
+    $('#mbFilter').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    renderMediaBin();
+  };
+  const size = $('#mbSize'), bin = $('.mbin');
+  try { size.value = localStorage.getItem('wc-mb-size') || size.value; if (localStorage.getItem('wc-mb-fold') === '1') bin.classList.add('fold'); } catch {}
+  const applySize = () => { bin.style.setProperty('--mb', size.value + 'px'); try { localStorage.setItem('wc-mb-size', size.value); } catch {} };
+  size.oninput = applySize; applySize();
+  $('#mbFold').onclick = () => { bin.classList.toggle('fold'); try { localStorage.setItem('wc-mb-fold', bin.classList.contains('fold') ? '1' : '0'); } catch {} };
+  $('#mbUp').onchange = async e => {
+    const fd = new FormData(); [...e.target.files].forEach(f => fd.append('files', f));
+    e.target.value = '';
+    toast('올리는 중…'); await api('POST', '/api/media', fd); await loadMediaBin(); toast('올렸습니다');
+  };
+  $('#mbOff').onclick = () => goLive({ mediaBg: null });
+  $('#mbObs').onclick = () => goLive({ mediaObs: !snap?.live?.mediaObs }).catch(() => {});
+  // 맞춤은 파일마다 기억 (로고는 '작게', 영상은 '자동' 처럼) — 이 컴퓨터에 저장
+  $('#mbFit').onchange = e => {
+    const cur = snap?.live?.mediaBg;
+    if (cur) { const m = fitMem(); m[cur] = e.target.value; try { localStorage.setItem('wc-mb-fit', JSON.stringify(m)); } catch {} }
+    goLive({ mediaFit: e.target.value }).catch(() => {});
+  };
+  loadMediaBin().catch(() => {});
+}
+
+// ── 예배당 화면·프롬프터를 띄울 모니터 고르기 (크롬·엣지의 '창 관리' 권한) ──
+const openedWins = new Set();
+const track = w => { if (w) openedWins.add(w); return w; };
+function closeOpenedWins() { openedWins.forEach(w => { try { w.close(); } catch {} }); openedWins.clear(); }
+async function openOnScreen(url) {
+  const name = url === '/output' ? '📺 예배당 화면' : '🎤 프롬프터';
+  const plain = () => track(window.open(url, url, 'width=1280,height=720'));
+  if (!('getScreenDetails' in window)) return plain();
+  let det;
+  try { det = await window.getScreenDetails(); } catch {
+    toast('창 관리 권한이 없어 기본 창으로 엽니다 (주소창 왼쪽 자물쇠 → 창 관리 허용)');
+    return plain();
+  }
+  const screens = det.screens;
+  if (screens.length < 2) return plain();   // 모니터가 하나면 묻지 않음
+  const key = 'wc-screen:' + url;
+  let last = null; try { last = localStorage.getItem(key); } catch {}
+  const id = s => `${s.left},${s.top},${s.width},${s.height}`;
+  const minX = Math.min(...screens.map(s => s.left)), minY = Math.min(...screens.map(s => s.top));
+  const maxX = Math.max(...screens.map(s => s.left + s.width)), maxY = Math.max(...screens.map(s => s.top + s.height));
+  const k = Math.min(440 / (maxX - minX), 160 / (maxY - minY));
+  const map = screens.map((s, i) => `<button class="scr-box${id(s) === last ? ' last' : ''}" data-scr="${i}"
+      style="left:${(s.left - minX) * k}px;top:${(s.top - minY) * k}px;width:${s.width * k - 4}px;height:${s.height * k - 4}px">${i + 1}</button>`).join('');
+  const list = screens.map((s, i) => `<button class="btn scr-btn${id(s) === last ? ' primary' : ''}" data-scr="${i}">
+      <b>${i + 1}. ${esc(s.label || '모니터 ' + (i + 1))}</b> <span class="small">${s.width}×${s.height}
+      ${s.isPrimary ? '· 주 모니터' : ''}${s === det.currentScreen ? ' · 지금 운영 화면이 있는 곳' : ''}${id(s) === last ? ' · 지난번 선택' : ''}</span></button>`).join('');
+  openDlg(`
+    <div class="dlg-head"><h3>${name}을 띄울 모니터</h3><button class="icon" data-x>✕</button></div>
+    <style>
+      .scr-map { position: relative; height: ${Math.ceil((maxY - minY) * k) + 4}px; width: ${Math.ceil((maxX - minX) * k) + 4}px; margin: 6px auto 14px; }
+      .scr-box { position: absolute; border: 2px solid #4a5670; background: #1b2232; color: #fff; font: 700 22px sans-serif; border-radius: 6px; cursor: pointer; }
+      .scr-box:hover, .scr-box.last { border-color: #6aa8ff; background: #23345a; }
+      .scr-btn { display: flex; width: 100%; justify-content: flex-start; gap: 8px; margin: 6px 0; }
+    </style>
+    <div class="scr-map">${map}</div>${list}
+    <p class="muted small">창이 그 모니터에 꽉 차게 열립니다. 전체화면은 새 창에서 <b>F 키</b> 또는 <b>더블클릭</b>.</p>
+    <div class="dlg-foot"><button class="btn" id="scrPlain">그냥 창으로 열기</button><button class="btn" data-x>취소</button></div>`);
+  const body = $('#dlgBody');
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  body.querySelector('#scrPlain').onclick = () => { closeDlg(); plain(); };
+  body.querySelectorAll('[data-scr]').forEach(b => b.onclick = () => {
+    const s = screens[+b.dataset.scr];
+    try { localStorage.setItem(key, id(s)); } catch {}
+    closeDlg();
+    const w = track(window.open(url, url, `popup,left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`));
+    try { w.moveTo(s.availLeft, s.availTop); w.resizeTo(s.availWidth, s.availHeight); w.focus(); } catch {}
+    toast(`${name}을 ${+b.dataset.scr + 1}번 모니터에 열었습니다`);
+  });
+}
+
+// ── HTML: 직접 만들기 또는 여러 장짜리 HTML 파일(발표 자료) 가져오기 ──
+function openHtmlChoice() {
+  const body = openDlg(`
+    <div class="dlg-head"><h3>＋ HTML</h3><button class="icon" data-x>✕</button></div>
+    <div class="cards" style="grid-template-columns:1fr 1fr">
+      <label class="c" style="padding:14px"><b>📂 HTML 파일 가져오기</b><div class="muted small" style="margin-top:6px">AI나 다른 프로그램으로 만든 발표 자료(.html). 한 파일에 여러 장이 있으면 장마다 슬라이드가 됩니다.</div>
+        <input type="file" id="hfFile" accept=".html,.htm,text/html" multiple hidden></label>
+      <div class="c" id="hfCode" style="padding:14px"><b>✏️ 직접 만들기</b><div class="muted small" style="margin-top:6px">HTML 코드를 붙여넣거나 예시(카운트다운·말씀 카드)로 시작합니다.</div></div>
+    </div>
+    <p class="muted small">HTML 파일 자료는 예배당 화면·프롬프터에만 나가고 유튜브(OBS)에는 나가지 않습니다. (파일 속 프로그램이 OBS를 건드리지 못하게)</p>
+    <p id="hfProg" class="muted"></p>
+    <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  body.querySelector('#hfCode').onclick = () => openItemEditor(null, null, { type: 'html', title: '새 HTML', slides: [{ text: '', html: HTML_SAMPLES.count }] });
+  body.querySelector('#hfFile').onchange = async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    for (const f of files) {
+      try {
+        body.querySelector('#hfProg').textContent = `'${f.name}' 가져오는 중…`;
+        const fd = new FormData(); fd.append('file', f);
+        const { url } = await api('POST', '/api/html', fd);
+        const info = await countHtmlSlides(url);
+        const slides = info.texts.map((text, page) => ({ text, htmlFile: url, page }));
+        const it = await api('POST', '/api/items', { type: 'html', title: f.name.replace(/\.html?$/i, ''), slides, after: afterId() });
+        selId = it.id;
+        toast(`HTML 슬라이드 ${slides.length}장을 가져왔습니다`);
+      } catch (err) { toast('HTML 가져오기 실패: ' + (err.message || '')); }
+    }
+    closeDlg();
+  };
+}
+// HTML 파일 안의 장 수 세기: 숨긴 샌드박스 창에 열어, 파일에 넣은 도우미가 알려 주는 값을 받음
+function countHtmlSlides(url) {
+  return new Promise(resolve => {
+    const f = document.createElement('iframe');
+    f.sandbox = 'allow-scripts';
+    f.style.cssText = 'position:fixed;left:-30000px;top:0;width:1920px;height:1080px;border:0;visibility:hidden';
+    let done = false;
+    const finish = r => { if (done) return; done = true; removeEventListener('message', onMsg); f.remove(); resolve(r); };
+    const onMsg = e => { if (e.source === f.contentWindow && e.data?.wc === 'count') finish({ n: e.data.n, texts: (e.data.texts || []).map(x => String(x).slice(0, 400)) }); };
+    addEventListener('message', onMsg);
+    setTimeout(() => finish({ n: 1, texts: [''] }), 10000);
+    f.src = url + '#wc=count';
+    document.body.append(f);
+  });
+}
+
+// ── 칸 너비 조절: 경계를 끌면 바뀌고, 이 컴퓨터에 기억 (두 번 누르면 처음대로) ──
+const SPLIT = { l: { v: '--lw', min: 180, max: 560, def: 290 }, r: { v: '--rw', min: 300, max: 900, def: 420 } };
+function initSplits() {
+  const lay = $('.layout');
+  const apply = (k, px) => lay.style.setProperty(SPLIT[k].v, px + 'px');
+  for (const k of Object.keys(SPLIT)) { try { const v = +localStorage.getItem('wc-split-' + k); if (v) apply(k, v); } catch {} }
+  document.querySelectorAll('[data-split]').forEach(h => {
+    const k = h.dataset.split, c = SPLIT[k];
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add('drag'); document.body.classList.add('resizing');
+      const x0 = e.clientX, w0 = (k === 'l' ? $('.left') : $('.right')).getBoundingClientRect().width;
+      let w = w0;
+      const move = ev => {
+        // 가운데 슬라이드 칸이 너무 좁아지지 않게 (최소 360px)
+        const room = lay.clientWidth - 12 - 360 - (k === 'l' ? ($('.right')?.offsetWidth || 0) : $('.left').offsetWidth);
+        w = Math.round(Math.max(c.min, Math.min(c.max, room, w0 + (k === 'l' ? 1 : -1) * (ev.clientX - x0))));
+        apply(k, w);
+      };
+      const up = () => {
+        h.removeEventListener('pointermove', move); h.classList.remove('drag'); document.body.classList.remove('resizing');
+        try { localStorage.setItem('wc-split-' + k, w); } catch {}
+      };
+      h.addEventListener('pointermove', move);
+      h.addEventListener('pointerup', up, { once: true });
+      h.addEventListener('pointercancel', up, { once: true });
+    });
+    h.addEventListener('dblclick', () => { apply(k, c.def); try { localStorage.removeItem('wc-split-' + k); } catch {} toast('처음 너비로 되돌렸습니다'); });
+  });
+}
+
+// ── 프로그램 창 크기·위치 기억: 다음에 켤 때 그 크기로 열림 ──
+function initWinMemory() {
+  let t;
+  const save = () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      if (stopped || document.fullscreenElement) return;
+      fetch('/api/window', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ w: outerWidth, h: outerHeight, x: screenX, y: screenY }) }).catch(() => {});
+    }, 800);
+  };
+  addEventListener('resize', save);
+  // 창을 옮기기만 할 때는 resize 가 안 생기므로 가끔 위치를 확인
+  let last = screenX + ',' + screenY;
+  setInterval(() => { const now = screenX + ',' + screenY; if (now !== last) { last = now; save(); } }, 3000);
+}
+
 // ── 이벤트 연결 ─────────────────────────────────
 function bind() {
   $('#search').oninput = e => { search = e.target.value; renderLib(); };
+  try { $('#libSort').value = localStorage.getItem('wc-libSort') || 'recent'; } catch {}
+  $('#libSort').onchange = e => { try { localStorage.setItem('wc-libSort', e.target.value); } catch {} renderLib(); };
   $('#serviceSel').onchange = async e => { await api('PUT', '/api/current-service', { id: e.target.value }); };
   $('#svcNew').onclick = newService;
   $('#svcEdit').onclick = async () => {
@@ -812,7 +1124,7 @@ function bind() {
   $('#svcDel').onclick = async () => { const s = service(); if (s && confirm(`'${s.name}' 순서를 삭제할까요?\n(찬양은 자료실에 남고, 말씀·광고·문구는 함께 지워집니다)`)) await api('DELETE', '/api/services/' + s.id); };
   $('#newSong').onclick = () => openItemEditor(null);
   $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: 'notice', slides: [{ text: '교회 소식\n내용을 적으세요' }] });
-  $('#newHtml').onclick = () => openItemEditor(null, null, { type: 'html', title: '새 HTML', slides: [{ text: '', html: HTML_SAMPLES.count }] });
+  $('#newHtml').onclick = openHtmlChoice;
   $('#newPhrase').onclick = openPhrases;
   $('#newBible').onclick = openBible;
   $('#newScore').onclick = openScore;
@@ -825,17 +1137,19 @@ function bind() {
     toast(`슬라이드 ${it.slides.length}장을 가져왔습니다`);
   };
   $('#editItem').onclick = () => selId && openItemEditor(selId);
+  initSplits();
   $('#styleBtn').onclick = openStyle;
   $('#mediaBtn').onclick = () => openMediaPicker(null, null);
   if (IS_EDITOR) return;
 
-  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => window.open(b.dataset.open, b.dataset.open, 'width=1280,height=720'));
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openOnScreen(b.dataset.open));
   $('#obsBtn').onclick = openOBS;
   $('#settingsBtn').onclick = openSettings;
   $('#quitBtn').onclick = async () => {
-    if (!confirm('예배송출 프로그램을 끌까요?\n(예배당 화면·OBS 자막도 함께 꺼집니다)')) return;
+    if (!confirm('예배송출 프로그램을 끌까요?\n(예배당 화면·프롬프터 창도 함께 닫히고, OBS 자막도 꺼집니다)')) return;
     stopped = true;
-    await api('POST', '/api/quit');
+    await api('POST', '/api/quit');   // 서버가 모든 화면에 '종료'를 알림 → 예배당 화면·프롬프터 창이 스스로 닫힘
+    closeOpenedWins();
     document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px">예배송출을 종료했습니다. 이 창은 닫으셔도 됩니다.</div>';
     setTimeout(() => window.close(), 800);
   };
@@ -848,10 +1162,10 @@ function bind() {
   $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
   $('#pip').onclick = () => { goLive({ pip: !snap.live.pip }); if (!S.settings.obsScenes?.pip) toast('사람 화면을 쓰려면 🎥 OBS 자막 주소 → 사람 화면 설정을 해 주세요'); };
   $('#motionOn').onclick = () => api('PUT', '/api/style', { main: { motionOn: snap.style.main.motionOn === false } });
-  document.querySelectorAll('[data-size]').forEach(b => b.onclick = () => {
-    const [grp, d] = b.dataset.size.split(':'), cur = +snap.style[grp].size;
-    api('PUT', '/api/style', { [grp]: { size: Math.round((cur + d * (grp === 'main' ? 0.4 : 0.3)) * 10) / 10 } });
-  });
+  document.querySelectorAll('[data-size]').forEach(b => b.onclick = () => { const [grp, d] = b.dataset.size.split(':'); bumpSize(grp, +d); });
+  initMediaBin();
+  initOverlayQuick();
+  initWinMemory();
 
   addEventListener('keydown', e => {
     if (inactive) return;
@@ -864,6 +1178,7 @@ function bind() {
     else if (k === 'l' || k === 'L') $('#logo').click();
     else if (k === 'o' || k === 'O') $('#overlayOff').click();
     else if (k === 'p' || k === 'P') $('#pip').click();
+    else if (e.code === 'BracketLeft' || e.code === 'BracketRight') { e.preventDefault(); bumpSize(e.shiftKey ? 'overlay' : 'main', e.code === 'BracketRight' ? 1 : -1); }
     else if (k === 'Escape') $('#reset').click();
     else if (/^[1-9]$/.test(k) && selId) goLive({ itemId: selId, index: +k - 1 }).catch(() => {});
   });

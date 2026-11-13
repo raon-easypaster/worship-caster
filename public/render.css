@@ -105,3 +105,9 @@
   radial-gradient(ellipse 15% 5% at 85% 45%, rgba(255,255,255,.18), transparent 70%), radial-gradient(ellipse 22% 6% at 40% 62%, rgba(255,220,200,.15), transparent 70%); }
 .d-cl.c1 { animation-duration: 150s; }
 .d-cl.c2 { animation-duration: 95s; top: 12%; opacity: .7; }
+
+/* HTML 파일 자료: 1920×1080 으로 그린 뒤 줄임 */
+.wc-hfile { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; pointer-events: none; background: #000; }
+/* 방송 '화면 일부': 원래 크기로 그린 뒤 줄여서 구석에 */
+.wc-part { position: absolute; width: 100%; height: 100%; border-radius: 2.2cqh; overflow: hidden; box-shadow: 0 1cqh 4cqh rgba(0,0,0,.6); outline: .55cqh solid rgba(255,255,255,.85); }
+.wc-media { position: absolute; background-position: center; background-repeat: no-repeat; }

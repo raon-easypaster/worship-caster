@@ -20,7 +20,7 @@
 </div>
 
 <header class="top">
-  <div class="brand">✝ 예배송출 <span id="modeTag" class="tag"></span></div>
+  <div class="brand"><span id="brandMark" class="brand-cross">✝</span> 예배송출 <span id="modeTag" class="tag"></span></div>
   <div class="grow"></div>
   <div class="ctrl-only">
     <button class="btn" data-open="/output">📺 예배당 화면 열기</button>
@@ -56,25 +56,71 @@
         <button class="btn sm" id="newHtml" title="웹 페이지(HTML)를 화면에 띄우기">＋ HTML</button>
       </div>
       <p class="muted small" style="margin:0">새 자료는 순서에서 고른 자료 <b>다음</b>에 들어갑니다.</p>
-      <div class="row" style="margin:6px 0 0"><b class="grow">찬양 자료실</b></div>
+      <div class="row" style="margin:6px 0 0"><b class="grow">찬양 자료실</b>
+        <select id="libSort" style="width:auto;padding:3px 6px;font-size:12px"><option value="recent">최근순</option><option value="abc">가나다순</option></select></div>
       <input id="search" placeholder="찬양 검색 (제목·가사)">
       <ul id="libList" class="list"></ul>
     </section>
   </aside>
 
+  <div class="split" data-split="l" title="끌어서 왼쪽 칸 너비 조절 · 두 번 누르면 처음대로"></div>
   <section class="center">
-    <div class="row head">
-      <h2 id="itemTitle" class="grow">자료를 선택하세요</h2>
-      <button class="btn" id="editItem" disabled>✎ 편집</button>
+    <div class="center-main">
+      <div class="row head">
+        <h2 id="itemTitle" class="grow">자료를 선택하세요</h2>
+        <button class="btn" id="editItem" disabled>✎ 편집</button>
+      </div>
+      <div id="slides" class="grid"></div>
     </div>
-    <div id="slides" class="grid"></div>
+    <!-- 미디어 칸: 누르면 예배당 화면 배경으로 계속 나옴 (영상은 소리 없이 반복) -->
+    <div class="mbin ctrl-only">
+      <div class="mbin-head">
+        <b>🎞 미디어 배경</b>
+        <div class="seg" id="mbFilter"><button data-f="all" class="on">전체</button><button data-f="video">영상</button><button data-f="image">사진</button></div>
+        <span id="mbLive" class="mbin-live muted">배경 없음</span>
+        <div class="grow"></div>
+        <input type="range" id="mbSize" min="110" max="260" step="10" value="150" title="미리보기 크기">
+        <label class="btn sm">＋ 올리기<input type="file" id="mbUp" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,video/*" hidden></label>
+        <select id="mbFit" class="mbin-fit" title="배경 크기 맞춤 (파일마다 기억)">
+          <option value="auto">맞춤: 자동</option><option value="cover">꽉 채우기</option><option value="contain">전체 보이기</option><option value="small">작게 (로고)</option>
+        </select>
+        <button class="btn sm toggle" id="mbObs" title="미디어 배경을 방송(OBS)에도 똑같이 내보내기">🎥 방송에도</button>
+        <button class="btn sm" id="mbOff" title="예배당 화면의 미디어 배경 끄기">⏹ 배경 끄기</button>
+        <button class="icon" id="mbFold" title="미디어 칸 접기·펴기">▾</button>
+      </div>
+      <div id="mbGrid" class="mbin-grid"></div>
+    </div>
   </section>
 
+  <div class="split ctrl-only" data-split="r" title="끌어서 오른쪽 칸 너비 조절 · 두 번 누르면 처음대로"></div>
   <aside class="right ctrl-only">
-    <div class="pv-label">예배당 화면 <span id="liveInfo" class="muted"></span></div>
-    <div id="pvMain" class="wc-screen pv"></div>
-    <div class="pv-label">방송 자막 (OBS) <span id="ovState" class="ov-off hidden">꺼짐 — 예배당 화면에만 나가는 중</span></div>
-    <div id="pvOverlay" class="wc-screen pv checker"></div>
+    <section class="rp rp-tv">
+      <div class="pv-label"><span class="rp-tag">📺 예배당 화면</span> <span id="liveInfo" class="muted"></span>
+        <span class="sz" title="예배당 글자 크기 ( [ / ] 키 )"><button class="sz-b" data-size="main:-1">A−</button><b id="szMain"></b><button class="sz-b" data-size="main:1">A+</button></span></div>
+      <div id="pvMain" class="wc-screen pv"></div>
+    </section>
+    <section class="rp rp-obs">
+      <div class="pv-label"><span class="rp-tag">🎥 방송 자막 (OBS)</span> <span id="ovState" class="ov-off hidden">꺼짐 — 예배당 화면에만 나가는 중</span>
+        <span class="sz" title="방송 글자 크기 ( Shift+[ / Shift+] 키 )"><button class="sz-b" data-size="overlay:-1">A−</button><b id="szOv"></b><button class="sz-b" data-size="overlay:1">A+</button></span></div>
+      <div id="pvOverlay" class="wc-screen pv checker"></div>
+      <details class="ovq-wrap"><summary>방송 바로 조절</summary>
+      <div class="ovq" title="바꾸면 바로 방송에 적용됩니다">
+        <label>그림 보내기</label>
+        <select data-ov="imgMode"><option value="full">화면 가득</option><option value="part">화면 일부 (카메라 보이게)</option><option value="none">보내지 않기 (자막만)</option></select>
+        <label class="part-only">일부 — 크기</label>
+        <div class="row part-only"><input type="range" data-ov="partSize" min="15" max="70" step="1"><span class="ovq-v" data-ovv="partSize"></span></div>
+        <label class="part-only">일부 — 위치</label>
+        <select class="part-only" data-ov="partPos"><option value="tr">오른쪽 위</option><option value="mr">오른쪽 중간</option><option value="br">오른쪽 아래</option><option value="tl">왼쪽 위</option><option value="ml">왼쪽 중간</option><option value="bl">왼쪽 아래</option></select>
+        <label>자막 위치</label>
+        <select data-ov="position"><option value="bottom">아래</option><option value="top">위</option></select>
+        <label>바 진하기</label>
+        <div class="row"><input type="range" data-ov="boxOpacity" min="0" max="1" step="0.05"><span class="ovq-v" data-ovv="boxOpacity"></span></div>
+        <label>곡명·구절</label><input type="checkbox" data-ov="showTitle">
+        <label>미디어 배경</label><label class="ovq-chk"><input type="checkbox" id="ovMediaObs"> 방송에도 내보내기</label>
+      </div></details>
+    </section>
+    <section class="rp rp-ctl">
+    <div class="pv-label"><span class="rp-tag">🎛 송출 조작</span></div>
     <div class="controls">
       <button class="btn big" id="prev">◀ 이전</button>
       <button class="btn big primary" id="next">다음 ▶</button>
@@ -86,13 +132,12 @@
       <button class="btn toggle" id="pip" title="그림·악보·PPT를 유튜브에 보낼 때 오른쪽 아래에 사람(카메라) 화면을 작게 띄웁니다 (OBS 장면 전환 설정 필요)">👤 사람 화면 <kbd>P</kbd></button>
       <button class="btn toggle" id="motionOn" title="움직이는 배경 켜기/끄기">🌌 움직이는 배경</button>
     </div>
-    <div class="sizes">
-      <span>예배당 글자</span><button class="btn sm" data-size="main:-1">－</button><b id="szMain"></b><button class="btn sm" data-size="main:1">＋</button>
-      <span>방송 글자</span><button class="btn sm" data-size="overlay:-1">－</button><b id="szOv"></b><button class="btn sm" data-size="overlay:1">＋</button>
-    </div>
-    <div class="pv-label">다음 슬라이드</div>
-    <div id="pvNext" class="next-text muted"></div>
-    <p class="muted small">단축키: → Space 다음 · ← 이전 · 숫자키 1~9 슬라이드 · O 방송 자막 끄기 · P 사람 화면</p>
+    </section>
+    <section class="rp rp-next">
+      <div class="pv-label"><span class="rp-tag">⏭ 다음 슬라이드</span></div>
+      <div id="pvNext" class="next-text muted"></div>
+    </section>
+    <p class="muted small">단축키: → Space 다음 · ← 이전 · 숫자키 1~9 슬라이드 · O 방송 자막 끄기 · P 사람 화면 · [ ] 글자 크기 (Shift: 방송)</p>
   </aside>
 </main>
 
