@@ -357,6 +357,13 @@ async function importSongs(files) {
   toast([`찬양 ${added}곡을 자료실에 넣었습니다`, same && `같은 제목 ${same}곡은 건너뜀`, empty && `가사 없는 ${empty}곡은 건너뜀`].filter(Boolean).join(' · '));
 }
 
+// 미얀마어 옛 글자 방식(자우기 Zawgyi) 알아보기 — 표준(유니코드) 글꼴에서는 글자가 뒤섞여 보임
+// 유니코드에서는 'ေ'(U+1031)가 자음 뒤에 오므로, 낱말 맨 앞이나 받침 기호 앞에 오면 자우기
+const looksZawgyi = t => /(^|[\s​(\[“"'])ေ|ေ[ျ-ှ]/m.test(String(t || ''));
+function zawgyiCheck(t) {
+  if (looksZawgyi(t)) alert('이 미얀마어 글은 옛 방식(자우기, Zawgyi)으로 쓴 것 같습니다.\n화면에서 글자 순서가 뒤섞여 보일 수 있습니다.\n\n휴대폰이나 인터넷의 "Zawgyi → Unicode" 변환기로 유니코드로 바꾼 뒤 다시 붙여넣어 주세요.\n(설명서 11장 참고)');
+}
+
 async function newService() {
   const T = await api('GET', '/api/templates');
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -654,6 +661,7 @@ function openItemEditor(id, focusIndex, preset) {
     const bg = it.slides[0]?.bg; if (bg) slides.forEach(s => (s.bg = bg));
     it.slides = append ? [...it.slides, ...slides] : slides;
     body.querySelector('#ePaste').value = ''; draw();
+    zawgyiCheck(slides.map(s => s.text).join('\n'));
   };
   body.querySelector('#eSplit').onclick = () => doSplit(false);
   body.querySelector('#eAppend').onclick = () => doSplit(true);
@@ -667,6 +675,7 @@ function openItemEditor(id, focusIndex, preset) {
   body.querySelector('#eSave').onclick = async () => {
     const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', { ...it, place: true, after: afterId() });
     selId = saved.id; closeDlg(); toast('저장했습니다');
+    zawgyiCheck(it.slides.map(s => s.text || '').join('\n'));
   };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
   draw();
@@ -1056,7 +1065,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.8.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.9.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };

@@ -8,7 +8,13 @@
   const col = (c, d) => (/^#[0-9a-f]{3,8}$/i.test(String(c || '')) ? c : d);
   const num = (n, d, lo = -1e4, hi = 1e4) => { n = Number(n); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
   const DEFAULT_FONT = "'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif";
-  const font = f => (/^[\w\s',\-가-힣]{1,120}$/.test(String(f || '')) ? f : DEFAULT_FONT);
+  // 고른 글꼴에 없는 글자(베트남어 성조·태국어·미얀마어)는 함께 들어 있는 Noto 글꼴로 — 인터넷 없이도 나옴
+  const INTL = "'Noto Sans', 'Noto Sans Thai', 'Noto Sans Myanmar'";
+  const withIntl = f => { const m = String(f).match(/^(.*?)(,\s*(?:sans-serif|serif|cursive|monospace))?\s*$/); return `${m[1]}, ${INTL}${m[2] || ', sans-serif'}`; };
+  const font = f => withIntl(/^[\w\s',\-가-힣]{1,120}$/.test(String(f || '')) ? f : DEFAULT_FONT);
+  // 미얀마어·태국어는 글자 위아래 표시가 높아 줄 간격을 넓혀야 겹치지 않음
+  const lhFor = (text, base) => /[\u1000-\u109F\uA9E0-\uA9FF\uAA60-\uAA7F]/.test(text) ? Math.max(base, 1.9)
+    : /[\u0E00-\u0E7F\u0E80-\u0EFF]/.test(text) ? Math.max(base, 1.65) : base;
   const pick = (v, list, d) => (list.includes(v) ? v : d);
   const mediaUrl = u => (/^\/media\/[^"'<>()\\\s]+$/.test(String(u || '')) ? u : '');
 
@@ -44,6 +50,7 @@
     ["'Jua', sans-serif", '주아 (둥근 글씨)'],
     ["'Nanum Pen Script', cursive", '나눔손글씨 펜'],
     ["'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif", '컴퓨터 기본 고딕'],
+    ["'Noto Sans', 'Noto Sans Thai', 'Noto Sans Myanmar', sans-serif", '다국어 Noto Sans (베트남·태국·미얀마어)'],
   ];
   const MYEONGJO = "'Nanum Myeongjo', serif", BATANG = "'Gowun Batang', serif";
 
@@ -227,7 +234,7 @@
     } else body = esc(s.text).replace(/\n/g, '<br>');
     return inner + `<div class="wc-textwrap" style="justify-content:${jc};text-align:${st.align}">
       <div class="wc-text-main" dir="auto" style="font-family:${st.font};font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};
-        line-height:${st.lineHeight};text-shadow:${textShadow(st)};${st.strokeWidth ? `-webkit-text-stroke:${st.strokeWidth / 10}cqh ${st.stroke};paint-order:stroke fill;` : ''}">${body}</div>${ref}</div>`;
+        line-height:${lhFor(s.text || '', st.lineHeight)};text-shadow:${textShadow(st)};${st.strokeWidth ? `-webkit-text-stroke:${st.strokeWidth / 10}cqh ${st.stroke};paint-order:stroke fill;` : ''}">${body}</div>${ref}</div>`;
   }
 
   function mainHTML(snap, opts = {}) {
@@ -281,7 +288,7 @@
     const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
     return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
       ${title ? `<div class="wc-ov-title" style="font-size:${(st.size * 0.55).toFixed(2)}cqh">${esc(title)}</div>` : ''}
-      <div class="wc-ov-text" dir="auto" style="font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};line-height:${st.lineHeight}">${esc(s.text).replace(/\n/g, '<br>')}</div>
+      <div class="wc-ov-text" dir="auto" style="font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};line-height:${lhFor(s.text || '', st.lineHeight)}">${esc(s.text).replace(/\n/g, '<br>')}</div>
     </div></div>`;
   }
 
@@ -293,7 +300,7 @@
     const txt = x => x?.htmlFile ? (x.text || '[HTML 화면]') : x?.html ? '[HTML 화면]' : (x?.text || (x?.bg || x?.elements?.length ? '[그림]' : ''));
     return `<div class="wc-layer wc-stage">
       <div class="wc-st-top"><span>${esc(snap.item?.title || '대기')}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
-      <div class="wc-st-cur" dir="auto">${esc(txt(s)).replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>
+      <div class="wc-st-cur" dir="auto" style="line-height:${lhFor(txt(s), 1.35)}">${esc(txt(s)).replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>
       <div class="wc-st-next"><b>다음</b> ${esc(n ? txt(n) : '— 끝 —').replace(/\n/g, ' / ')}</div>
     </div>`;
   }

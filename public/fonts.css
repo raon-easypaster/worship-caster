@@ -16,3 +16,10 @@
 @import url('/fonts/do-hyeon/400.css');
 @import url('/fonts/jua/400.css');
 @import url('/fonts/nanum-pen-script/400.css');
+/* 다국어 자막 — 베트남어(Noto Sans), 태국어, 미얀마어 (SIL 오픈 폰트 라이선스) */
+@import url('/fonts/noto-sans/400.css');
+@import url('/fonts/noto-sans/700.css');
+@import url('/fonts/noto-sans-thai/400.css');
+@import url('/fonts/noto-sans-thai/700.css');
+@import url('/fonts/noto-sans-myanmar/400.css');
+@import url('/fonts/noto-sans-myanmar/700.css');
