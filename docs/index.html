@@ -41,6 +41,12 @@
   .btn small { font-weight: 400; font-size: 13px; opacity: .85; }
   .btn.main { background: var(--brand2); color: #fff; }
   .btn.kakao { background: #fee500; border-color: #fee500; color: #191919; }
+  .support { text-align: center; padding: 22px 18px; }
+  .support h3 { margin: 0 0 6px; font-size: 19px; }
+  .support p { margin: 0 0 14px; color: var(--muted); }
+  .acct { display: inline-flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; background: var(--soft); border-radius: 12px; padding: 10px 16px; }
+  .acct b { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  .acct button { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
   .btn:active { transform: scale(.98); }
   .ver { margin-top: 12px; color: var(--muted); font-size: 14px; }
   .mobile-note { display: none; margin: 14px auto 0; max-width: 520px; background: var(--soft); border-radius: 12px; padding: 12px 16px; font-size: 15px; }
@@ -187,6 +193,17 @@
     </div>
   </section>
 
+  <section id="support">
+    <div class="card support">
+      <h3>🤝 예배송출은 자율 후원으로 운영됩니다</h3>
+      <p>후원은 부담을 갖지 않으셔도 됩니다. 무료로 사용하셔도 괜찮습니다.</p>
+      <div class="acct">
+        <span>카카오뱅크 <b id="acctNo">3333-01-9034483</b> 이광복</span>
+        <button type="button" id="copyAcct">계좌번호 복사</button>
+      </div>
+    </div>
+  </section>
+
   <footer>
     <p>만든 사람: <b>쉬운목사 이광복</b> · 함께 만든 분: smdjoo-stack · 무료로 나눕니다</p>
     <p>찬양 가사와 성경 번역본은 저작권이 있습니다. 교회의 이용 허락 범위 안에서 쓰세요. (개역개정 성경은 저작권 때문에 프로그램에 넣지 않았습니다)</p>
@@ -211,6 +228,12 @@
       mac('copyLink').onclick = () => navigator.clipboard?.writeText(location.href.split('#')[0]).then(() => (mac('copyLink').textContent = '복사했습니다 — 카톡으로 보내 두세요'));
     }
   })();
+
+  // 후원 계좌번호 복사 (숫자만)
+  document.getElementById('copyAcct').onclick = e => {
+    const no = '3333019034483';
+    (navigator.clipboard ? navigator.clipboard.writeText(no) : Promise.reject()).then(() => (e.target.textContent = '복사했습니다'), () => prompt('계좌번호', no));
+  };
 
   // 최신 버전 정보 (버전·날짜·크기·설명서 링크) — 실패해도 위 고정 링크는 그대로 동작
   fetch('https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest')
