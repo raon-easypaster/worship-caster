@@ -206,7 +206,7 @@ app.get('/control', (req, res) => isLocal(req) ? res.sendFile(path.join(__dirnam
 app.get('/editor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'app.html')));
 // 서버가 다시 켜졌는지 송출 화면이 알 수 있게 (켤 때마다 바뀌는 값) → 업데이트 뒤 스스로 새로고침
 const BOOT = String(Date.now());
-app.get('/api/boot', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ boot: BOOT }); });
+app.get('/api/boot', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ boot: BOOT, lang: db.settings.lang === 'en' ? 'en' : 'ko' }); });
 // HTML 파일 자료: 샌드박스(앱과 다른 출처)로만 열림 → 파일 안의 스크립트가 앱을 조종할 수 없음
 app.get('/slides/:id([a-f0-9]{12}).html', (req, res) => {
   const file = path.join(SLIDES_DIR, req.params.id + '.html');
@@ -260,7 +260,7 @@ app.post('/api/html', needAuth, upload.single('file'), (req, res) => {
   fs.renameSync(req.file.path, path.join(SLIDES_DIR, id + '.html'));
   res.json({ url: `/slides/${id}.html` });
 });
-app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(req) }));
+app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(req), lang: db.settings.lang === 'en' ? 'en' : 'ko' }));
 
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
@@ -420,6 +420,10 @@ app.put('/api/settings', needLocal, (req, res) => {
   if (req.body.titleLogo != null) db.settings.titleLogo = TITLE_LOGO_RE.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
   if (req.body.updateCheck !== undefined) db.settings.updateCheck = !!req.body.updateCheck;   // 새 버전 알림
+  if (req.body.lang !== undefined) {   // 메뉴 언어 — 바뀌면 열린 화면·리모컨도 새로고침
+    const l = req.body.lang === 'en' ? 'en' : 'ko';
+    if (l !== (db.settings.lang || 'ko')) { db.settings.lang = l; setTimeout(() => broadcast({ type: 'lang', lang: l }), 300); }
+  }
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
     db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };

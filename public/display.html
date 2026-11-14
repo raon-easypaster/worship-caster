@@ -20,6 +20,7 @@
 <div id="screen" class="wc-screen"></div>
 <div id="hint">F 키 또는 더블클릭 = 전체화면</div>
 <div id="offline" title="서버 연결 끊김 — 재연결 중"></div>
+<script src="/i18n.js"></script>
 <script src="/render.js"></script>
 <script>
   const mode = { '/output': 'main', '/overlay': 'overlay', '/stage': 'stage' }[location.pathname] || 'main';
@@ -38,7 +39,8 @@
     ws.onopen = () => {
       document.getElementById('offline').style.display = 'none'; wsNow = ws; reportOBS();
       // 예배송출이 다시 켜졌으면(업데이트·재시작) 새 화면 코드를 받도록 새로고침
-      fetch('/api/boot', { cache: 'no-store' }).then(r => r.json()).then(({ boot }) => {
+      fetch('/api/boot', { cache: 'no-store' }).then(r => r.json()).then(({ boot, lang }) => {
+        if (lang !== I18N.lang) { I18N.setLang(lang); if (snap) WC.render(screen, snap, mode, { fade: false }); }
         if (window._wcBoot && window._wcBoot !== boot) location.reload();
         window._wcBoot = boot;
       }).catch(() => {});
@@ -47,6 +49,7 @@
       const m = JSON.parse(e.data);
       if (m.type === 'live') { snap = m; WC.render(screen, snap, mode, { audio: location.pathname === '/output' }); syncScene(); checkSound(); }
       // 예배송출을 끄면 예배당 화면·프롬프터 창도 닫힘 (OBS 자막은 OBS 안이라 화면만 비움)
+      if (m.type === 'lang' && m.lang !== I18N.lang) return location.reload();
       if (m.type === 'quit') {
         window._wcQuit = true;
         screen.innerHTML = '';

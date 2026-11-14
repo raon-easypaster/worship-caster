@@ -983,25 +983,35 @@ function sceneField(id, cur = '') {
 document.addEventListener('obsinfo', () => { if (dlg.open && $('#obsPipBox')) openOBS(); });
 function openOBS() {
   const urls = S.lan.map(ip => `http://${ip}:${S.port}/overlay`);
+  const EN = I18N.lang === 'en';
   openDlg(`
     <div class="dlg-head"><h3>🎥 OBS에 자막 얹기</h3><button class="icon" data-x>✕</button></div>
-    <p>방송 PC(맥/윈도우)의 OBS에서 <b>소스 ＋ → 브라우저</b>를 추가하고 아래 주소를 넣으세요. 너비 <b>1920</b>, 높이 <b>1080</b>.
-    카메라 소스 <b>위에</b> 두면 자막만 투명하게 얹힙니다. (캡처 장비·NDI 플러그인 필요 없음)</p>
+    ${EN ? `<p>In OBS on the streaming computer (Mac/Windows), add <b>Sources ＋ → Browser</b> and enter the address below. Width <b>1920</b>, height <b>1080</b>.
+    Put it <b>above</b> the camera source and only the captions are overlaid, transparently. (No capture card or NDI plugin needed.)</p>`
+    : `<p>방송 PC(맥/윈도우)의 OBS에서 <b>소스 ＋ → 브라우저</b>를 추가하고 아래 주소를 넣으세요. 너비 <b>1920</b>, 높이 <b>1080</b>.
+    카메라 소스 <b>위에</b> 두면 자막만 투명하게 얹힙니다. (캡처 장비·NDI 플러그인 필요 없음)</p>`}
     ${urls.map(u => `<div class="copy row"><input readonly value="${u}"><button class="btn" data-copy="${u}">복사</button></div>`).join('') || '<p class="err">네트워크 주소를 찾지 못했습니다. 와이파이/랜 연결을 확인하세요. 같은 맥에서 OBS를 쓰면: http://localhost:' + S.port + '/overlay</p>'}
-    <p class="muted small">· 같은 맥에서 OBS를 돌릴 때: <code>http://localhost:${S.port}/overlay</code><br>
-    · 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.<br>
-    · 웹 편집기(주중 준비): <code>${S.lan[0] ? `http://${S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> (⚙︎ 설정에서 변경)</p>
+    <p class="muted small">${EN ? '· When OBS runs on this computer:' : '· 같은 맥에서 OBS를 돌릴 때:'} <code>http://localhost:${S.port}/overlay</code><br>
+    ${EN ? '· The streaming computer and this one must be on the same network. Allow it if the firewall asks.' : '· 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.'}<br>
+    ${EN ? '· Web editor (weekday prep):' : '· 웹 편집기(주중 준비):'} <code>${S.lan[0] ? `http://${S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> ${EN ? '(change in ⚙︎ Settings)' : '(⚙︎ 설정에서 변경)'}</p>
     <h4 id="obsPipBox" style="margin:18px 0 6px">👤 그림·악보·PPT를 보낼 때 오른쪽 아래에 사람 화면 (선택)</h4>
-    <div class="notebox">상태: ${!obsInfo ? '<span class="muted">OBS 자막 소스가 아직 연결되지 않았습니다</span>'
+    <div class="notebox">${EN ? 'Status:' : '상태:'} ${!obsInfo ? '<span class="muted">OBS 자막 소스가 아직 연결되지 않았습니다</span>'
       : obsInfo.level >= 4 ? '<span class="ok">OBS 장면 전환 가능</span>' : obsInfo.level >= 0 ? '<span class="warn">OBS 권한이 부족합니다 — 아래 3번을 해 주세요</span>' : '<span class="warn">이 OBS는 장면 전환을 지원하지 않습니다 (OBS 28 이상 필요)</span>'}
-      <ol>
+      ${EN ? `<ol>
+        <li>Keep your current scene (e.g. <b>Worship</b>) as it is, with this caption browser source above the camera.</li>
+        <li>Make one more scene (e.g. <b>Worship-Picture</b>). Sources ＋ → Browser → <b>Add Existing Source</b> to add the same caption source,
+          then add the camera <b>above</b> it with 'Add Existing Source' and place it small in the lower right.</li>
+        <li>Caption browser source properties → set <b>Page permissions</b> to <b>Advanced access to OBS</b>.</li>
+        <li>Choose the two scenes below and save. OBS switches to 'Worship-Picture' when a picture goes out and back to 'Worship' for text captions.
+          Turn it on and off with the <b>👤 Camera PiP</b> button (P key).</li>
+      </ol>` : `<ol>
         <li>지금 쓰는 장면(예: <b>예배</b>)은 그대로 둡니다. 카메라 위에 이 자막 브라우저 소스가 있으면 됩니다.</li>
         <li>장면을 하나 더 만듭니다(예: <b>예배-그림</b>). 소스 ＋ → 브라우저 → <b>기존 소스 추가</b>로 같은 자막 소스를 넣고,
           그 <b>위에</b> 카메라도 '기존 소스 추가'로 넣어 오른쪽 아래에 작게 놓습니다.</li>
         <li>자막 브라우저 소스 속성 → <b>페이지 권한</b>을 <b>고급 접근 권한</b>(장면 변경 가능, 영어: Advanced access to OBS)으로 바꿉니다.</li>
         <li>아래에서 두 장면을 고르고 저장합니다. 그림이 나갈 때는 '예배-그림'으로, 글자 자막으로 돌아오면 '예배'로 OBS가 알아서 바뀝니다.
           운영 화면의 <b>👤 사람 화면</b> 버튼(P 키)으로 켜고 끕니다.</li>
-      </ol></div>
+      </ol>`}</div>
     <div class="form" style="margin-top:8px">
       <label>평소 장면</label>${sceneField('obsBase', S.settings.obsScenes?.base)}
       <label>사람 화면 장면</label>${sceneField('obsPip', S.settings.obsScenes?.pip)}
@@ -1022,6 +1032,8 @@ function openSettings() {
   const posSel = (id, cur) => `<select id="${id}">${Object.entries(POSN).map(([k, n]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
   const body = openDlg(`
     <div class="dlg-head"><h3>설정</h3><button class="icon" data-x>✕</button></div>
+    <div class="row" style="margin:0 0 12px"><b class="small">언어 · Language</b>
+      <select id="stLang" style="width:auto"><option value="ko" ${I18N.lang !== 'en' ? 'selected' : ''}>한국어</option><option value="en" ${I18N.lang === 'en' ? 'selected' : ''}>English</option></select></div>
     <div class="form">
       <label>웹 편집기 PIN</label><div class="row"><input id="stPin" value="${esc(S.settings.pin || '')}" maxlength="12" placeholder="6~12자리"><button class="btn" id="stPinSave">저장</button></div>
     </div>
@@ -1065,7 +1077,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.9.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.10.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1086,6 +1098,7 @@ function openSettings() {
     try { const r = await api('POST', '/api/restore', fd); await reload(); closeDlg(); toast(`되살렸습니다 — 자료 ${r.items}개, 예배 순서 ${r.services}개, 파일 ${r.files}개`); }
     catch (err) { toast(err.message); }
   };
+  body.querySelector('#stLang').onchange = async e => { await api('PUT', '/api/settings', { lang: e.target.value }); location.reload(); };
   body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
   body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
@@ -1601,6 +1614,7 @@ function bind() {
   document.body.classList.toggle('editor', IS_EDITOR);
   $('#modeTag').textContent = IS_EDITOR ? '웹 편집기 · 준비 전용' : '운영 · 송출';
   const me = await fetch('/api/me').then(r => r.json());
+  I18N.setLang(me.lang);   // 메뉴 언어 (⚙︎ 설정)
   if (!me.authed) {
     $('#login').classList.remove('hidden');
     $('#loginForm').onsubmit = async e => {

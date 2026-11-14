@@ -40,6 +40,7 @@
 <div id="off" title="연결 끊김"></div>
 <h1>✝ 예배송출 리모컨 <small id="svc"></small></h1>
 <div id="app"><p class="msg">불러오는 중…</p></div>
+<script src="/i18n.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -90,7 +91,7 @@ function draw() {
     <div class="big"><button data-a="prev">◀ 이전</button><button class="nx" data-a="next">다음 ▶</button></div>
     <div class="tg">
       <button data-t="black" class="${L.black ? 'on' : ''}">■ 검은화면</button>
-      <button data-t="clear" class="${L.clear ? 'on' : ''}">◻ 글자 지움</button>
+      <button data-t="clear" class="${L.clear ? 'on' : ''}">◻ 글자 지우기</button>
       <button data-t="logo" class="${L.logo ? 'on' : ''}">✝ 로고</button>
       <button data-t="overlayOff" class="${L.overlayOff ? 'on' : ''}">🎥 방송 끄기</button>
       <button data-a="reset">모두 끄기</button>
@@ -122,6 +123,7 @@ function connect() {
     const m = JSON.parse(e.data);
     if (m.type === 'live') { snap = m; draw(); }
     if (m.type === 'data') api('GET', '/api/state').then(j => { S = j; draw(); }).catch(() => {});
+    if (m.type === 'lang' && m.lang !== I18N.lang) return location.reload();
     if (m.type === 'quit') $('#app').innerHTML = '<p class="msg">예배송출이 종료되었습니다.</p>';
   };
   ws.onclose = () => { $('#off').style.display = 'block'; setTimeout(connect, 1500); };
@@ -129,6 +131,7 @@ function connect() {
 
 async function start() {
   const me = await fetch('/api/me').then(r => r.json()).catch(() => ({}));
+  I18N.setLang(me.lang);
   if (!me.authed) return login();
   S = await api('GET', '/api/state');
   snap = S.live;

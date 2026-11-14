@@ -7,6 +7,7 @@
   // ── 값 검증: 스타일 속성에 들어가는 값은 모두 여기서 걸러서 HTML/CSS 주입을 막음 ──
   const col = (c, d) => (/^#[0-9a-f]{3,8}$/i.test(String(c || '')) ? c : d);
   const num = (n, d, lo = -1e4, hi = 1e4) => { n = Number(n); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  const T = s => (window.I18N ? window.I18N.t(s) : s);   // 메뉴 언어 (i18n.js)
   const DEFAULT_FONT = "'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif";
   // 고른 글꼴에 없는 글자(베트남어 성조·태국어·미얀마어)는 함께 들어 있는 Noto 글꼴로 — 인터넷 없이도 나옴
   const INTL = "'Noto Sans', 'Noto Sans Thai', 'Noto Sans Myanmar'";
@@ -280,7 +281,7 @@
         const vCss = v === 'center' ? 'top:0' : `${v}:4%`;
         return `<div class="wc-layer"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
       }
-      const pip = snap.live?.pip && opts.preview ? '<div class="wc-pip-ph">👤 사람 화면<small>(OBS 장면 전환)</small></div>' : '';
+      const pip = snap.live?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
       return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
     }
     const st = safeOverlay(snap.style.overlay);
@@ -294,14 +295,14 @@
 
   function stageHTML(snap) {
     const s = snap.slide, n = snap.next, L = snap.live;
-    const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-    const status = (L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중') +
-      (L.overlayOff || snap.item?.noBroadcast ? ' · 방송 자막 꺼짐' : '');
-    const txt = x => x?.htmlFile ? (x.text || '[HTML 화면]') : x?.html ? '[HTML 화면]' : (x?.text || (x?.bg || x?.elements?.length ? '[그림]' : ''));
+    const now = new Date().toLocaleTimeString(window.I18N?.lang === 'en' ? 'en-US' : 'ko-KR', { hour: '2-digit', minute: '2-digit' });
+    const status = T(L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중') +
+      (L.overlayOff || snap.item?.noBroadcast ? ' ' + T('· 방송 자막 꺼짐') : '');
+    const txt = x => x?.htmlFile ? (x.text || T('[HTML 화면]')) : x?.html ? T('[HTML 화면]') : (x?.text || (x?.bg || x?.elements?.length ? T('[그림]') : ''));
     return `<div class="wc-layer wc-stage">
-      <div class="wc-st-top"><span>${esc(snap.item?.title || '대기')}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
+      <div class="wc-st-top"><span>${esc(snap.item?.title || T('대기'))}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
       <div class="wc-st-cur" dir="auto" style="line-height:${lhFor(txt(s), 1.35)}">${esc(txt(s)).replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>
-      <div class="wc-st-next"><b>다음</b> ${esc(n ? txt(n) : '— 끝 —').replace(/\n/g, ' / ')}</div>
+      <div class="wc-st-next"><b>${T('다음')}</b> ${esc(n ? txt(n) : T('— 끝 —')).replace(/\n/g, ' / ')}</div>
     </div>`;
   }
 
