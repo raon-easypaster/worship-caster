@@ -55,7 +55,7 @@
     '예배당 글자 크기 ( [ / ] 키 )': 'Main screen text size ( [ / ] keys )', '방송 글자 크기 ( Shift+[ / Shift+] 키 )': 'Stream text size ( Shift+[ / Shift+] )',
     '🎛 송출 조작': '🎛 Output Controls', '◀ 이전': '◀ Prev', '다음 ▶': 'Next ▶', '■ 검은화면': '■ Black', '■ 검은 화면': '■ Black screen',
     '◻ 글자 지우기': '◻ Clear text', '◻ 글자 지움': '◻ Text cleared', '✝ 로고': '✝ Logo', '모두 끄기': 'All off', '🎥 방송 자막 끄기': '🎥 Stream captions off',
-    '🎥 방송 자막 다시 켜기': '🎥 Stream captions on', '🎥 방송 끄기': '🎥 Stream off', '👤 사람 화면': '👤 Camera PiP', '🌌 움직이는 배경': '🌌 Motion background',
+    '🎥 방송 자막 다시 켜기': '🎥 Stream captions on', '🎥 방송 끄기': '🎥 Stream off', '👤 사람 화면': '👤 Camera only', '🌌 움직이는 배경': '🌌 Motion background',
     '예배당 TV에는 그대로 나가고, 유튜브(OBS)에만 자막을 끕니다': 'Keeps the main TV on and turns captions off only on YouTube (OBS)',
     '그림·악보·PPT를 유튜브에 보낼 때 오른쪽 아래에 사람(카메라) 화면을 작게 띄웁니다 (OBS 장면 전환 설정 필요)':
       'When sending pictures, scores or PPT to YouTube, show the camera small in the lower right (needs OBS scene setup)',
@@ -228,7 +228,7 @@
     // ── 화면 · 프롬프터 · 리모컨 ──
     'F 키 또는 더블클릭 = 전체화면': 'F key or double-click = full screen', '프롬프터': 'Prompter', '방송 자막(OBS)': 'Stream captions (OBS)',
     '대기': 'Standby', '● 송출 중': '● Live', '· 방송 자막 꺼짐': '· stream captions off', '· 검은 화면': '· black screen', '· 글자 지움': '· text cleared',
-    '👤 사람 화면': '👤 Camera PiP', '(OBS 장면 전환)': '(OBS scene switch)',
+    '👤 사람 화면': '👤 Camera only', '(OBS 장면 전환)': '(OBS scene switch)',
     '✝ 예배송출 리모컨': '✝ Worship Caster Remote', '예배송출 리모컨': 'Worship Caster Remote', '운영 컴퓨터의': 'Enter the', '⚙︎ 설정 → 웹 편집기 PIN': '⚙︎ Settings → Web editor PIN',
     '을 넣으세요.': 'from the operator computer.', '휴대폰 리모컨이 꺼져 있습니다.': 'The phone remote is off.', '⚙︎ 설정 → 📱 휴대폰 리모컨': '⚙︎ Settings → 📱 Phone Remote',
     '을 켠 뒤 새로고침하세요.': 'on the operator computer, then reload.', '예배 순서': 'Service',
@@ -264,6 +264,21 @@
     '같은 컴퓨터의 OBS — 늘 이 주소 (추천)': 'OBS on this computer — always this address (recommended)',
     '다른 컴퓨터의 OBS — 공유기가 다시 켜져도 그대로': 'OBS on another computer — stays the same after the router restarts',
     '숫자 주소 — 공유기가 다시 켜지면 바뀔 수 있음': 'Number address — may change when the router restarts',
+    // ── 휴대폰 리모컨 세팅 ──
+    '세팅 방법': 'How to set up', '위 "휴대폰에서 자막 넘기기 허용"을 체크합니다.': 'Check "Allow advancing slides from a phone" above.',
+    '휴대폰을 이 컴퓨터와 같은 와이파이에 연결합니다. (휴대폰 데이터로는 안 됩니다)': 'Connect the phone to the same Wi-Fi as this computer. (Mobile data will not work.)',
+    '휴대폰 브라우저(사파리·크롬) 주소창에 아래 주소를 넣습니다.': "Enter the address below in the phone's browser (Safari, Chrome).",
+    'PIN을 넣고 들어갑니다.': 'Enter the PIN.', 'PIN:': 'PIN:',
+    '사파리 공유 단추(크롬은 ⋮) → "홈 화면에 추가"를 하면 다음부터 앱처럼 바로 열립니다.': 'Share (⋮ in Chrome) → "Add to Home Screen" to open it like an app next time.',
+    '모든 휴대폰': 'Any phone', '아이폰 — 공유기가 다시 켜져도 그대로': 'iPhone — stays the same after the router restarts',
+    '안 열리면: 같은 와이파이인지, 허용이 켜져 있는지 보세요. 공유기가 다시 켜지면 숫자 주소가 바뀌니 여기서 새 주소를 확인하세요.':
+      "Not opening? Check the Wi-Fi and that it is allowed. The number address changes when the router restarts, so check the new one here.",
+    '⬆ 위에': '⬆ On top', '⏹ 그림 끄기': '⏹ Picture off', '화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)': 'Show on top (background and slide stay; remove with ⏹ Picture off)',
+    '⬆ 위에 띄운 그림만 빼기 (배경·슬라이드는 그대로)': 'Remove only the picture shown on top (background and slide stay)',
+    '화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다': 'Shown on top — remove it with ⏹ Picture off',
+    '곡 구성': 'Sections', '곡 구성 바로가기 — 누르면 그 부분 첫 슬라이드가 바로 나갑니다': 'Section shortcuts — click to show the first slide of that part',
+    '켜면 그림·악보·PPT가 나갈 때 유튜브에는 사람(카메라) 화면만 나갑니다. 예배당 TV에는 그림이 그대로 나갑니다': 'When on, YouTube shows only the camera while pictures, scores or PPT are on. The main TV still shows the picture',
+    '유튜브에는 사람(카메라) 화면만 나갑니다 — 그림은 예배당 TV에만': 'YouTube shows only the camera — the picture stays on the main TV', '유튜브에 그림도 다시 나갑니다': 'Pictures go to YouTube again',
     // ── 서버 안내 ──
     '송출 제어는 운영 맥에서만 가능합니다': 'Only the operator computer can do this',
     '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)': 'Output controls work only on the operator computer (turn on the phone remote in ⚙︎ Settings to use a phone)',

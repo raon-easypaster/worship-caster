@@ -11,6 +11,10 @@ CACHE="$ROOT/.build-cache"
 DIST="$ROOT/dist"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
+# 배포 파일을 만들기 전에 자동 점검 (되던 기능이 깨졌으면 여기서 멈춤). 급할 때만 SKIP_TESTS=1
+if [ "${SKIP_TESTS:-}" != "1" ]; then
+  node tests/run.js || { echo "자동 점검 실패 — 배포 파일을 만들지 않습니다 (tests/run.js)"; exit 1; }
+fi
 VERSION="$(node -p "require('./package.json').version" 2>/dev/null || python3 -c "import json;print(json.load(open('package.json'))['version'])")"
 
 # ── 1. 공식 Node.js 받기 + 체크섬 확인 ─────────────────────
@@ -50,50 +54,28 @@ ABOUT_KO="예배송출 v$VERSION — 만든 사람: 쉬운목사 이광복 (무�
 
 # ── 3. 맥 앱 ───────────────────────────────────────────────
 MAC="$STAGE/mac/예배송출.app"
-mkdir -p "$MAC/Contents/MacOS" "$MAC/Contents/Resources/node"
+# 켜져 있는 동안 독에 머무는 앱 (AppleScript '계속 열려 있는 앱'): 독 아이콘을 누르면 운영 화면을 앞으로, 독에서 종료하면 예배송출도 끔
+sed "s/__PORT__/5300/" assets/mac-app.applescript > "$STAGE/mac-app.applescript"
+mkdir -p "$STAGE/mac"
+osacompile -s -o "$MAC" "$STAGE/mac-app.applescript"
+mkdir -p "$MAC/Contents/Resources/node"
 cp -R "$APPSRC" "$MAC/Contents/Resources/app"
 cp "$STAGE/n/node-universal" "$MAC/Contents/Resources/node/node"
-cp assets/icon.icns "$MAC/Contents/Resources/icon.icns"
-cat > "$MAC/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>예배송출</string>
-  <key>CFBundleDisplayName</key><string>예배송출</string>
-  <key>CFBundleIdentifier</key><string>kr.easypastor.worship-caster</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
-  <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleExecutable</key><string>launcher</string>
-  <key>CFBundleIconFile</key><string>icon</string>
-  <key>NSHumanReadableCopyright</key><string>만든 사람: 쉬운목사 이광복</string>
-  <key>LSMinimumSystemVersion</key><string>11.0</string>
-  <key>LSArchitecturePriority</key><array><string>arm64</string><string>x86_64</string></array>
-</dict></plist>
-PLIST
-cat > "$MAC/Contents/MacOS/launcher" <<'LAUNCH'
-#!/bin/bash
-# 예배송출 실행기 — 만든 사람: 쉬운목사 이광복
-R="$(cd "$(dirname "$0")/../Resources" && pwd)"
-export WC_DATA_DIR="$HOME/Library/Application Support/WorshipCaster"
-LOG="$HOME/Library/Logs/WorshipCaster.log"
-mkdir -p "$WC_DATA_DIR" "$(dirname "$LOG")"
-cd "$R/app" || exit 1
-# 서버가 운영 화면을 직접 엽니다. 이미 켜져 있으면 창만 다시 엽니다.
-# 애플 칩(M1~)이면 애플 칩용으로 바로 실행 (안 그러면 인텔용으로 번역되며 첫 실행이 느려짐)
-if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then RUN=(arch -arm64); else RUN=(); fi
-nohup "${RUN[@]}" "$R/node/node" server.js >>"$LOG" 2>&1 &
-PID=$!
-for i in $(seq 1 50); do
-  curl -s -m 1 http://localhost:5300/api/me >/dev/null 2>&1 && exit 0
-  kill -0 $PID 2>/dev/null || break
-  sleep 0.2
-done
-curl -s -m 1 http://localhost:5300/api/me >/dev/null 2>&1 && exit 0
-osascript -e "display alert \"예배송출\" message \"프로그램을 시작하지 못했습니다. 기록 파일: $LOG\" as critical" >/dev/null 2>&1
-exit 1
-LAUNCH
-chmod +x "$MAC/Contents/MacOS/launcher" "$MAC/Contents/Resources/node/node"
+cp assets/icon.icns "$MAC/Contents/Resources/applet.icns"
+# 독 아이콘: osacompile 이 넣는 기본 아이콘(Assets.car)을 빼야 예배송출 아이콘이 나옴
+rm -f "$MAC/Contents/Resources/Assets.car"
+P="$MAC/Contents/Info.plist"
+pb() { /usr/libexec/PlistBuddy -c "$1" "$P" >/dev/null 2>&1 || true; }
+pb "Delete :CFBundleIconName"; pb "Delete :CFBundleIconFile"; pb "Add :CFBundleIconFile string applet"
+pb "Delete :CFBundleName"; pb "Add :CFBundleName string 예배송출"
+pb "Delete :CFBundleDisplayName"; pb "Add :CFBundleDisplayName string 예배송출"
+pb "Delete :CFBundleIdentifier"; pb "Add :CFBundleIdentifier string kr.easypastor.worship-caster"
+pb "Delete :CFBundleVersion"; pb "Add :CFBundleVersion string $VERSION"
+pb "Delete :CFBundleShortVersionString"; pb "Add :CFBundleShortVersionString string $VERSION"
+pb "Delete :NSHumanReadableCopyright"; pb "Add :NSHumanReadableCopyright string 만든 사람: 쉬운목사 이광복"
+pb "Delete :LSMinimumSystemVersion"; pb "Add :LSMinimumSystemVersion string 11.0"
+pb "Delete :NSAppleEventsUsageDescription"; pb "Add :NSAppleEventsUsageDescription string 예배송출 운영 화면 창을 맨 앞으로 가져오는 데 씁니다."
+chmod +x "$MAC/Contents/Resources/node/node"
 xattr -cr "$MAC"
 codesign --force --deep -s - "$MAC"
 # 서명이 앱 전체에 맞게 됐는지 점검 — 틀리면 받는 맥에서 「손상된 앱」이 나오므로 여기서 멈춤

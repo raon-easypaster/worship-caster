@@ -129,6 +129,25 @@ function renderSlides() {
     grid.appendChild(d);
   });
   if (!it.slides.length) grid.innerHTML = '<p class="muted">슬라이드가 없습니다. ✎ 편집에서 내용을 넣으세요.</p>';
+  renderSecNav();
+}
+// 곡 구성 네비게이터: 1절·후렴·프리코러스… 단추를 누르면 그 부분 첫 슬라이드로 바로 (슬라이드 그림을 찾지 않아도 됨)
+function secMarks(it) {
+  const out = [];
+  WC.seq(it).forEach((s, i) => { if (s.label) out.push({ label: String(s.label), start: i }); });
+  return out;
+}
+function renderSecNav() {
+  const nav = $('#secNav'); if (!nav) return;
+  const it = item(selId), marks = it && !IS_EDITOR ? secMarks(it) : [];
+  nav.classList.toggle('hidden', !marks.length);
+  if (!marks.length) { nav.innerHTML = ''; return; }
+  const L = snap?.live, liveHere = L && L.itemId === it.id && !L.clear && !L.black;
+  let cur = -1;
+  if (liveHere) marks.forEach((m, k) => { if (m.start <= L.index) cur = k; });
+  nav.innerHTML = `<span class="muted small">곡 구성</span>` + marks.map((m, k) =>
+    `<button class="secbtn${k === cur ? ' on' : ''}" data-start="${m.start}" style="--g:${groupColor(m.label)}">${esc(m.label)}</button>`).join('');
+  nav.querySelectorAll('[data-start]').forEach(b => (b.onclick = () => goLive({ itemId: it.id, index: +b.dataset.start })));
 }
 // 곡 구성 이름마다 색 (1절·2절 파랑 계열, 후렴 주황, 브리지 보라 …)
 function groupColor(g) {
@@ -164,7 +183,8 @@ function renderLive() {
   WC.render($('#pvMain'), snap, 'main');
   WC.render($('#pvOverlay'), snap, 'overlay', { preview: true });
   const L = snap.live;
-  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip']) $('#' + k).classList.toggle('on', !!L[k]);
+  for (const k of ['black', 'clear', 'logo', 'overlayOff']) $('#' + k).classList.toggle('on', !!L[k]);
+  $('#pip').classList.toggle('on', !!L.camOnly);
   $('#motionOn').classList.toggle('on', snap.style.main.motionOn !== false);
   $('#szMain').textContent = Math.round(+snap.style.main.size / 6.2 * 100) + '%';
   $('#szOv').textContent = Math.round(+snap.style.overlay.size / 4.6 * 100) + '%';
@@ -176,6 +196,7 @@ function renderLive() {
   $('#overlayOff').innerHTML = (L.overlayOff ? '🎥 방송 자막 다시 켜기' : '🎥 방송 자막 끄기') + ' <kbd>O</kbd>';
   $('#liveInfo').textContent = snap.item ? `· ${snap.item.title} ${L.index + 1}/${snap.item.count}` : '· 대기';
   $('#pvNext').textContent = snap.next ? snap.next.text : (snap.item ? '— 마지막 슬라이드 —' : '');
+  renderSecNav();
 }
 
 function select(id) { selId = id; renderServices(); renderLib(); renderSlides(); }
@@ -499,10 +520,6 @@ function openItemEditor(id, focusIndex, preset) {
     <div class="dlg-head"><h3>${src ? '자료 편집' : '새 자료'}</h3><button class="icon" data-x>✕</button></div>
     <div class="form">
       <label>제목</label><input id="eTitle" value="${esc(it.title)}">
-      <label class="conti-f">콘티</label><div class="row conti-f" style="margin:0;gap:6px">
-        <input id="eKey" placeholder="키 (예: G)" value="${esc(it.key || '')}" style="width:90px" maxlength="10">
-        <input id="eBpm" type="number" min="0" max="300" placeholder="BPM" value="${esc(String(it.bpm || ''))}" style="width:80px">
-        <input id="eMemo" class="grow" placeholder="흐름 메모 (예: 후렴 2번, 마지막 조용히)" value="${esc(it.memo || '')}" maxlength="200"></div>
       <label>종류</label><div class="row" style="margin:0"><select id="eType" style="width:auto">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === it.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <span class="muted small" id="eKeepNote"></span></div>
       <label>모양 (테마)</label><select id="eTheme">${Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}" ${k === (it.theme || '') ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
@@ -622,9 +639,6 @@ function openItemEditor(id, focusIndex, preset) {
   const pickMedia = (onPick, back) => { saved = [...$('#dlgBody').childNodes]; openMediaPicker(url => { onPick(url); back(); }, back); };
 
   body.querySelector('#eTitle').oninput = e => (it.title = e.target.value);
-  body.querySelector('#eKey').oninput = e => (it.key = e.target.value);
-  body.querySelector('#eBpm').oninput = e => (it.bpm = +e.target.value || 0);
-  body.querySelector('#eMemo').oninput = e => (it.memo = e.target.value);
   // 곡 구성: 입력칸 + 이름 단추(누르면 뒤에 붙음)
   const arrIn = body.querySelector('#eArr');
   const readArr = () => (it.arr = arrIn.value.split(/[\s,·→>]+/).map(x => x.trim()).filter(Boolean));
@@ -663,7 +677,6 @@ function openItemEditor(id, focusIndex, preset) {
   const typeUI = () => {
     body.querySelectorAll('.song-only').forEach(x => x.classList.toggle('hidden', it.type !== 'song'));
     body.querySelectorAll('.no-html').forEach(x => x.classList.toggle('hidden', it.type === 'html'));
-    body.querySelectorAll('.conti-f').forEach(x => x.classList.toggle('hidden', !KEEP.has(it.type)));
     body.querySelector('#eKeepNote').textContent = KEEP.has(it.type) ? '찬양 자료실에 남습니다' : '예배 순서에서 빼면 지워집니다';
   };
   drawChips();
@@ -696,7 +709,8 @@ function openItemEditor(id, focusIndex, preset) {
       lyRes.querySelectorAll('[data-ly]').forEach(b => b.onclick = () => {
         const x = list[+b.dataset.ly];
         body.querySelector('#ePaste').value = cleanLyrics(x.text);
-        const tt = body.querySelector('#eTitle'); if (!tt.value.trim() || tt.value.trim() === '새 찬양') tt.value = q;
+        // 제목이 비었거나 '새 찬양'이면 찾은 곡 제목으로 (화면 칸과 저장할 값 둘 다)
+        const tt = body.querySelector('#eTitle'); if (!tt.value.trim() || tt.value.trim() === '새 찬양') { tt.value = (x.title || q).trim(); it.title = tt.value; }
         lyRes.querySelectorAll('.lyrow').forEach(y => y.classList.toggle('on', y === b));
         toast('가사를 넣었습니다. 확인 후 [나누어 슬라이드 만들기]를 누르세요');
       });
@@ -734,6 +748,7 @@ function openItemEditor(id, focusIndex, preset) {
     await api('DELETE', '/api/items/' + id); selId = null; closeDlg();
   });
   body.querySelector('#eSave').onclick = async () => {
+    it.title = body.querySelector('#eTitle').value.trim() || it.title;   // 저장할 때 제목 칸을 다시 읽음 (칸만 바뀌고 값이 안 바뀐 경우까지)
     const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', { ...it, place: true, after: afterId() });
     selId = saved.id; closeDlg(); toast('저장했습니다');
     zawgyiCheck(it.slides.map(s => s.text || '').join('\n'));
@@ -1069,14 +1084,14 @@ function openOBS() {
           then add the camera <b>above</b> it with 'Add Existing Source' and place it small in the lower right.</li>
         <li>Caption browser source properties → set <b>Page permissions</b> to <b>Advanced access to OBS</b>.</li>
         <li>Choose the two scenes below and save. OBS switches to 'Worship-Picture' when a picture goes out and back to 'Worship' for text captions.
-          Turn it on and off with the <b>👤 Camera PiP</b> button (P key).</li>
+          Once saved, it switches automatically when a picture goes out. (The 👤 Camera only (P) button sends only the camera instead of the picture.)</li>
       </ol>` : `<ol>
         <li>지금 쓰는 장면(예: <b>예배</b>)은 그대로 둡니다. 카메라 위에 이 자막 브라우저 소스가 있으면 됩니다.</li>
         <li>장면을 하나 더 만듭니다(예: <b>예배-그림</b>). 소스 ＋ → 브라우저 → <b>기존 소스 추가</b>로 같은 자막 소스를 넣고,
           그 <b>위에</b> 카메라도 '기존 소스 추가'로 넣어 오른쪽 아래에 작게 놓습니다.</li>
         <li>자막 브라우저 소스 속성 → <b>페이지 권한</b>을 <b>고급 접근 권한</b>(장면 변경 가능, 영어: Advanced access to OBS)으로 바꿉니다.</li>
         <li>아래에서 두 장면을 고르고 저장합니다. 그림이 나갈 때는 '예배-그림'으로, 글자 자막으로 돌아오면 '예배'로 OBS가 알아서 바뀝니다.
-          운영 화면의 <b>👤 사람 화면</b> 버튼(P 키)으로 켜고 끕니다.</li>
+          장면을 저장해 두면 그림이 나갈 때 저절로 바뀝니다. (운영 화면의 👤 사람 화면(P)은 그림 대신 사람 화면만 보내는 단추입니다)</li>
       </ol>`}</div>
     <div class="form" style="margin-top:8px">
       <label>평소 장면</label>${sceneField('obsBase', S.settings.obsScenes?.base)}
@@ -1125,8 +1140,19 @@ function openSettings() {
           </div><div id="lgPv2" class="wc-screen pv"></div></div>
         </div><div class="row" style="margin-top:8px"><button class="btn primary" id="lgSave">로고 설정 저장</button></div>` : '<p class="muted small">교회 로고 그림을 고르면 위치·크기를 정할 수 있습니다. 로고만 깔끔하게 보이려면 배경이 투명한 png를 쓰세요 (jpg는 네모난 바탕이 함께 보입니다).</p>'}</div>
     <h4 style="margin:18px 0 8px">📱 휴대폰 리모컨</h4>
-    <div class="row wrap"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stRemote" ${S.settings.remote ? 'checked' : ''}> 휴대폰에서 자막 넘기기 허용</label>
-      ${S.lan[0] ? `<code>http://${esc(S.lan[0])}:${S.port}/remote</code>` : ''} <span class="muted small">같은 와이파이의 휴대폰 브라우저에서 이 주소 → PIN 입력</span></div>
+    <div class="row wrap"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stRemote" ${S.settings.remote ? 'checked' : ''}> 휴대폰에서 자막 넘기기 허용</label></div>
+    <div class="notebox small" style="margin-top:6px"><b>세팅 방법</b>
+      <ol style="margin:6px 0 4px;padding-left:20px">
+        <li>위 "휴대폰에서 자막 넘기기 허용"을 체크합니다.</li>
+        <li>휴대폰을 이 컴퓨터와 같은 와이파이에 연결합니다. (휴대폰 데이터로는 안 됩니다)</li>
+        <li>휴대폰 브라우저(사파리·크롬) 주소창에 아래 주소를 넣습니다.</li>
+        <li>PIN을 넣고 들어갑니다. <span class="muted">PIN:</span> <b>${esc(S.settings.pin || '')}</b></li>
+        <li>사파리 공유 단추(크롬은 ⋮) → "홈 화면에 추가"를 하면 다음부터 앱처럼 바로 열립니다.</li>
+      </ol>
+      ${S.lan[0] ? `<div class="muted" style="margin-top:6px">모든 휴대폰</div><div class="copy row"><input readonly value="http://${esc(S.lan[0])}:${S.port}/remote"><button class="btn sm" data-copy="http://${esc(S.lan[0])}:${S.port}/remote">복사</button></div>` : ''}
+      ${S.host ? `<div class="muted" style="margin-top:6px">아이폰 — 공유기가 다시 켜져도 그대로</div><div class="copy row"><input readonly value="http://${esc(S.host)}:${S.port}/remote"><button class="btn sm" data-copy="http://${esc(S.host)}:${S.port}/remote">복사</button></div>` : ''}
+      <div class="muted" style="margin-top:6px">안 열리면: 같은 와이파이인지, 허용이 켜져 있는지 보세요. 공유기가 다시 켜지면 숫자 주소가 바뀌니 여기서 새 주소를 확인하세요.</div>
+    </div>
     <h4 style="margin:18px 0 8px">💾 백업·복원</h4>
     <div class="row wrap"><a class="btn" href="/api/backup" download>자료 전체 백업 받기 (zip)</a>
       <label class="btn">백업 파일로 되살리기<input type="file" id="stRestore" accept=".zip,application/zip" hidden></label></div>
@@ -1151,7 +1177,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.11.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.12.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1183,6 +1209,7 @@ function openSettings() {
   };
   body.querySelector('#stHymnDel')?.addEventListener('click', async () => { if (!confirm('가져온 찬송가 가사를 모두 지울까요?\n(자료실에 이미 넣은 찬송가는 남습니다)')) return; await api('DELETE', '/api/hymns'); await reload(); openSettings(); });
   body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
+  body.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다'); });
   body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
     if (!/\.(png|jpe?g|gif|webp)$/i.test(url)) { toast('타이틀 로고는 사진 파일(png·jpg)만 됩니다'); return openSettings(); }
@@ -1272,7 +1299,8 @@ function renderMediaBin() {
   const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
   grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로">
       <div class="mb-th">${isVid(f.url) ? `<video src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
-      <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button></div>
+      <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button>
+      <button class="mb-top" title="화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)">⬆ 위에</button></div>
       <div class="mb-name"><span class="t">${esc(f.name)}</span>${isVid(f.url) ? '<span title="반복 재생">🔁</span>' : ''}</div></div>`).join('')
     || '<div class="mbin-empty">사진·영상을 ＋ 올리기로 넣으면 여기에 나옵니다. 누르면 예배당 화면 배경으로 계속 나오고, 슬라이드 글자는 그 위에 얹힙니다.</div>';
   grid.querySelectorAll('.mb-item').forEach(el => {
@@ -1286,6 +1314,7 @@ function renderMediaBin() {
       el.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0.5; });
     }
     el.querySelector('.mb-del').onclick = e => { e.stopPropagation(); deleteMedia(el.dataset.url, e.currentTarget.dataset.del); };
+    el.querySelector('.mb-top').onclick = e => { e.stopPropagation(); goLive({ mediaTop: el.dataset.url }).then(() => toast('화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다')).catch(() => {}); };
     el.onclick = () => goLive({ mediaBg: el.dataset.url, mediaFit: fitMem()[el.dataset.url] || 'auto' }).then(() => toast('예배당 화면 배경으로 내보냈습니다')).catch(() => {});
   });
   markMediaLive();
@@ -1308,7 +1337,9 @@ async function deleteMedia(url, name) {
 function markMediaLive() {
   if (!$('#mbGrid') || !snap) return;
   const cur = snap.live.mediaBg || null;
-  document.querySelectorAll('#mbGrid .mb-item').forEach(el => el.classList.toggle('live', el.dataset.url === cur));
+  const top = snap.live.mediaTop || null;
+  document.querySelectorAll('#mbGrid .mb-item').forEach(el => { el.classList.toggle('live', el.dataset.url === cur); el.classList.toggle('top', el.dataset.url === top); });
+  if ($('#mbTopOff')) { $('#mbTopOff').disabled = !top; $('#mbTopOff').classList.toggle('on', !!top); }
   const lab = $('#mbLive');
   lab.classList.toggle('on', !!cur);
   lab.textContent = cur ? '● 배경: ' + decodeURIComponent(cur.split('/').pop()) : '배경 없음';
@@ -1337,6 +1368,7 @@ function initMediaBin() {
     toast('올리는 중…'); await api('POST', '/api/media', fd); await loadMediaBin(); toast('올렸습니다');
   };
   $('#mbOff').onclick = () => goLive({ mediaBg: null });
+  $('#mbTopOff').onclick = () => goLive({ mediaTop: null });
   $('#mbObs').onclick = () => goLive({ mediaObs: !snap?.live?.mediaObs }).catch(() => {});
   // 맞춤은 파일마다 기억 (로고는 '작게', 영상은 '자동' 처럼) — 이 컴퓨터에 저장
   $('#mbFit').onchange = e => {
@@ -1644,7 +1676,7 @@ function bind() {
   };
   $('#editItem').onclick = () => selId && openItemEditor(selId);
   initSplits();
-  $('#styleBtn').onclick = openStyle;
+  $('#styleBtn').onclick = () => openStyle();   // 클릭 정보가 '고치던 스타일'로 넘어가지 않게
   $('#mediaBtn').onclick = () => openMediaPicker(null, null);
   if (IS_EDITOR) return;
 
@@ -1666,7 +1698,8 @@ function bind() {
   $('#logo').onclick = () => goLive({ logo: !snap.live.logo });
   $('#reset').onclick = () => goLive({ reset: true });
   $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
-  $('#pip').onclick = () => { goLive({ pip: !snap.live.pip }); if (!S.settings.obsScenes?.pip) toast('사람 화면을 쓰려면 🎥 OBS 자막 주소 → 사람 화면 설정을 해 주세요'); };
+  // 👤 사람 화면(P): 유튜브에는 그림 대신 사람(카메라) 화면만. 예배당 TV는 그대로
+  $('#pip').onclick = () => { const on = !snap.live.camOnly; goLive({ camOnly: on }).catch(() => {}); toast(on ? '유튜브에는 사람(카메라) 화면만 나갑니다 — 그림은 예배당 TV에만' : '유튜브에 그림도 다시 나갑니다'); };
   $('#motionOn').onclick = () => api('PUT', '/api/style', { main: { motionOn: snap.style.main.motionOn === false } });
   document.querySelectorAll('[data-size]').forEach(b => b.onclick = () => { const [grp, d] = b.dataset.size.split(':'); bumpSize(grp, +d); });
   initMediaBin();

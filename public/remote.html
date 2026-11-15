@@ -28,6 +28,9 @@
   .list button small { color: var(--muted); margin-right: 6px; }
   .slides button { white-space: pre-line; }
   .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .secnav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .secnav button { padding: 10px 14px; border-radius: 999px; font-weight: 700; font-size: 15px; }
+  .secnav button.on { background: var(--accent); border-color: var(--accent); }
   .seg button { flex: 1; padding: 8px; font-size: 14px; }
   .seg button.on { background: #2b3550; border-color: var(--accent); }
   input { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); margin-bottom: 8px; }
@@ -89,6 +92,9 @@ function draw() {
     <div class="card"><div class="now-t"><span>${esc(it?.title || '대기')}</span><span>${it ? `${L.index + 1} / ${slides.length}` : ''}${L.black ? ' · 검은 화면' : L.clear ? ' · 글자 지움' : ''}</span></div>
       <div class="now">${esc(txt(snap.slide))}</div><div class="next">다음: ${esc(txt(snap.next) || '— 끝 —')}</div></div>
     <div class="big"><button data-a="prev">◀ 이전</button><button class="nx" data-a="next">다음 ▶</button></div>
+    ${(() => { const ms = []; slides.forEach((s, i) => { if (s.label) ms.push([String(s.label), i]); }); if (!ms.length) return '';
+      let cur = -1; ms.forEach(([, st], k) => { if (st <= L.index) cur = k; });
+      return `<div class="secnav">${ms.map(([lb, st], k) => `<button data-sec="${st}" class="${k === cur && !L.clear && !L.black ? 'on' : ''}">${esc(lb)}</button>`).join('')}</div>`; })()}
     <div class="tg">
       <button data-t="black" class="${L.black ? 'on' : ''}">■ 검은화면</button>
       <button data-t="clear" class="${L.clear ? 'on' : ''}">◻ 글자 지우기</button>
@@ -112,6 +118,7 @@ function draw() {
   });
   $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
   $('#app').querySelectorAll('[data-i]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.i }));
+  $('#app').querySelectorAll('[data-sec]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.sec }));
   $('#app').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { tab = 'slides'; go({ itemId: b.dataset.item }); });
   $('.list .live')?.scrollIntoView({ block: 'nearest' });
 }

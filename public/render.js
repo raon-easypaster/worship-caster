@@ -252,7 +252,7 @@
     }
     const mk = motionKey(snap, st);
     const under = mk || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
-    const bg = under ? 'transparent' : col(s.bgColor, st.bg);
+    const bg = under ? 'transparent' : L.clear ? '#000' : col(s.bgColor, st.bg);   // 글자 지움·모두 끄기는 검정 (악보·밝은 테마의 흰 바탕이 남지 않게)
     return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
 
@@ -266,6 +266,8 @@
     const s = snap.slide, L = snap.live || {};
     if (L.black || L.logo || L.clear || L.overlayOff || snap.item?.noBroadcast || !s) return 'off';
     if (isHtmlFile(s)) return 'off';   // HTML 파일 자료는 스크립트가 돌아야 해서 OBS에는 보내지 않음 (OBS 제어 기능 보호)
+    // 👤 사람 화면(P): 그림·악보·PPT·HTML 은 유튜브에 보내지 않음 → 카메라만 보임 (예배당 TV에는 그대로)
+    if (L.camOnly && (isVisual(s) || snap.item?.bcFull)) return 'off';
     if (snap.item?.bcFull) return 'full';
     if (isVisual(s)) return safeOverlay(snap.style.overlay || {}).imgMode === 'none' ? 'off' : 'full';
     return String(s.text || '').trim() ? 'caption' : 'off';
@@ -284,7 +286,7 @@
         const vCss = v === 'center' ? 'top:0' : `${v}:4%`;
         return `<div class="wc-layer"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
       }
-      const pip = snap.live?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
+      const pip = snap.live?.pip && snap.obs?.base && snap.obs?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
       return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
     }
     const st = safeOverlay(snap.style.overlay);
@@ -346,6 +348,14 @@
         persist(container, 'wc-mlayer', key, () => mediaHTML(url, L0.mediaFit, opts.still), false, fade);
         const n = container.querySelector(':scope > .wc-mlayer'); if (n) n._url = url;
       }
+    }
+    if (mode === 'main' || mode === 'overlay') {
+      // 화면 위 그림: 슬라이드·배경 위에 그림만 크게 (예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만)
+      const top = mediaUrl(L0.mediaTop);
+      const on = top && !L0.black && (mode === 'main' || (L0.mediaObs && !L0.overlayOff));
+      persist(container, 'wc-mtop', on ? top : '', () => isVideo(top)
+        ? `<div class="wc-mtop-in"><video src="${esc(top)}" autoplay muted loop playsinline></video></div>`
+        : `<div class="wc-mtop-in"><div style="background-image:url('${esc(top)}')"></div></div>`, true, fade);
     }
     if (mode === 'main') {
       const mk = motionKey(snap, mainStyle(snap));
@@ -427,7 +437,9 @@
   }
   function extrasHTML(snap, mode) {
     const L = snap.live || {}, t = L.timer, p = snap.prop, parts = [];
-    const timerOn = t && t.end && (mode === 'stage' || (mode === 'main' && ['corner', 'big'].includes(t.tv)));
+    // 예배당 화면의 타이머는 0이 되면 사라짐 (프롬프터에는 넘긴 시간 +0:05 처럼 계속 보여 설교 시간 관리)
+    // '몇 시까지' 타이머는 정시가 되면 프롬프터에서도 사라짐. '몇 분' 타이머는 프롬프터에 넘긴 시간을 계속 보임
+    const timerOn = t && t.end && ((mode === 'stage' && (!t.clock || timeLeft(snap) > 0)) || (mode === 'main' && ['corner', 'big'].includes(t.tv) && timeLeft(snap) > 0));
     if (timerOn) {
       const kind = mode === 'stage' ? 'stage' : t.tv;
       parts.push(`<div class="wc-tm wc-tm-${kind}">${t.label ? `<div class="wc-tm-l">${esc(t.label)}</div>` : ''}<div class="wc-tm-v"></div></div>`);

@@ -219,3 +219,16 @@ table.conti input { width: 100%; padding: 4px 6px; }
 .media-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; color: var(--muted); }
 .media-row .mname { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .media-row .sep { margin: 0 4px; }
+/* 미디어 칸: 화면 위에 띄우기 */
+.mb-top { display: none; position: absolute; left: 3px; bottom: 3px; border: 0; background: rgba(47,109,246,.9); color: #fff; border-radius: 4px; cursor: pointer; font-size: 11px; padding: 2px 6px; }
+.mb-item:hover .mb-top { display: block; }
+.mb-item.top .mb-th { outline: 3px solid #f5a524; }
+.mb-item.top .mb-th::after { content: '위에'; position: absolute; left: 4px; top: 4px; background: #f5a524; color: #1d1a12; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+#mbTopOff.on { background: #f5a524; border-color: #f5a524; color: #1d1a12; }
+/* 곡 구성 네비게이터 */
+.secnav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 2px; border-top: 1px solid var(--line); margin-top: 8px;
+  position: sticky; bottom: -14px; z-index: 3; background: var(--bg); padding-bottom: 14px; }   /* 곡이 길어도 늘 아래에 보이게 */
+.secbtn { font: inherit; font-size: 14px; font-weight: 700; padding: 7px 14px; border-radius: 999px; cursor: pointer; background: transparent;
+  color: var(--g); border: 2px solid var(--g); }
+.secbtn:hover { background: color-mix(in srgb, var(--g) 15%, transparent); }
+.secbtn.on { background: var(--g); color: #fff; }

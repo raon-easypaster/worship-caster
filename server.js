@@ -106,7 +106,7 @@ function addItem(b) {
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, mediaBg: null, mediaObs: false, mediaFit: 'auto',
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
   msg: '', timer: null, prop: null, auto: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
@@ -179,7 +179,7 @@ function makeTimer(t) {
     end = d.getTime();
   }
   if (!end) return null;
-  return { end, label: String(t.label || '').slice(0, 60), tv: ['none', 'corner', 'big'].includes(t.tv) ? t.tv : 'none' };
+  return { end, label: String(t.label || '').slice(0, 60), tv: ['none', 'corner', 'big'].includes(t.tv) ? t.tv : 'none', clock: t.min == null };   // clock: '몇 시까지' 타이머
 }
 
 // ── 앱 ─────────────────────────────────────────────
@@ -527,6 +527,7 @@ app.post('/api/media', needAuth, upload.array('files', 50), (req, res) => {
 app.delete('/api/media/:name', needAuth, (req, res) => {
   const p = path.join(MEDIA_DIR, path.basename(req.params.name));
   if (live.mediaBg === '/media/' + path.basename(req.params.name)) { live.mediaBg = null; pushLive(); }
+  if (live.mediaTop === '/media/' + path.basename(req.params.name)) { live.mediaTop = null; pushLive(); }
   fs.rm(p, { force: true }, () => res.json({ ok: true }));
 });
 
@@ -666,7 +667,7 @@ app.post('/api/live', needControl, (req, res) => {
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), store.seq(it).length - 1);
     live.clear = false; live.black = false; live.logo = false;
   }
-  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
+  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
   // 로고 단추만 눌렀으면: '검은 바탕'이면 검은 화면도 함께, '배경 위에 로고만'이면 지금 배경(미디어 배경)을 그대로 둠
   if (b.logo !== undefined && b.black === undefined) live.black = !!b.logo && db.settings.logoStyle?.screenBg !== 'over';
   if (b.mediaBg !== undefined) {
@@ -675,12 +676,19 @@ app.post('/api/live', needControl, (req, res) => {
     live.mediaBg = ok ? b.mediaBg : null;
     if (ok) live.black = false;
   }
+  // 화면 위에 띄우는 그림 (슬라이드·배경은 그대로 두고 맨 위에 그림만) — ⏹ 그림 끄기로 뺌
+  if (b.mediaTop !== undefined) {
+    const ok = typeof b.mediaTop === 'string' && /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm)$/i.test(b.mediaTop)
+      && fs.existsSync(path.join(MEDIA_DIR, path.basename(b.mediaTop)));
+    live.mediaTop = ok ? b.mediaTop : null;
+    if (ok) live.black = false;
+  }
   if (['auto', 'cover', 'contain', 'small'].includes(b.mediaFit)) live.mediaFit = b.mediaFit;
   if (b.msg !== undefined) live.msg = String(b.msg || '').trim().slice(0, 200);          // 무대 메시지 (프롬프터에만)
   if (b.timer !== undefined) live.timer = makeTimer(b.timer);
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
-  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, prop: null }); setAuto(null); }
+  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null }); setAuto(null); }
   pushLive(); res.json(snapshot());
 });
 
@@ -736,7 +744,13 @@ function showUI() {
   if (!open.length) { openUI(); return 'opened'; }
   open.forEach(c => sendTo(c, { type: 'focus' }));
   const { exec } = require('child_process');
-  if (process.platform === 'darwin' && fs.existsSync('/Applications/Google Chrome.app')) exec('open -a "Google Chrome"');
+  // 맥: 크롬의 여러 창 중 '운영 화면' 창을 맨 앞으로 (그냥 크롬을 앞으로 하면 다른 창이 앞에 올 수 있음)
+  if (process.platform === 'darwin' && fs.existsSync('/Applications/Google Chrome.app')) {
+    const as = ['tell application "Google Chrome"', 'repeat with w in windows',
+      `if URL of active tab of w contains "localhost:${PORT}/control" then`, 'set index of w to 1', 'set minimized of w to false', 'exit repeat', 'end if',
+      'end repeat', 'activate', 'end tell'];
+    exec('osascript ' + as.map(l => `-e '${l}'`).join(' '), err => { if (err) exec('open -a "Google Chrome"'); });
+  }
   else if (process.platform === 'win32') exec(`powershell -NoProfile -Command "(New-Object -ComObject WScript.Shell).AppActivate('예배송출')"`);
   return 'focused';
 }
