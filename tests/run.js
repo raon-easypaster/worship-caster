@@ -100,6 +100,16 @@ async function main() {
     ok(l.title === '찬송가 555장 기억 점검곡' && l.arr.join(',') === '1절,후렴', JSON.stringify(l));
     const again = await api('GET', '/api/hymns/555'); ok(again.title === l.title, '번호로 다시 안 나옴');
   });
+  await check('웹 편집기(PIN)에서는 기억된 찬송가를 덮어쓸 수 없음', async () => {
+    const ip = Object.values(os.networkInterfaces()).flat().find(n => n && n.family === 'IPv4' && !n.internal)?.address;
+    if (!ip) return;   // 네트워크가 없으면 건너뜀
+    const R = `http://${ip}:${PORT}`, st = await api('GET', '/api/state');
+    const lg = await fetch(R + '/api/login', { method: 'POST', headers: { Origin: R, 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: st.settings.pin }) });
+    const cookie = (lg.headers.get('set-cookie') || '').split(';')[0]; ok(cookie, 'PIN 로그인이 안 됨');
+    const post = num => fetch(R + '/api/hymns/learn', { method: 'POST', headers: { Origin: R, Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ num, title: '덮어쓰기', lyrics: '가' }) });
+    ok((await post(555)).status === 403, '이미 있는 555장을 덮어씀');
+    ok((await post(556)).status === 200, '새 번호는 기억해야 함');
+  });
   await check('백업 받기 → 되살리기 (이상한 값은 걸러짐)', async () => {
     const r = await fetch(BASE + '/api/backup'); ok(r.ok, '백업 실패'); const zip = await r.arrayBuffer();
     const fd = new FormData(); fd.append('file', new Blob([zip]), 'b.zip');

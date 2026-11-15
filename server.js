@@ -474,6 +474,8 @@ app.get('/api/hymns/:n(\\d{1,3})', needAuth, (req, res) => {
 });
 app.get('/api/hymns-search', needAuth, (req, res) => res.json(hymns.search(String(req.query.q || '').slice(0, 80))));
 app.post('/api/hymns/learn', needAuth, (req, res) => {
+  // 웹 편집기(PIN)에서는 새 번호만 기억. 이미 있는 번호를 바꾸는 것은 운영 컴퓨터에서만
+  if (!isLocal(req) && hymns.has(req.body?.num)) return res.status(403).json({ error: `찬송가 ${+req.body.num}장은 이미 있습니다. 바꾸려면 운영 컴퓨터에서 하세요` });
   try { res.json(hymns.learn(req.body?.num, req.body?.title, req.body?.lyrics)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post('/api/hymns/upload', needLocal, upload.single('file'), (req, res) => {
