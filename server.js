@@ -11,6 +11,7 @@ const multer = require('multer');
 const { WebSocketServer } = require('ws');
 const store = require('./lib/store');
 const bible = require('./lib/bible');
+const hymns = require('./lib/hymns');
 const { importPptx } = require('./lib/pptx');
 const templates = require('./lib/templates');
 
@@ -20,6 +21,7 @@ fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
 const db = store.load();
 bible.loadAll(db.settings.bibleFolders);
+hymns.load();
 
 // 기본 배경 영상 (직접 만든 반복 영상, 저작권 걱정 없음) — 처음 한 번만 미디어 칸에 넣음.
 // 사용자가 지운 영상은 다시 생기지 않음. 새 영상을 더 넣으면 SAMPLES_VER 를 올림
@@ -123,6 +125,11 @@ const needLocal = (req, res, next) => isLocal(req) ? next() : res.status(403).js
 const canControl = req => isLocal(req) || (!!db.settings.remote && authed(req));
 const needControl = (req, res, next) => canControl(req) ? next() : res.status(403).json({ error: '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)' });
 
+// 이 컴퓨터의 이름 주소 (예: Easyui-MacBookAir.local) — 공유기가 다시 켜져 숫자 주소가 바뀌어도 그대로
+function hostName() {
+  const hn = os.hostname().replace(/\.local$/i, '');
+  return /^[A-Za-z0-9-]{1,63}$/.test(hn) && hn.toLowerCase() !== 'localhost' ? hn + '.local' : '';
+}
 function lanAddresses() {
   const out = [];
   for (const list of Object.values(os.networkInterfaces()))
@@ -266,7 +273,7 @@ app.get('/api/state', needAuth, (req, res) => {
   res.json({
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
     style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
-    bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), port: PORT, live: snapshot(),
+    bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), port: PORT, live: snapshot(),
   });
 });
 
@@ -402,6 +409,7 @@ function cleanLogoStyle(l, cur) {
   const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
   l = l && typeof l === 'object' ? l : {};
   return {
+    screenBg: ['black', 'over'].includes(l.screenBg) ? l.screenBg : (cur.screenBg || 'black'),   // 로고 화면 바탕: 검정 / 지금 배경 위에 로고만
     screenPos: P.includes(l.screenPos) ? l.screenPos : cur.screenPos, screenSize: n(l.screenSize, 5, 95, cur.screenSize),
     mark: l.mark !== undefined ? !!l.mark : cur.mark, markPos: P.includes(l.markPos) ? l.markPos : cur.markPos,
     markSize: n(l.markSize, 3, 40, cur.markSize), markOpacity: n(l.markOpacity, 0.1, 1, cur.markOpacity),
@@ -456,6 +464,23 @@ app.get('/api/update', needLocal, async (req, res) => {
   }
   res.json({ current: APP_VERSION, latest: upd.latest, newer: !!upd.latest && isNewer(upd.latest, APP_VERSION), url: DOWNLOAD_PAGE });
 });
+
+// 찬송가 (교회가 가진 가사 파일을 가져와 번호로 찾음)
+app.get('/api/hymns', needAuth, (req, res) => res.json({ count: hymns.count() }));
+app.get('/api/hymns/:n(\\d{1,3})', needAuth, (req, res) => {
+  const h = hymns.get(req.params.n);
+  if (!h) return res.status(404).json({ error: hymns.count() ? `찬송가 ${+req.params.n}장이 가져온 파일에 없습니다` : '찬송가 가사 파일을 먼저 가져오세요 (⚙︎ 설정 → 찬송가)' });
+  res.json(h);
+});
+app.post('/api/hymns/upload', needLocal, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '파일 없음' });
+  try {
+    const r = hymns.importFile(fs.readFileSync(req.file.path), fname(req.file));
+    if (!r.count) return res.status(400).json({ error: '찬송가를 하나도 읽지 못했습니다. "305장 제목" 줄로 곡이 시작되는지 확인하세요.' });
+    res.json(r);
+  } finally { fs.rm(req.file.path, { force: true }, () => {}); }
+});
+app.delete('/api/hymns', needLocal, (req, res) => { hymns.clear(); res.json({ ok: true }); });
 
 // 성경
 app.get('/api/bible', needAuth, (req, res) => res.json(bible.lookup(req.query.q, req.query.v)));
@@ -633,15 +658,17 @@ app.post('/api/live', needControl, (req, res) => {
   const b = req.body || {};
   if (b.itemId !== undefined) {
     if (b.itemId !== live.itemId && b.auto === undefined) setAuto(null);   // 다른 자료로 가면 자동 넘김은 멈춤
-    live.itemId = b.itemId; live.index = 0; live.clear = false; live.black = false;
+    live.itemId = b.itemId; live.index = 0; live.clear = false; live.black = false; live.logo = false;
   }
-  if (b.index !== undefined) { live.index = Math.max(0, +b.index); live.clear = false; live.black = false; }
+  if (b.index !== undefined) { live.index = Math.max(0, +b.index); live.clear = false; live.black = false; live.logo = false; }
   if (b.step) {
     const it = db.items.find(i => i.id === live.itemId);
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), store.seq(it).length - 1);
-    live.clear = false; live.black = false;
+    live.clear = false; live.black = false; live.logo = false;
   }
   for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
+  // 로고 단추만 눌렀으면: '검은 바탕'이면 검은 화면도 함께, '배경 위에 로고만'이면 지금 배경(미디어 배경)을 그대로 둠
+  if (b.logo !== undefined && b.black === undefined) live.black = !!b.logo && db.settings.logoStyle?.screenBg !== 'over';
   if (b.mediaBg !== undefined) {
     const ok = typeof b.mediaBg === 'string' && /^\/media\/[^/\\"'<>()\s]+\.(png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm)$/i.test(b.mediaBg)
       && fs.existsSync(path.join(MEDIA_DIR, path.basename(b.mediaBg)));
@@ -757,8 +784,10 @@ server.listen(PORT, () => {
   console.log(`  운영 화면     http://localhost:${PORT}/control`);
   console.log(`  예배당 화면   http://localhost:${PORT}/output   (TV로 옮긴 뒤 F 키 = 전체화면)`);
   console.log(`  프롬프터      http://localhost:${PORT}/stage`);
+  console.log(`  OBS 자막      http://localhost:${PORT}/overlay   (같은 컴퓨터의 OBS — 바뀌지 않음)`);
+  if (hostName()) console.log(`  OBS 자막      http://${hostName()}:${PORT}/overlay   (다른 컴퓨터의 OBS — 공유기가 바뀌어도 그대로)`);
   for (const ip of lan) {
-    console.log(`  OBS 자막      http://${ip}:${PORT}/overlay   (OBS 브라우저 소스 1920×1080)`);
+    console.log(`  OBS 자막      http://${ip}:${PORT}/overlay   (숫자 주소 — 공유기가 다시 켜지면 바뀔 수 있음)`);
     console.log(`  웹 편집기     http://${ip}:${PORT}/editor    (PIN: ${db.settings.pin})`);
   }
   console.log('');

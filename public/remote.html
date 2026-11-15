@@ -72,7 +72,7 @@ const seq = it => {   // 곡 구성 순서 (운영 화면과 같은 규칙)
   for (const s of sl) { if (s.label) { c = String(s.label); if (!g.has(c)) g.set(c, []); } if (c) g.get(c).push(s); }
   const out = arr.flatMap(l => g.get(String(l)) || []); return out.length ? out : sl;
 };
-const txt = s => s ? (s.text || (s.bg || s.elements?.length ? '[그림]' : s.html || s.htmlFile ? '[HTML]' : '')) : '';
+const txt = s => s ? (s.text || (s.bg || s.img || s.elements?.length ? '[그림]' : s.html || s.htmlFile ? '[HTML]' : '')) : '';
 
 function draw() {
   if (!S || !snap) return;
@@ -108,7 +108,7 @@ function draw() {
   });
   $('#app').querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
     const k = b.dataset.t;
-    go(k === 'logo' ? { logo: !L.logo, black: !L.logo } : { [k]: !L[k] });
+    go(k === 'logo' ? { logo: !L.logo } : { [k]: !L[k] });
   });
   $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
   $('#app').querySelectorAll('[data-i]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.i }));

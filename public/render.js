@@ -186,7 +186,7 @@
     if (m === 'video') { const u = mediaUrl(main.motionVideo); return u ? 'video:' + u : ''; }
     return m;
   }
-  const isVisual = s => !!(s && (s.html || s.htmlFile || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
+  const isVisual = s => !!(s && (s.html || s.htmlFile || mediaUrl(s.img) || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
   const isHtmlFile = s => /^\/slides\/[a-f0-9]{12}\.html$/.test(String(s?.htmlFile || ''));
 
   // HTML 파일(여러 장짜리 발표 자료): 1920×1080 으로 그린 뒤 화면 크기에 맞춰 줄임. 몇 번째 장인지는 #wc=번호
@@ -223,6 +223,9 @@
     if (isHtmlFile(s)) return htmlFileHTML(s);
     if (s.html) return `<iframe class="wc-html" sandbox="${still || noScript ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
     let inner = bgHTML(s.bg, s.fit !== 'contain', !!(audio && s.sound));
+    // 추가 그림: 배경 위에 따로 얹음 (포스터·사진) — 빼도 배경은 그대로
+    const img = mediaUrl(s.img);
+    if (img) inner += isVideo(img) ? `<video class="wc-img" src="${esc(img)}" autoplay muted loop playsinline></video>` : `<div class="wc-img" style="background-image:url('${esc(img)}')"></div>`;
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
     const ref = s.ref ? `<div class="wc-ref" style="font-size:${(st.size * 0.6).toFixed(2)}cqh;color:${st.refColor}">${esc(s.ref)}</div>` : '';
@@ -240,11 +243,11 @@
 
   function mainHTML(snap, opts = {}) {
     const st = mainStyle(snap), s = snap.slide, L = snap.live || {};
-    if (L.black || !s) {
+    if (L.black || L.logo || !s) {
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
-      // 띄운 슬라이드가 없어도 미디어 배경은 보이게 (검은 화면을 직접 켠 때만 가림)
-      const see = !L.black && !L.logo && mediaUrl(L.mediaBg);
+      // 띄운 슬라이드가 없거나 '배경 위에 로고만'이면 미디어 배경이 보이게 (검은 화면을 켠 때만 가림)
+      const see = !L.black && mediaUrl(L.mediaBg);
       return `<div class="wc-layer" style="background:${see ? 'transparent' : '#000'}">${logo}</div>`;
     }
     const mk = motionKey(snap, st);
@@ -261,7 +264,7 @@
   // 방송(OBS)에 무엇을 보낼지: off(카메라만) · caption(자막 바) · full(슬라이드 화면 그대로: 그림·악보·PPT 그림·HTML)
   function bcMode(snap) {
     const s = snap.slide, L = snap.live || {};
-    if (L.black || L.clear || L.overlayOff || snap.item?.noBroadcast || !s) return 'off';
+    if (L.black || L.logo || L.clear || L.overlayOff || snap.item?.noBroadcast || !s) return 'off';
     if (isHtmlFile(s)) return 'off';   // HTML 파일 자료는 스크립트가 돌아야 해서 OBS에는 보내지 않음 (OBS 제어 기능 보호)
     if (snap.item?.bcFull) return 'full';
     if (isVisual(s)) return safeOverlay(snap.style.overlay || {}).imgMode === 'none' ? 'off' : 'full';
@@ -298,7 +301,7 @@
     const now = new Date().toLocaleTimeString(window.I18N?.lang === 'en' ? 'en-US' : 'ko-KR', { hour: '2-digit', minute: '2-digit' });
     const status = T(L.black ? '■ 검은 화면' : L.clear ? '◻ 글자 지움' : '● 송출 중') +
       (L.overlayOff || snap.item?.noBroadcast ? ' ' + T('· 방송 자막 꺼짐') : '');
-    const txt = x => x?.htmlFile ? (x.text || T('[HTML 화면]')) : x?.html ? T('[HTML 화면]') : (x?.text || (x?.bg || x?.elements?.length ? T('[그림]') : ''));
+    const txt = x => x?.htmlFile ? (x.text || T('[HTML 화면]')) : x?.html ? T('[HTML 화면]') : (x?.text || (x?.bg || x?.img || x?.elements?.length ? T('[그림]') : ''));
     return `<div class="wc-layer wc-stage">
       <div class="wc-st-top"><span>${esc(snap.item?.title || T('대기'))}</span><span>${snap.item ? `${L.index + 1} / ${snap.item.count}` : ''}</span><span class="wc-st-status">${status}</span><span class="wc-clock">${now}</span></div>
       <div class="wc-st-cur" dir="auto" style="line-height:${lhFor(txt(s), 1.35)}">${esc(txt(s)).replace(/\n/g, '<br>')}${s?.ref ? `<div class="wc-st-ref">${esc(s.ref)}</div>` : ''}</div>

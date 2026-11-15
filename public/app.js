@@ -25,6 +25,7 @@ async function api(method, url, body) {
 }
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); }
 const item = id => S.items.find(i => i.id === id);
+const mediaName = u => decodeURIComponent(String(u || '').split('/').pop());
 const service = () => S.services.find(s => s.id === S.currentServiceId);
 
 async function reload() {
@@ -364,6 +365,51 @@ function zawgyiCheck(t) {
   if (looksZawgyi(t)) alert('이 미얀마어 글은 옛 방식(자우기, Zawgyi)으로 쓴 것 같습니다.\n화면에서 글자 순서가 뒤섞여 보일 수 있습니다.\n\n휴대폰이나 인터넷의 "Zawgyi → Unicode" 변환기로 유니코드로 바꾼 뒤 다시 붙여넣어 주세요.\n(설명서 11장 참고)');
 }
 
+// ── 찬송가: 번호만 치면 바로 예배 순서에 ──
+// 가사는 교회가 가진 찬송가 파일에서 (⚙︎ 설정 → 찬송가). 한 번 넣은 찬송가는 자료실에 남아 다음엔 그대로 씀
+async function addSongToService(id) {
+  if (!service()) await api('POST', '/api/services', { name: '주일 예배' }).then(s => { S.services.push(s); S.currentServiceId = s.id; });
+  const ids = [...service().itemIds], at = ids.indexOf(afterId());
+  if (at >= 0) ids.splice(at + 1, 0, id); else ids.push(id);
+  await saveService(ids);
+}
+function openHymn() {
+  const body = openDlg(`
+    <div class="dlg-head"><h3>찬송가 넣기</h3><button class="icon" data-x>✕</button></div>
+    ${S.hymnCount ? '' : `<p class="notebox">찬송가 가사 파일을 먼저 가져오세요. ⚙︎ 설정 → 🎵 찬송가에서 한 번만 하면 됩니다.<br><span class="muted small">찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일을 쓰세요.</span></p>`}
+    <div class="row"><input id="hNum" type="number" min="1" max="999" placeholder="장 번호 (예: 305)" style="width:180px;font-size:20px" autofocus>
+      <button class="btn primary" id="hAdd" disabled>예배 순서에 넣기</button></div>
+    <div id="hPv" class="muted" style="margin-top:10px;white-space:pre-line;min-height:4em"></div>
+    <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
+  const num = body.querySelector('#hNum'), pv = body.querySelector('#hPv'), add = body.querySelector('#hAdd');
+  let cur = null, t;
+  const look = async () => {
+    cur = null; add.disabled = true;
+    const n = +num.value; if (!(n >= 1)) { pv.textContent = ''; return; }
+    const r = await fetch('/api/hymns/' + n).then(x => x.json().then(j => (x.ok ? j : Promise.reject(j)))).catch(e => ({ error: e?.error || '찾지 못했습니다' }));
+    if (r.error) { pv.textContent = r.error; return; }
+    cur = r; add.disabled = false;
+    pv.innerHTML = `<b style="color:var(--text)">${esc(r.title)}</b>\n${esc(r.lyrics.replace(/^#.*\n/gm, '').split('\n').slice(0, 3).join('\n'))} …`;
+  };
+  num.oninput = () => { clearTimeout(t); t = setTimeout(look, 200); };
+  const go = async () => {
+    if (!cur) return;
+    const have = S.items.find(i => KEEP.has(i.type) && i.title.trim() === cur.title);
+    if (have) { await addSongToService(have.id); selId = have.id; }
+    else {
+      const slides = await api('POST', '/api/split', { text: cur.lyrics, lines: 2 });
+      const it = await api('POST', '/api/items', { type: 'song', title: cur.title, slides, arr: cur.arr, place: true, after: afterId() });
+      selId = it.id;
+    }
+    toast(`'${cur.title}'을(를) 넣었습니다`);
+    num.value = ''; pv.textContent = ''; cur = null; add.disabled = true; num.focus();
+  };
+  add.onclick = go;
+  num.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); look().then(go); } };
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  setTimeout(() => num.focus(), 50);
+}
+
 async function newService() {
   const T = await api('GET', '/api/templates');
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -503,7 +549,13 @@ function openItemEditor(id, focusIndex, preset) {
         : s.elements?.length ? elEdit : `${s.htmlFile ? `<div class="muted small" style="margin-bottom:4px">HTML 파일 ${(+s.page || 0) + 1}번째 장 · 아래 글은 프롬프터(설교자 화면)에만 보입니다</div>` : ''}<textarea data-text rows="4">${esc(s.text)}</textarea>`}
           ${it.type === 'bible' ? `<input data-ref placeholder="구절 표시 (예: 요한복음 3:16)" value="${esc(s.ref || '')}" style="margin-top:6px">` : ''}
           ${isHtml || s.htmlFile || s.elements?.length ? '' : `<div class="row" style="margin:6px 0 0"><input data-label list="labelList" placeholder="이름 (1절·후렴…)" value="${esc(s.label || '')}" style="width:150px;padding:4px 8px;font-size:12px">
-            ${/\.(mp4|mov|m4v|webm)$/i.test(s.bg || '') ? `<label class="small" style="display:flex;gap:4px;align-items:center;color:var(--text)"><input type="checkbox" data-sound ${s.sound ? 'checked' : ''}> 🔊 소리 켜고 한 번 재생 (예배당 화면)</label>` : ''}</div>`}</div>
+            ${/\.(mp4|mov|m4v|webm)$/i.test(s.bg || '') ? `<label class="small" style="display:flex;gap:4px;align-items:center;color:var(--text)"><input type="checkbox" data-sound ${s.sound ? 'checked' : ''}> 🔊 소리 켜고 한 번 재생 (예배당 화면)</label>` : ''}</div>`}
+          ${isHtml || s.htmlFile ? '' : `<div class="media-row small">
+            <span title="슬라이드 뒤에 깔리는 배경">🖼 배경</span> <span class="mname">${s.bg ? esc(mediaName(s.bg)) : '<span class="muted">없음</span>'}</span>
+            <button class="btn sm" data-m="bg">${s.bg ? '바꾸기' : '고르기'}</button>${s.bg ? '<button class="btn sm" data-m="bgdel">빼기</button>' : ''}
+            <span class="sep">·</span>
+            <span title="배경 위에 따로 얹는 그림 (포스터·사진). 빼도 배경은 그대로">🏞 추가 그림</span> <span class="mname">${s.img ? esc(mediaName(s.img)) : '<span class="muted">없음</span>'}</span>
+            <button class="btn sm" data-m="img">${s.img ? '바꾸기' : '넣기'}</button>${s.img ? '<button class="btn sm" data-m="imgdel">빼기</button>' : ''}</div>`}</div>
         <div class="tools">
           <button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button>
           ${s.elements?.length || s.htmlFile ? '' : '<button class="icon" data-a="split" title="커서 위치에서 나누기">✂</button>'}
@@ -530,6 +582,15 @@ function openItemEditor(id, focusIndex, preset) {
       }));
       row.querySelectorAll('[data-img]').forEach(b => b.onclick = () => pickMedia(url => { s.elements[+b.dataset.img].src = url; repaint(); }, () => openItemEditorResume()));
       row.querySelectorAll('[data-imgdel]').forEach(b => b.onclick = () => { s.elements.splice(+b.dataset.imgdel, 1); draw(); });
+      // 배경과 추가 그림은 따로: 추가 그림을 빼도 배경은 그대로
+      row.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+        const m = b.dataset.m;
+        if (m === 'bg') return pickMedia(url => { s.bg = url; }, openItemEditorResume);
+        if (m === 'img') return pickMedia(url => { s.img = url; }, openItemEditorResume);
+        if (m === 'bgdel') delete s.bg;
+        if (m === 'imgdel') delete s.img;
+        draw();
+      });
       row.querySelector('.tools').onclick = e => {
         const a = e.target.dataset.a; if (!a) return;
         const sl = it.slides;
@@ -982,7 +1043,12 @@ function sceneField(id, cur = '') {
 }
 document.addEventListener('obsinfo', () => { if (dlg.open && $('#obsPipBox')) openOBS(); });
 function openOBS() {
-  const urls = S.lan.map(ip => `http://${ip}:${S.port}/overlay`);
+  // 주소: ① 같은 컴퓨터 localhost(바뀌지 않음) ② 컴퓨터 이름(공유기가 바뀌어도 그대로) ③ 숫자(바뀔 수 있음)
+  const urls = [
+    [`http://localhost:${S.port}/overlay`, '같은 컴퓨터의 OBS — 늘 이 주소 (추천)'],
+    ...(S.host ? [[`http://${S.host}:${S.port}/overlay`, '다른 컴퓨터의 OBS — 공유기가 다시 켜져도 그대로']] : []),
+    ...S.lan.map(ip => [`http://${ip}:${S.port}/overlay`, '숫자 주소 — 공유기가 다시 켜지면 바뀔 수 있음']),
+  ];
   const EN = I18N.lang === 'en';
   openDlg(`
     <div class="dlg-head"><h3>🎥 OBS에 자막 얹기</h3><button class="icon" data-x>✕</button></div>
@@ -990,10 +1056,10 @@ function openOBS() {
     Put it <b>above</b> the camera source and only the captions are overlaid, transparently. (No capture card or NDI plugin needed.)</p>`
     : `<p>방송 PC(맥/윈도우)의 OBS에서 <b>소스 ＋ → 브라우저</b>를 추가하고 아래 주소를 넣으세요. 너비 <b>1920</b>, 높이 <b>1080</b>.
     카메라 소스 <b>위에</b> 두면 자막만 투명하게 얹힙니다. (캡처 장비·NDI 플러그인 필요 없음)</p>`}
-    ${urls.map(u => `<div class="copy row"><input readonly value="${u}"><button class="btn" data-copy="${u}">복사</button></div>`).join('') || '<p class="err">네트워크 주소를 찾지 못했습니다. 와이파이/랜 연결을 확인하세요. 같은 맥에서 OBS를 쓰면: http://localhost:' + S.port + '/overlay</p>'}
-    <p class="muted small">${EN ? '· When OBS runs on this computer:' : '· 같은 맥에서 OBS를 돌릴 때:'} <code>http://localhost:${S.port}/overlay</code><br>
+    ${urls.map(([u, n], i) => `<div class="small ${i ? 'muted' : ''}" style="margin:8px 0 2px">${i ? '' : '⭐ '}<span>${n}</span></div><div class="copy row"><input readonly value="${u}"><button class="btn" data-copy="${u}">복사</button></div>`).join('')}
+    <p class="muted small">
     ${EN ? '· The streaming computer and this one must be on the same network. Allow it if the firewall asks.' : '· 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.'}<br>
-    ${EN ? '· Web editor (weekday prep):' : '· 웹 편집기(주중 준비):'} <code>${S.lan[0] ? `http://${S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> ${EN ? '(change in ⚙︎ Settings)' : '(⚙︎ 설정에서 변경)'}</p>
+    ${EN ? '· Web editor (weekday prep):' : '· 웹 편집기(주중 준비):'} <code>${S.host || S.lan[0] ? `http://${S.host || S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> ${EN ? '(change in ⚙︎ Settings)' : '(⚙︎ 설정에서 변경)'}</p>
     <h4 id="obsPipBox" style="margin:18px 0 6px">👤 그림·악보·PPT를 보낼 때 오른쪽 아래에 사람 화면 (선택)</h4>
     <div class="notebox">${EN ? 'Status:' : '상태:'} ${!obsInfo ? '<span class="muted">OBS 자막 소스가 아직 연결되지 않았습니다</span>'
       : obsInfo.level >= 4 ? '<span class="ok">OBS 장면 전환 가능</span>' : obsInfo.level >= 0 ? '<span class="warn">OBS 권한이 부족합니다 — 아래 3번을 해 주세요</span>' : '<span class="warn">이 OBS는 장면 전환을 지원하지 않습니다 (OBS 28 이상 필요)</span>'}
@@ -1045,6 +1111,8 @@ function openSettings() {
           <span class="muted small">운영 화면 맨 위 '예배송출' 앞에 붙는 작은 로고</span></div>
         ${S.settings.logo ? `<div class="two">
           <div><b class="small">로고 화면 (✝ 로고 버튼 · L 키)</b><div class="form narrow">
+            <label>바탕</label><select id="lgSBg" title="'배경 위에 로고만'은 미디어 배경(영상·사진)을 그대로 두고 글자 대신 로고만 띄웁니다">
+              <option value="black" ${ls.screenBg !== 'over' ? 'selected' : ''}>검은 바탕</option><option value="over" ${ls.screenBg === 'over' ? 'selected' : ''}>지금 배경 위에 로고만</option></select>
             <label>위치</label>${posSel('lgSPos', ls.screenPos)}
             <label>크기</label><input type="range" id="lgSSize" min="10" max="90" step="1" value="${ls.screenSize}">
           </div><div id="lgPv1" class="wc-screen pv"></div></div>
@@ -1055,7 +1123,7 @@ function openSettings() {
             <label>진하기</label><input type="range" id="lgMOp" min="0.1" max="1" step="0.05" value="${ls.markOpacity}">
             <label>유튜브에도</label><input type="checkbox" id="lgMOv" ${ls.markOverlay ? 'checked' : ''}>
           </div><div id="lgPv2" class="wc-screen pv"></div></div>
-        </div><div class="row" style="margin-top:8px"><button class="btn primary" id="lgSave">로고 설정 저장</button></div>` : '<p class="muted small">교회 로고 그림(png 권장, 배경이 투명하면 더 좋음)을 고르면 위치·크기를 정할 수 있습니다.</p>'}</div>
+        </div><div class="row" style="margin-top:8px"><button class="btn primary" id="lgSave">로고 설정 저장</button></div>` : '<p class="muted small">교회 로고 그림을 고르면 위치·크기를 정할 수 있습니다. 로고만 깔끔하게 보이려면 배경이 투명한 png를 쓰세요 (jpg는 네모난 바탕이 함께 보입니다).</p>'}</div>
     <h4 style="margin:18px 0 8px">📱 휴대폰 리모컨</h4>
     <div class="row wrap"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stRemote" ${S.settings.remote ? 'checked' : ''}> 휴대폰에서 자막 넘기기 허용</label>
       ${S.lan[0] ? `<code>http://${esc(S.lan[0])}:${S.port}/remote</code>` : ''} <span class="muted small">같은 와이파이의 휴대폰 브라우저에서 이 주소 → PIN 입력</span></div>
@@ -1063,6 +1131,12 @@ function openSettings() {
     <div class="row wrap"><a class="btn" href="/api/backup" download>자료 전체 백업 받기 (zip)</a>
       <label class="btn">백업 파일로 되살리기<input type="file" id="stRestore" accept=".zip,application/zip" hidden></label></div>
     <p class="muted small">찬양·예배 순서·모양·설정·사진·영상을 파일 하나로 내려받습니다. 컴퓨터를 바꿀 때나 고장에 대비해 가끔 USB에 받아 두세요. 되살리면 지금 자료가 백업 내용으로 바뀝니다(바뀌기 전 자료도 data 폴더에 한 벌 남깁니다).</p>
+    <h4 style="margin:18px 0 8px">🎵 찬송가</h4>
+    <div class="row wrap"><span>${S.hymnCount ? `가져온 찬송가 ${S.hymnCount}곡` : '<span class="muted">아직 가져온 찬송가가 없습니다</span>'}</span>
+      <label class="btn sm">찬송가 가사 파일 가져오기<input type="file" id="stHymn" accept=".txt,.json,text/plain,application/json" hidden></label>
+      ${S.hymnCount ? '<button class="btn sm" id="stHymnDel">모두 지우기</button>' : ''}</div>
+    <p class="muted small">찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일(.txt)을 한 번 가져오면 ＋ 찬송가에서 번호만 쳐서 바로 넣습니다.</p>
+    <p class="muted small">형식: 곡마다 "305장 제목" 줄로 시작하고, 절은 "1." "2.", 후렴은 "후렴" 줄로 나눕니다. UTF-8 또는 EUC-KR.</p>
     <h4 style="margin:18px 0 8px">성경</h4>
     <div class="form">
       <label>성경 폴더</label><div>
@@ -1077,7 +1151,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.10.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.11.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1088,7 +1162,10 @@ function openSettings() {
   nf.addEventListener('drop', e => { const t = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list'); if (t) { e.preventDefault(); nf.value = decodeURIComponent(t.replace(/^file:\/\//, '')).replace(/\/$/, ''); } });
   body.querySelector('#stFolderAdd').onclick = () => { const v = nf.value.trim().replace(/^['"]|['"]$/g, ''); if (v) saveFolders([...folders, v]); };
   body.querySelector('#stPinSave').onclick = async () => { await api('PUT', '/api/settings', { pin: body.querySelector('#stPin').value }); toast('PIN을 바꿨습니다 (기존 접속은 로그아웃)'); };
-  body.querySelector('#stLogo').onclick = () => openMediaPicker(async url => { await api('PUT', '/api/settings', { logo: url }); await reload(); openSettings(); }, openSettings);
+  body.querySelector('#stLogo').onclick = () => openMediaPicker(async url => {
+    await api('PUT', '/api/settings', { logo: url }); await reload(); openSettings();
+    if (/\.jpe?g$/i.test(url)) toast('jpg 로고는 네모난 바탕이 함께 보입니다. 로고만 보이게 하려면 배경이 투명한 png를 고르세요');
+  }, openSettings);
   body.querySelector('#stLogoDel')?.addEventListener('click', async () => { await api('PUT', '/api/settings', { logo: '' }); await reload(); openSettings(); });
   body.querySelector('#stRestore').onchange = async e => {
     const f = e.target.files[0]; e.target.value = '';
@@ -1099,6 +1176,12 @@ function openSettings() {
     catch (err) { toast(err.message); }
   };
   body.querySelector('#stLang').onchange = async e => { await api('PUT', '/api/settings', { lang: e.target.value }); location.reload(); };
+  body.querySelector('#stHymn').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const fd = new FormData(); fd.append('file', f);
+    try { const r = await api('POST', '/api/hymns/upload', fd); toast(`찬송가 ${r.count}곡을 가져왔습니다 (모두 ${r.total}곡)`); await reload(); openSettings(); } catch {}
+  };
+  body.querySelector('#stHymnDel')?.addEventListener('click', async () => { if (!confirm('가져온 찬송가 가사를 모두 지울까요?\n(자료실에 이미 넣은 찬송가는 남습니다)')) return; await api('DELETE', '/api/hymns'); await reload(); openSettings(); });
   body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
   body.querySelector('#stRemote').onchange = async e => { await api('PUT', '/api/settings', { remote: e.target.checked }); toast(e.target.checked ? '휴대폰 리모컨을 켰습니다' : '휴대폰 리모컨을 껐습니다'); };
   body.querySelector('#stTitleLogo').onclick = () => openMediaPicker(async url => {
@@ -1109,11 +1192,12 @@ function openSettings() {
   if (S.settings.logo) {
     const paintLogo = () => {
       const logo = { url: S.settings.logo, ...ls };
-      WC.render(body.querySelector('#lgPv1'), { slide: null, style: S.style, live: { black: true, logo: true }, logo }, 'main', { fade: false, still: true });
+      const over = ls.screenBg === 'over';
+      WC.render(body.querySelector('#lgPv1'), { slide: null, style: S.style, live: { black: !over, logo: true, mediaBg: over ? snap?.live?.mediaBg : null, mediaFit: snap?.live?.mediaFit }, logo }, 'main', { fade: false, still: true });
       WC.render(body.querySelector('#lgPv2'), { slide: { text: '주님의 은혜가 오늘도\n나의 삶을 덮으시네' }, style: S.style, live: {}, logo, item: { type: 'song' } }, 'main', { fade: false, still: true });
     };
     const bindL = (id, key, conv) => body.querySelector('#' + id).addEventListener('input', e => { ls[key] = conv(e.target); paintLogo(); });
-    bindL('lgSPos', 'screenPos', t => t.value); bindL('lgSSize', 'screenSize', t => +t.value);
+    bindL('lgSBg', 'screenBg', t => t.value); bindL('lgSPos', 'screenPos', t => t.value); bindL('lgSSize', 'screenSize', t => +t.value);
     bindL('lgMark', 'mark', t => t.checked); bindL('lgMPos', 'markPos', t => t.value); bindL('lgMSize', 'markSize', t => +t.value);
     bindL('lgMOp', 'markOpacity', t => +t.value); bindL('lgMOv', 'markOverlay', t => t.checked);
     body.querySelector('#lgSave').onclick = async () => { await api('PUT', '/api/settings', { logoStyle: ls }); toast('로고 설정을 저장했습니다'); };
@@ -1208,7 +1292,7 @@ function renderMediaBin() {
 }
 // 미디어 파일 삭제: 어디서 쓰는지 알려 주고, 지금 배경이면 끄고 지움
 async function deleteMedia(url, name) {
-  const used = (S?.items || []).filter(it => (it.slides || []).some(s => s.bg === url || (s.elements || []).some(e => e.src === url)));
+  const used = (S?.items || []).filter(it => (it.slides || []).some(s => s.bg === url || s.img === url || (s.elements || []).some(e => e.src === url)));
   const isLive = snap?.live?.mediaBg === url;
   let msg = `'${name}' 파일을 삭제할까요?\n삭제하면 되돌릴 수 없습니다.`;
   if (S?.settings?.logo === url || S?.settings?.titleLogo === url) msg += '\n\n※ 설정에서 로고로 쓰고 있는 파일입니다.';
@@ -1548,6 +1632,7 @@ function bind() {
   $('#newHtml').onclick = openHtmlChoice;
   $('#newPhrase').onclick = openPhrases;
   $('#newBible').onclick = openBible;
+  $('#newHymn').onclick = openHymn;
   $('#newScore').onclick = openScore;
   $('#pptFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -1578,7 +1663,7 @@ function bind() {
   $('#next').onclick = () => goLive({ step: 1 });
   $('#black').onclick = () => goLive({ black: !snap.live.black });
   $('#clear').onclick = () => goLive({ clear: !snap.live.clear });
-  $('#logo').onclick = () => goLive({ logo: !snap.live.logo, black: !snap.live.logo });
+  $('#logo').onclick = () => goLive({ logo: !snap.live.logo });
   $('#reset').onclick = () => goLive({ reset: true });
   $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
   $('#pip').onclick = () => { goLive({ pip: !snap.live.pip }); if (!S.settings.obsScenes?.pip) toast('사람 화면을 쓰려면 🎥 OBS 자막 주소 → 사람 화면 설정을 해 주세요'); };

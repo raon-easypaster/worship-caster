@@ -238,6 +238,32 @@
       'Paste lyrics. A blank line always starts a new slide.\nStart a group with #Verse1 · #Chorus · #Bridge to name it.',
     'PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 악보는 화면 비율(16:9)에 맞게 위·아래로 나누면 TV에서 훨씬 크게 보입니다. 악보·그림 슬라이드는 유튜브(OBS)에도 화면 그대로 나갑니다. 예배당에만 보내려면 ✎ 편집 → 유튜브 방송 → \'보내지 않기\'.':
       "Each PDF page or photo (jpg, png) becomes a slide. Splitting a score into top/bottom halves makes it much bigger on a 16:9 TV. Score and picture slides also go to YouTube (OBS) as they are; to keep one on the main screen only, use ✎ Edit → YouTube stream → \"Don't send\".",
+    // ── 찬송가 ──
+    '＋ 찬송가': '＋ Hymn', '찬송가 넣기': 'Add hymn', '장 번호 (예: 305)': 'Hymn number (e.g. 305)', '찾지 못했습니다': 'Not found',
+    '찬송가 번호만 치면 바로 넣기 (찬송가 가사 파일을 ⚙︎ 설정에서 한 번 가져와야 함)': 'Type a hymn number to add it (import a hymnal lyrics file once in ⚙︎ Settings)',
+    '찬송가 가사 파일을 먼저 가져오세요. ⚙︎ 설정 → 🎵 찬송가에서 한 번만 하면 됩니다.': 'Import a hymnal lyrics file first. Do it once in ⚙︎ Settings → 🎵 Hymns.',
+    '찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일을 쓰세요.': "Hymn lyrics are copyrighted, so they are not included. Use your church's own hymnal lyrics file.",
+    '🎵 찬송가': '🎵 Hymns', '아직 가져온 찬송가가 없습니다': 'No hymns imported yet', '찬송가 가사 파일 가져오기': 'Import hymnal lyrics file', '모두 지우기': 'Clear all',
+    '찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일(.txt)을 한 번 가져오면 ＋ 찬송가에서 번호만 쳐서 바로 넣습니다.':
+      "Hymn lyrics are copyrighted, so they are not included. Import your church's hymnal lyrics file (.txt) once, then add any hymn by number with ＋ Hymn.",
+    '형식: 곡마다 "305장 제목" 줄로 시작하고, 절은 "1." "2.", 후렴은 "후렴" 줄로 나눕니다. UTF-8 또는 EUC-KR.':
+      'Format: each hymn starts with a "305장 Title" line; verses start with "1." "2."; the refrain starts with a "후렴" line. UTF-8 or EUC-KR.',
+    '찬송가 가사 파일을 먼저 가져오세요 (⚙︎ 설정 → 찬송가)': 'Import a hymnal lyrics file first (⚙︎ Settings → Hymns)',
+    '찬송가를 하나도 읽지 못했습니다. "305장 제목" 줄로 곡이 시작되는지 확인하세요.': 'No hymns could be read. Check that each hymn starts with a "305장 Title" line.',
+    '가져온 찬송가 가사를 모두 지울까요?\n(자료실에 이미 넣은 찬송가는 남습니다)': 'Clear all imported hymn lyrics?\n(Hymns already added to the library stay)',
+    // ── 배경 · 추가 그림 ──
+    '🖼 배경': '🖼 Background', '🏞 추가 그림': '🏞 Extra picture', '바꾸기': 'Change', '넣기': 'Add',
+    '슬라이드 뒤에 깔리는 배경': 'Background behind the slide', '배경 위에 따로 얹는 그림 (포스터·사진). 빼도 배경은 그대로': 'A picture placed over the background (poster, photo). Removing it keeps the background',
+    // ── 로고 바탕 ──
+    '바탕': 'Backdrop', '검은 바탕': 'Black', '지금 배경 위에 로고만': 'Logo only, over the current background',
+    "'배경 위에 로고만'은 미디어 배경(영상·사진)을 그대로 두고 글자 대신 로고만 띄웁니다": "'Logo only' keeps the media background (video/photo) and shows just the logo instead of text",
+    'jpg 로고는 네모난 바탕이 함께 보입니다. 로고만 보이게 하려면 배경이 투명한 png를 고르세요': 'A jpg logo shows its rectangular background. For the logo alone, choose a png with a transparent background',
+    '교회 로고 그림을 고르면 위치·크기를 정할 수 있습니다. 로고만 깔끔하게 보이려면 배경이 투명한 png를 쓰세요 (jpg는 네모난 바탕이 함께 보입니다).':
+      'Choose your church logo to set its position and size. For a clean logo, use a png with a transparent background (a jpg shows its rectangle).',
+    // ── OBS 주소 ──
+    '같은 컴퓨터의 OBS — 늘 이 주소 (추천)': 'OBS on this computer — always this address (recommended)',
+    '다른 컴퓨터의 OBS — 공유기가 다시 켜져도 그대로': 'OBS on another computer — stays the same after the router restarts',
+    '숫자 주소 — 공유기가 다시 켜지면 바뀔 수 있음': 'Number address — may change when the router restarts',
     // ── 서버 안내 ──
     '송출 제어는 운영 맥에서만 가능합니다': 'Only the operator computer can do this',
     '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)': 'Output controls work only on the operator computer (turn on the phone remote in ⚙︎ Settings to use a phone)',
@@ -267,6 +293,8 @@
     [/^잠시 후 다시 시도하세요 \((\d+)초\)$/, 'Try again in a moment ($1 s)'], [/^다음: ([\s\S]*)$/, 'Next: $1'], [/^모니터 (\d+)$/, 'Monitor $1'],
     [/^HTML 파일 (\d+)번째 장 · 아래 글은 프롬프터\(설교자 화면\)에만 보입니다$/, 'HTML file page $1 · the text below shows only on the prompter'],
     [/^폴더를 찾을 수 없습니다: (.+)$/, 'Folder not found: $1'],
+    [/^가져온 찬송가 (\d+)곡$/, '$1 hymns imported'], [/^찬송가 (\d+)곡을 가져왔습니다 \(모두 (\d+)곡\)$/, 'Imported $1 hymns ($2 in total)'],
+    [/^찬송가 (\d+)장이 가져온 파일에 없습니다$/, 'Hymn $1 is not in the imported file'],
     [/^(.*) \(개역개정이 있으면 자동 선택\)$/, '$1 (chosen automatically)'],
     [/^형식: 한 줄에 한 절\. .*현재 번역본: ?(.*)$/s, 'Format: one verse per line, "Gen1:1 text…" or "Genesis[tab]1[tab]1[tab]text". UTF-8 or EUC-KR. Current versions: $1'],
     [/^예배송출 v([\d.]+) · 만든 사람:$/, 'Worship Caster v$1 · made by'],
