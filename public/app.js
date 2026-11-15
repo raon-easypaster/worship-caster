@@ -397,38 +397,70 @@ async function addSongToService(id) {
 function openHymn() {
   const body = openDlg(`
     <div class="dlg-head"><h3>찬송가 넣기</h3><button class="icon" data-x>✕</button></div>
-    ${S.hymnCount ? '' : `<p class="notebox">찬송가 가사 파일을 먼저 가져오세요. ⚙︎ 설정 → 🎵 찬송가에서 한 번만 하면 됩니다.<br><span class="muted small">찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일을 쓰세요.</span></p>`}
-    <div class="row"><input id="hNum" type="number" min="1" max="999" placeholder="장 번호 (예: 305)" style="width:180px;font-size:20px" autofocus>
-      <button class="btn primary" id="hAdd" disabled>예배 순서에 넣기</button></div>
-    <div id="hPv" class="muted" style="margin-top:10px;white-space:pre-line;min-height:4em"></div>
+    <div class="row"><input id="hNum" placeholder="장 번호, 제목, 가사 한 줄 (예: 305, 나 같은 죄인)" style="flex:1;font-size:18px" autofocus>
+      <button class="btn primary" id="hGo">찾기</button></div>
+    <p class="muted small" style="margin:6px 0 0">번호만 치고 Enter면 바로 넣습니다. 처음 쓰는 찬송가는 제목이나 가사로 찾아 넣으면서 장 번호를 적어 두면, 다음부터 번호로 바로 나옵니다.</p>
+    <div id="hRes" style="margin-top:10px;max-height:52vh;overflow:auto"></div>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
-  const num = body.querySelector('#hNum'), pv = body.querySelector('#hPv'), add = body.querySelector('#hAdd');
-  let cur = null, t;
-  const look = async () => {
-    cur = null; add.disabled = true;
-    const n = +num.value; if (!(n >= 1)) { pv.textContent = ''; return; }
-    const r = await fetch('/api/hymns/' + n).then(x => x.json().then(j => (x.ok ? j : Promise.reject(j)))).catch(e => ({ error: e?.error || '찾지 못했습니다' }));
-    if (r.error) { pv.textContent = r.error; return; }
-    cur = r; add.disabled = false;
-    pv.innerHTML = `<b style="color:var(--text)">${esc(r.title)}</b>\n${esc(r.lyrics.replace(/^#.*\n/gm, '').split('\n').slice(0, 3).join('\n'))} …`;
-  };
-  num.oninput = () => { clearTimeout(t); t = setTimeout(look, 200); };
-  const go = async () => {
-    if (!cur) return;
-    const have = S.items.find(i => KEEP.has(i.type) && i.title.trim() === cur.title);
+  const qIn = body.querySelector('#hNum'), res = body.querySelector('#hRes');
+  const isNum = q => /^(?:찬송가\s*)?\d{1,3}\s*장?$/.test(q.trim());
+  const numOf = q => +q.replace(/\D/g, '');
+  // 찬송가를 예배 순서에 (자료실에 같은 제목이 있으면 그 곡을 씀)
+  async function addHymn(h) {
+    const have = S.items.find(i => KEEP.has(i.type) && i.title.trim() === h.title);
     if (have) { await addSongToService(have.id); selId = have.id; }
     else {
-      const slides = await api('POST', '/api/split', { text: cur.lyrics, lines: 2 });
-      const it = await api('POST', '/api/items', { type: 'song', title: cur.title, slides, arr: cur.arr, place: true, after: afterId() });
+      const slides = await api('POST', '/api/split', { text: h.lyrics, lines: 2 });
+      const it = await api('POST', '/api/items', { type: 'song', title: h.title, slides, arr: h.arr || [], place: true, after: afterId() });
       selId = it.id;
     }
-    toast(`'${cur.title}'을(를) 넣었습니다`);
-    num.value = ''; pv.textContent = ''; cur = null; add.disabled = true; num.focus();
-  };
-  add.onclick = go;
-  num.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); look().then(go); } };
+    toast(`'${h.title}'을(를) 넣었습니다`);
+  }
+  const getHymn = n => fetch('/api/hymns/' + n).then(x => x.json().then(j => (x.ok ? j : Promise.reject(j))));
+  async function find(direct) {
+    const q = qIn.value.trim(); if (!q) return;
+    res.innerHTML = '<div class="muted small">찾는 중…</div>';
+    // 1) 번호: 내 찬송가(가져온 파일·기억한 곡)에서
+    if (isNum(q)) {
+      const h = await getHymn(numOf(q)).catch(() => null);
+      if (h && direct) { await addHymn(h); qIn.value = ''; res.innerHTML = ''; qIn.focus(); return; }
+      if (h) { draw([{ kind: 'mine', ...h, first: h.lyrics.split('\n').find(l => l && !l.startsWith('#')) }], []); return; }
+      res.innerHTML = `<div class="notebox small">찬송가 ${numOf(q)}장은 아직 내 찬송가에 없습니다. 제목이나 가사 한 줄로 찾아 넣으면서 장 번호를 적어 두면, 다음부터 번호로 바로 나옵니다.</div>`;
+      return;
+    }
+    // 2) 제목·가사: 내 찬송가 + 인터넷(가사 찾기와 같은 곳)
+    const [mine, net] = await Promise.all([
+      api('GET', '/api/hymns-search?q=' + encodeURIComponent(q)).catch(() => []),
+      fetch('/api/lyrics?q=' + encodeURIComponent(q)).then(x => x.json().then(j => (x.ok ? j : []))).catch(() => []),
+    ]);
+    draw(mine.map(m => ({ kind: 'mine', ...m })), Array.isArray(net) ? net : []);
+  }
+  function draw(mine, net) {
+    if (!mine.length && !net.length) { res.innerHTML = '<div class="muted small">찾지 못했습니다. 제목을 줄이거나 가사 한 줄을 넣어 보세요.</div>'; return; }
+    res.innerHTML =
+      mine.map((m, i) => `<div class="lyrow hrow"><div class="grow"><b>${esc(m.title)}</b><br><span class="muted small">${esc(m.first || '')}</span></div>
+        <span class="tag">내 찬송가</span><button class="btn sm primary" data-mine="${i}">넣기</button></div>`).join('') +
+      net.map((x, i) => `<div class="lyrow hrow"><div class="grow"><b>${esc(x.title)}</b> <span class="muted small">${esc(x.artist || '')} · ${esc(x.src || '')}</span><br>
+        <span class="muted small">${esc(x.text.split('\n').filter(Boolean).slice(0, 2).join(' / '))}</span></div>
+        <input data-numfor="${i}" type="number" min="1" max="999" placeholder="장" title="찬송가 장 번호 (적으면 다음부터 번호로 바로)" style="width:70px">
+        <button class="btn sm primary" data-net="${i}">넣기</button></div>`).join('');
+    res.querySelectorAll('[data-mine]').forEach(b => (b.onclick = async () => {
+      const m = mine[+b.dataset.mine];
+      const h = m.lyrics ? m : await getHymn(m.num);
+      await addHymn(h);
+    }));
+    res.querySelectorAll('[data-net]').forEach(b => (b.onclick = async () => {
+      const x = net[+b.dataset.net], n = +res.querySelector(`[data-numfor="${b.dataset.net}"]`).value;
+      const lyrics = cleanLyrics(x.text);
+      if (n >= 1 && n <= 999) await addHymn(await api('POST', '/api/hymns/learn', { num: n, title: x.title, lyrics }));   // 번호와 함께 기억
+      else await addHymn({ title: x.title, lyrics });
+      reload().catch(() => {});
+    }));
+  }
+  body.querySelector('#hGo').onclick = () => find(false);
+  qIn.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); find(true); } };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
-  setTimeout(() => num.focus(), 50);
+  setTimeout(() => qIn.focus(), 50);
 }
 
 async function newService() {
@@ -1177,7 +1209,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.12.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.12.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };

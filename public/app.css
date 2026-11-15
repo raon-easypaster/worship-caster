@@ -232,3 +232,7 @@ table.conti input { width: 100%; padding: 4px 6px; }
   color: var(--g); border: 2px solid var(--g); }
 .secbtn:hover { background: color-mix(in srgb, var(--g) 15%, transparent); }
 .secbtn.on { background: var(--g); color: #fff; }
+/* 찬송가 찾기 결과 */
+.hrow { display: flex; align-items: center; gap: 8px; text-align: left; }
+.hrow .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--chip, #eee); color: var(--muted); white-space: nowrap; }
+.hrow { margin-bottom: 6px; cursor: default; }

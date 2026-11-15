@@ -92,6 +92,14 @@ async function main() {
     const h = await api('GET', '/api/hymns/999');
     ok(h.title === '찬송가 999장 점검 찬송' && h.arr.join(',') === '1절,후렴,2절,후렴', JSON.stringify(h));
   });
+  await check('찬송가: 제목·가사로 찾기, 인터넷에서 넣은 곡 번호 기억', async () => {
+    const byTitle = await api('GET', '/api/hymns-search?q=' + encodeURIComponent('점검 찬송'));
+    const byLine = await api('GET', '/api/hymns-search?q=' + encodeURIComponent('가나'));
+    ok(byTitle[0]?.num === 999 && byLine[0]?.num === 999, JSON.stringify([byTitle, byLine]));
+    const l = await api('POST', '/api/hymns/learn', { num: 555, title: '기억 점검곡', lyrics: '#1절\n하나\n\n#후렴\n둘' });
+    ok(l.title === '찬송가 555장 기억 점검곡' && l.arr.join(',') === '1절,후렴', JSON.stringify(l));
+    const again = await api('GET', '/api/hymns/555'); ok(again.title === l.title, '번호로 다시 안 나옴');
+  });
   await check('백업 받기 → 되살리기 (이상한 값은 걸러짐)', async () => {
     const r = await fetch(BASE + '/api/backup'); ok(r.ok, '백업 실패'); const zip = await r.arrayBuffer();
     const fd = new FormData(); fd.append('file', new Blob([zip]), 'b.zip');
@@ -136,6 +144,15 @@ async function main() {
     const st = await api('GET', '/api/state');
     ok(st.items.some(i => i.title === '제목 점검곡'), '저장된 제목: ' + st.items.map(i => i.title).filter(t => /찬양|점검/.test(t)).join(', '));
     noErr();
+  });
+  await check('＋ 찬송가: 번호 Enter면 바로, 제목으로 찾으면 목록', async () => {
+    await c.eval(`(closeDlg(), document.querySelector('#newHymn').click(), 1)`); await sleep(500);
+    await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '555'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`); await sleep(1500);
+    const st = await api('GET', '/api/state');
+    ok(st.items.some(i => i.title === '찬송가 555장 기억 점검곡'), '번호로 안 들어감');
+    await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '점검 찬송'; document.querySelector('#hGo').click(); return 1; })()`); await sleep(2500);
+    ok(await c.eval(`!!document.querySelector('#hRes [data-mine]')`), '제목으로 찾은 목록이 없음');
+    noErr(); await c.eval(`(closeDlg(), 1)`);
   });
   await check('자료 ✎ 편집 → 배경·추가 그림 따로', async () => {
     await c.eval(`(select(S.items.find(i => i.title === '점검 찬양').id), 1)`); await sleep(400);

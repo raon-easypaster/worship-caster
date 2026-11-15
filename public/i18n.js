@@ -279,6 +279,11 @@
     '곡 구성': 'Sections', '곡 구성 바로가기 — 누르면 그 부분 첫 슬라이드가 바로 나갑니다': 'Section shortcuts — click to show the first slide of that part',
     '켜면 그림·악보·PPT가 나갈 때 유튜브에는 사람(카메라) 화면만 나갑니다. 예배당 TV에는 그림이 그대로 나갑니다': 'When on, YouTube shows only the camera while pictures, scores or PPT are on. The main TV still shows the picture',
     '유튜브에는 사람(카메라) 화면만 나갑니다 — 그림은 예배당 TV에만': 'YouTube shows only the camera — the picture stays on the main TV', '유튜브에 그림도 다시 나갑니다': 'Pictures go to YouTube again',
+    '장 번호, 제목, 가사 한 줄 (예: 305, 나 같은 죄인)': 'Number, title or a lyric line (e.g. 305)', '찾기': 'Search', '찾는 중…': 'Searching…', '내 찬송가': 'My hymns', '장': 'No.',
+    '번호만 치고 Enter면 바로 넣습니다. 처음 쓰는 찬송가는 제목이나 가사로 찾아 넣으면서 장 번호를 적어 두면, 다음부터 번호로 바로 나옵니다.':
+      'Type a number and press Enter to add it. For a new hymn, search by title or lyrics and enter its number once; next time the number works.',
+    '찬송가 장 번호 (적으면 다음부터 번호로 바로)': 'Hymn number (remembered for next time)',
+    '찾지 못했습니다. 제목을 줄이거나 가사 한 줄을 넣어 보세요.': 'Nothing found. Try a shorter title or a lyric line.',
     // ── 서버 안내 ──
     '송출 제어는 운영 맥에서만 가능합니다': 'Only the operator computer can do this',
     '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)': 'Output controls work only on the operator computer (turn on the phone remote in ⚙︎ Settings to use a phone)',
@@ -310,6 +315,7 @@
     [/^폴더를 찾을 수 없습니다: (.+)$/, 'Folder not found: $1'],
     [/^가져온 찬송가 (\d+)곡$/, '$1 hymns imported'], [/^찬송가 (\d+)곡을 가져왔습니다 \(모두 (\d+)곡\)$/, 'Imported $1 hymns ($2 in total)'],
     [/^찬송가 (\d+)장이 가져온 파일에 없습니다$/, 'Hymn $1 is not in the imported file'],
+    [/^찬송가 (\d+)장은 아직 내 찬송가에 없습니다\. .*$/, 'Hymn $1 is not in your hymns yet. Search by title or lyrics and enter its number once; next time the number works.'],
     [/^(.*) \(개역개정이 있으면 자동 선택\)$/, '$1 (chosen automatically)'],
     [/^형식: 한 줄에 한 절\. .*현재 번역본: ?(.*)$/s, 'Format: one verse per line, "Gen1:1 text…" or "Genesis[tab]1[tab]1[tab]text". UTF-8 or EUC-KR. Current versions: $1'],
     [/^예배송출 v([\d.]+) · 만든 사람:$/, 'Worship Caster v$1 · made by'],

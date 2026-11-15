@@ -472,6 +472,10 @@ app.get('/api/hymns/:n(\\d{1,3})', needAuth, (req, res) => {
   if (!h) return res.status(404).json({ error: hymns.count() ? `찬송가 ${+req.params.n}장이 가져온 파일에 없습니다` : '찬송가 가사 파일을 먼저 가져오세요 (⚙︎ 설정 → 찬송가)' });
   res.json(h);
 });
+app.get('/api/hymns-search', needAuth, (req, res) => res.json(hymns.search(String(req.query.q || '').slice(0, 80))));
+app.post('/api/hymns/learn', needAuth, (req, res) => {
+  try { res.json(hymns.learn(req.body?.num, req.body?.title, req.body?.lyrics)); } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.post('/api/hymns/upload', needLocal, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '파일 없음' });
   try {
