@@ -242,7 +242,14 @@
   }
 
   function mainHTML(snap, opts = {}) {
-    const st = mainStyle(snap), s = snap.slide, L = snap.live || {};
+    const L = snap.live || {};
+    // 🖼 TV 그림 끄기(I): 그림만 있는 슬라이드(악보·사진·PPT 그림)는 빈 화면, 글자 슬라이드는 얹은 그림만 뺌 (배경은 그대로)
+    if (snap.slide && L.tvNoImg) {
+      const s0 = snap.slide, text = String(s0.text || '').trim(), imgEl = (s0.elements || []).some(e => e.type === 'image');
+      const picOnly = !text && !s0.html && !s0.htmlFile && (s0.bg || mediaUrl(s0.img) || imgEl) && !(s0.elements || []).some(e => e.type !== 'image');
+      snap = { ...snap, slide: picOnly ? null : { ...s0, img: undefined, elements: s0.elements && s0.elements.filter(e => e.type !== 'image') } };
+    }
+    const st = mainStyle(snap), s = snap.slide;
     if (L.black || L.logo || !s) {
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
@@ -352,7 +359,7 @@
     if (mode === 'main' || mode === 'overlay') {
       // 화면 위 그림: 슬라이드·배경 위에 그림만 크게 (예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만)
       const top = mediaUrl(L0.mediaTop);
-      const on = top && !L0.black && (mode === 'main' || (L0.mediaObs && !L0.overlayOff));
+      const on = top && !L0.black && (mode === 'main' ? !L0.tvNoImg : (L0.mediaObs && !L0.overlayOff));
       persist(container, 'wc-mtop', on ? top : '', () => isVideo(top)
         ? `<div class="wc-mtop-in"><video src="${esc(top)}" autoplay muted loop playsinline></video></div>`
         : `<div class="wc-mtop-in"><div style="background-image:url('${esc(top)}')"></div></div>`, true, fade);

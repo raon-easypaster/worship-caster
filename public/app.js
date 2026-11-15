@@ -185,6 +185,7 @@ function renderLive() {
   const L = snap.live;
   for (const k of ['black', 'clear', 'logo', 'overlayOff']) $('#' + k).classList.toggle('on', !!L[k]);
   $('#pip').classList.toggle('on', !!L.camOnly);
+  $('#tvNoImg').classList.toggle('on', !!L.tvNoImg);
   $('#motionOn').classList.toggle('on', snap.style.main.motionOn !== false);
   $('#szMain').textContent = Math.round(+snap.style.main.size / 6.2 * 100) + '%';
   $('#szOv').textContent = Math.round(+snap.style.overlay.size / 4.6 * 100) + '%';
@@ -469,17 +470,18 @@ async function newService() {
   const body = openDlg(`
     <div class="dlg-head"><h3>새 예배 순서</h3><button class="icon" data-x>✕</button></div>
     <div class="form">
-      <label>순서 템플릿</label><select id="nsT">${T.services.map(([k, n]) => `<option value="${k}" ${k === 'sunday' ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <label>순서 템플릿</label><select id="nsT">${T.services.map(([k, n, tm]) => `<option value="${k}" data-time="${esc(tm || '')}" ${k === 'sunday' ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
       <label>예배 이름</label><input id="nsName" value="주일 예배">
       <label>날짜</label><input id="nsDate" type="date" value="${today}">
+      <label>예배 시작</label><input id="nsTime" type="time" value="11:00" style="width:140px" title="타이머 '예배 시작까지'에 씁니다">
     </div>
     <p class="muted small">템플릿을 고르면 '예배 준비 → 예배의 부름 → 찬양 → 기도 → 말씀 → 봉헌 → 광고 → 축도' 같은 순서 제목 화면이 미리 들어갑니다.
     순서 제목을 고른 뒤 ＋ 찬양·＋ 성경을 누르면 그 다음 자리에 들어갑니다. 필요 없는 순서는 ✕로 빼세요.</p>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="nsGo">만들기</button></div>`);
-  body.querySelector('#nsT').onchange = e => { const o = e.target.selectedOptions[0]; body.querySelector('#nsName').value = e.target.value ? o.textContent : '새 예배'; };
+  body.querySelector('#nsT').onchange = e => { const o = e.target.selectedOptions[0]; body.querySelector('#nsName').value = e.target.value ? o.textContent : '새 예배'; if (o.dataset.time) body.querySelector('#nsTime').value = o.dataset.time; };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
   body.querySelector('#nsGo').onclick = async () => {
-    const s = await api('POST', '/api/services', { name: body.querySelector('#nsName').value, date: body.querySelector('#nsDate').value, template: body.querySelector('#nsT').value });
+    const s = await api('POST', '/api/services', { name: body.querySelector('#nsName').value, date: body.querySelector('#nsDate').value, time: body.querySelector('#nsTime').value, template: body.querySelector('#nsT').value });
     S.services.push(s); S.currentServiceId = s.id; selId = null; closeDlg(); toast('예배 순서를 만들었습니다');
   };
 }
@@ -1209,7 +1211,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.12.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.13.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1510,6 +1512,7 @@ function countHtmlSlides(url) {
 
 // ── 도구 카드: 타이머 · 무대 메시지 · 이름 자막 · 자동 넘김 (ProPresenter 의 Timers·Stage Messages·Props·Timeline 참고) ──
 function renderTools() {
+  if ($('#tmSvcTime') && document.activeElement !== $('#tmSvcTime')) $('#tmSvcTime').value = service()?.time || '';
   const box = $('#tools'); if (!box || !snap) return;
   const L = snap.live;
   // 타이머
@@ -1543,9 +1546,27 @@ function tickTools() {
 function initTools() {
   if (IS_EDITOR || !$('#tools')) return;
   const timer = () => ({ label: $('#tmLabel').value.trim(), tv: $('#tmTv').value });
-  $('#tmGo').onclick = () => goLive({ timer: { ...timer(), min: +$('#tmMin').value || 5 } });
+  // [시작]: 분 칸이 비어 있고 시각을 골라 두었으면 그 시각까지 (시각만 바꾸고 시작을 눌러도 5분이 되지 않게)
+  $('#tmGo').onclick = () => {
+    const m = +$('#tmMin').value, u = $('#tmUntil').value;
+    if (!m && u) return goLive({ timer: { ...timer(), until: u } });
+    goLive({ timer: { ...timer(), min: m || 5 } });
+  };
+  $('#tmMin').oninput = () => { if ($('#tmMin').value) $('#tmUntil').value = ''; };   // 둘 중 마지막에 넣은 것으로
+  $('#tmUntil').oninput = () => { if ($('#tmUntil').value) $('#tmMin').value = ''; };
   $('#tmUntilGo').onclick = () => { const v = $('#tmUntil').value; if (!v) return toast('시각을 고르세요'); goLive({ timer: { ...timer(), until: v } }); };
   $('#tmStop').onclick = () => goLive({ timer: null });
+  // 예배 시간: 예배 순서마다 저장. 정하거나 ▶를 누르면 '예배 시작까지' 타이머가 바로 시작 (정각에 사라짐)
+  const svcTimer = () => {
+    const v = $('#tmSvcTime').value; if (!v) return toast('예배 시간을 정하세요');
+    const tv = $('#tmTv').value === 'none' ? 'big' : $('#tmTv').value;
+    goLive({ timer: { label: '예배 시작까지', tv, until: v } }).then(() => toast(`${v} 예배 시작까지 타이머를 시작했습니다`)).catch(() => {});
+  };
+  $('#tmSvcGo').onclick = svcTimer;
+  $('#tmSvcTime').onchange = async () => {
+    const s = service(); if (s) { s.time = $('#tmSvcTime').value; await api('PUT', '/api/services/' + s.id, { time: s.time }).catch(() => {}); }
+    svcTimer();
+  };
   $('#tmTv').onchange = () => { const t = snap?.live?.timer; if (t) goLive({ timer: { ...timer(), min: Math.max(0, (t.end - Date.now()) / 60000) } }); };
   const send = () => { const v = $('#msgIn').value.trim(); if (!v) return; goLive({ msg: v }); $('#msgIn').value = ''; toast('프롬프터에 메시지를 보냈습니다'); };
   $('#msgSend').onclick = send;
@@ -1732,6 +1753,7 @@ function bind() {
   $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
   // 👤 사람 화면(P): 유튜브에는 그림 대신 사람(카메라) 화면만. 예배당 TV는 그대로
   $('#pip').onclick = () => { const on = !snap.live.camOnly; goLive({ camOnly: on }).catch(() => {}); toast(on ? '유튜브에는 사람(카메라) 화면만 나갑니다 — 그림은 예배당 TV에만' : '유튜브에 그림도 다시 나갑니다'); };
+  $('#tvNoImg').onclick = () => { const on = !snap.live.tvNoImg; goLive({ tvNoImg: on }).catch(() => {}); toast(on ? '예배당 TV에 그림을 내보내지 않습니다 (글자는 그대로)' : '예배당 TV에 그림도 다시 나갑니다'); };
   $('#motionOn').onclick = () => api('PUT', '/api/style', { main: { motionOn: snap.style.main.motionOn === false } });
   document.querySelectorAll('[data-size]').forEach(b => b.onclick = () => { const [grp, d] = b.dataset.size.split(':'); bumpSize(grp, +d); });
   initMediaBin();
@@ -1752,6 +1774,7 @@ function bind() {
     else if (k === 'l' || k === 'L') $('#logo').click();
     else if (k === 'o' || k === 'O') $('#overlayOff').click();
     else if (k === 'p' || k === 'P') $('#pip').click();
+    else if (k === 'i' || k === 'I') $('#tvNoImg').click();
     else if (e.code === 'BracketLeft' || e.code === 'BracketRight') { e.preventDefault(); bumpSize(e.shiftKey ? 'overlay' : 'main', e.code === 'BracketRight' ? 1 : -1); }
     else if (k === 'Escape') $('#reset').click();
     else if (/^[1-9]$/.test(k) && selId) goLive({ itemId: selId, index: +k - 1 }).catch(() => {});

@@ -106,7 +106,7 @@ function addItem(b) {
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
   msg: '', timer: null, prop: null, auto: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
@@ -332,9 +332,12 @@ app.get('/api/lyrics', needAuth, async (req, res) => {
 });
 
 // 예배 순서
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 app.post('/api/services', needAuth, (req, res) => {
   const tpl = templates.SERVICES[req.body.template];
   const s = { id: store.uid(), name: String(req.body.name || tpl?.name || '새 예배').slice(0, 100), date: String(req.body.date || new Date().toISOString().slice(0, 10)).slice(0, 20), itemIds: [] };
+  const tm = TIME_RE.test(req.body.time || '') ? req.body.time : tpl?.time;   // 예배 시작 시각 (타이머 '예배 시작까지'), 없으면 템플릿 기본
+  if (tm) s.time = tm;
   db.services.push(s); db.currentServiceId = s.id;
   for (const step of tpl?.steps || []) {
     const b = step === 'COMMUNION' ? templates.communionItem(bible)
@@ -365,6 +368,7 @@ app.put('/api/services/:id', needAuth, (req, res) => {
   if (!s) return res.status(404).json({ error: '없음' });
   Object.assign(s, { name: req.body.name ?? s.name, date: req.body.date ?? s.date, itemIds: req.body.itemIds ?? s.itemIds });
   if (req.body.note !== undefined) s.note = String(req.body.note ?? '').slice(0, 1000);   // 콘티 인도자 메모
+  if (req.body.time !== undefined) { if (TIME_RE.test(req.body.time)) s.time = req.body.time; else delete s.time; }   // 예배 시작 시각
   pruneOrphans(); changed(); res.json(s);
 });
 app.delete('/api/services/:id', needAuth, (req, res) => {
@@ -572,6 +576,7 @@ function cleanRestore(src) {
   const services = arr(src.services, 2000).map(s => ({
     id: ID.test(s.id) ? s.id : store.uid(), name: t(s.name, 100), date: t(s.date, 20),
     itemIds: (Array.isArray(s.itemIds) ? s.itemIds : []).filter(i => ids.has(i)), ...(s.note ? { note: t(s.note, 1000) } : {}),
+    ...(/^([01]\d|2[0-3]):[0-5]\d$/.test(s.time || '') ? { time: s.time } : {}),
   }));
   const S0 = src.settings && typeof src.settings === 'object' ? src.settings : {};
   const folders = (Array.isArray(S0.bibleFolders) ? S0.bibleFolders : []).map(f => String(f)).filter(f => { try { return fs.statSync(f).isDirectory(); } catch { return false; } });
@@ -673,7 +678,7 @@ app.post('/api/live', needControl, (req, res) => {
     if (it) live.index = Math.min(Math.max(0, live.index + b.step), store.seq(it).length - 1);
     live.clear = false; live.black = false; live.logo = false;
   }
-  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
+  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'tvNoImg', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
   // 로고 단추만 눌렀으면: '검은 바탕'이면 검은 화면도 함께, '배경 위에 로고만'이면 지금 배경(미디어 배경)을 그대로 둠
   if (b.logo !== undefined && b.black === undefined) live.black = !!b.logo && db.settings.logoStyle?.screenBg !== 'over';
   if (b.mediaBg !== undefined) {

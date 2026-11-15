@@ -44,6 +44,12 @@ async function main() {
     const media = await api('GET', '/api/media');
     ok(media.filter(m => /^배경-/.test(m.name.normalize('NFC'))).length === 5, '기본 배경 영상이 5개가 아님: ' + media.length);
   });
+  await check('맥 독 앱: 본체를 켜는 명령이 독 앱을 붙잡지 않음', async () => {
+    const as = fs.readFileSync(path.join(ROOT, 'assets', 'mac-app.applescript'), 'utf8').split('\n').filter(l => !/^\s*--/.test(l)).map(l => l.replace(/\s--\s.*$/, '')).join('\n');   // 설명 줄은 빼고
+    ok(!/"\s*&&\s*WC_DATA_DIR/.test(as), "'cd … && 본체 &' 꼴이면 독 앱이 멈춤 (v0.12.0~0.12.2 버그)");
+    ok(!/display alert/.test(as), '알림 창(display alert)은 독 앱을 붙잡음');
+    ok(/on reopen[\s\S]*startServer/.test(as), '꺼진 뒤 독 아이콘으로 다시 켜기가 없음');
+  });
   await check('다른 사이트에서 온 요청은 막힘', async () => {
     const r = await fetch(BASE + '/api/live', { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
     ok(r.status === 403, '막히지 않음: ' + r.status);
@@ -160,8 +166,10 @@ async function main() {
     await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '555'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`); await sleep(1500);
     const st = await api('GET', '/api/state');
     ok(st.items.some(i => i.title === '찬송가 555장 기억 점검곡'), '번호로 안 들어감');
-    await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '점검 찬송'; document.querySelector('#hGo').click(); return 1; })()`); await sleep(2500);
-    ok(await c.eval(`!!document.querySelector('#hRes [data-mine]')`), '제목으로 찾은 목록이 없음');
+    await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '점검 찬송'; document.querySelector('#hGo').click(); return 1; })()`);
+    let found = false;   // 인터넷 찾기가 함께 돌아 늦을 수 있어 20초까지 기다림
+    for (let i = 0; i < 40 && !found; i++) { await sleep(500); found = await c.eval(`!!document.querySelector('#hRes [data-mine]')`); }
+    ok(found, '제목으로 찾은 목록이 없음');
     noErr(); await c.eval(`(closeDlg(), 1)`);
   });
   await check('자료 ✎ 편집 → 배경·추가 그림 따로', async () => {
@@ -243,6 +251,42 @@ async function main() {
     const after = await c.eval(`!!document.querySelector('#screen > .wc-layer:last-of-type .wc-bg, #screen > .wc-layer:last-of-type video')`);
     ok(before && !after, `켜기 전 그림 ${before}, 켠 뒤 그림 ${after}`);
     await api('POST', '/api/live', { camOnly: false });
+  });
+  await check('🖼 TV 그림 끄기(I): 예배당 화면에서 그림만 빠짐', async () => {
+    const media = await api('GET', '/api/media');
+    const it = await api('POST', '/api/items', { type: 'score', title: 'TV 그림 점검', slides: [{ bg: media[0].url, fit: 'contain' }, { text: '글자', img: media[1].url }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0, tvNoImg: false });
+    await c.go(BASE + '/output?nohint', 1500);
+    const pic = () => c.eval(`!!document.querySelector('#screen > .wc-layer:last-of-type .wc-bg, #screen > .wc-layer:last-of-type .wc-img')`);
+    const a = await pic();
+    await api('POST', '/api/live', { tvNoImg: true }); await sleep(900);
+    const b = await pic();
+    await api('POST', '/api/live', { index: 1 }); await sleep(900);
+    const c2 = await c.eval(`({ img: !!document.querySelector('#screen > .wc-layer:last-of-type .wc-img'), text: document.querySelector('#screen > .wc-layer:last-of-type .wc-text-main')?.innerText })`);
+    ok(a && !b && !c2.img && c2.text === '글자', JSON.stringify({ a, b, c2 }));
+    await api('POST', '/api/live', { tvNoImg: false });
+  });
+  await check('예배 시간: 정하면 \'예배 시작까지\' 타이머가 바로 시작', async () => {
+    const s = await api('POST', '/api/services', { name: '시간 점검 예배', template: 'wednesday' });
+    ok(s.time === '19:30', '수요 예배 템플릿 기본 시각이 아님: ' + s.time);
+    await openControl();
+    await c.eval(`(() => { const i = document.querySelector('#tmSvcTime'); i.value = '23:59'; i.dispatchEvent(new Event('change')); return 1; })()`); await sleep(900);
+    const t = await c.eval(`snap.live.timer`);
+    ok(t && t.clock && t.label === '예배 시작까지' && t.end > Date.now(), JSON.stringify(t));
+    const st = await api('GET', '/api/state');
+    ok(st.services.find(x => x.id === st.currentServiceId)?.time === '23:59', '예배 순서에 시각이 저장 안 됨');
+    await api('POST', '/api/live', { timer: null }); noErr();
+  });
+  await check('타이머: 시각만 정하고 [시작]을 눌러도 그 시각까지 (5분이 되지 않음)', async () => {
+    await openControl();
+    await c.eval(`(() => { const u = document.querySelector('#tmUntil'); u.value = '23:58'; u.dispatchEvent(new Event('input')); document.querySelector('#tmGo').click(); return 1; })()`); await sleep(800);
+    const t = await c.eval(`snap.live.timer`);
+    ok(t && t.clock, '시각 타이머가 아님: ' + JSON.stringify(t));
+    await c.eval(`(() => { const m = document.querySelector('#tmMin'); m.value = '3'; m.dispatchEvent(new Event('input')); document.querySelector('#tmGo').click(); return 1; })()`); await sleep(800);
+    const t2 = await c.eval(`snap.live.timer`);
+    ok(t2 && !t2.clock && Math.abs(t2.end - Date.now() - 180000) < 5000, '3분 타이머가 아님: ' + JSON.stringify(t2));
+    ok(await c.eval(`(() => { const b = document.querySelector('#tmUntilGo').getBoundingClientRect(), p = document.querySelector('#tools').getBoundingClientRect(); return b.right <= p.right + 1; })()`), '[까지 시작] 단추가 칸 밖으로 잘림');
+    await api('POST', '/api/live', { timer: null }); noErr();
   });
   await check('휴대폰 리모컨: 허용·PIN 화면', async () => {
     await api('PUT', '/api/settings', { remote: true });

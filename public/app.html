@@ -136,6 +136,7 @@
       <button class="btn" id="reset">모두 끄기 <kbd>Esc</kbd></button>
       <button class="btn toggle wide" id="overlayOff" title="예배당 TV에는 그대로 나가고, 유튜브(OBS)에만 자막을 끕니다">🎥 방송 자막 끄기 <kbd>O</kbd></button>
       <button class="btn toggle" id="pip" title="켜면 그림·악보·PPT가 나갈 때 유튜브에는 사람(카메라) 화면만 나갑니다. 예배당 TV에는 그림이 그대로 나갑니다">👤 사람 화면 <kbd>P</kbd></button>
+      <button class="btn toggle" id="tvNoImg" title="켜면 그림·악보·사진이 예배당 TV에 나가지 않습니다 (글자 슬라이드는 그대로). 유튜브는 👤 사람 화면으로 따로">🖼 TV 그림 끄기 <kbd>I</kbd></button>
       <button class="btn toggle" id="motionOn" title="움직이는 배경 켜기/끄기">🌌 움직이는 배경</button>
     </div>
     </section>
@@ -143,9 +144,11 @@
       <div class="pv-label"><span class="rp-tag">🧰 도구</span> <span id="toolsSum" class="muted"></span></div>
       <details><summary>⏱ 타이머 <span id="tmState" class="muted small"></span><b id="tmLeft" class="tm-left"></b></summary>
         <div class="tgrid">
+          <div class="row tm-svc" style="grid-column:1/-1"><span class="small"><b>예배 시간</b></span><input id="tmSvcTime" type="time" style="width:120px" title="이 예배 순서의 시작 시각 — 바꾸면 '예배 시작까지' 타이머가 바로 시작됩니다">
+            <button class="btn sm primary" id="tmSvcGo">▶ 예배 시작까지</button></div>
           <input id="tmLabel" placeholder="이름 (예: 예배 시작까지)" style="grid-column:1/-1">
-          <div class="row"><input id="tmMin" type="number" min="1" max="600" value="5" style="width:70px"><span class="small">분</span><button class="btn sm" id="tmGo">시작</button></div>
-          <div class="row"><input id="tmUntil" type="time" style="width:120px"><button class="btn sm" id="tmUntilGo">까지</button></div>
+          <div class="row" style="grid-column:1/-1"><input id="tmMin" type="number" min="1" max="600" placeholder="5" style="width:70px"><span class="small">분</span><button class="btn sm" id="tmGo">시작</button></div>
+          <div class="row" style="grid-column:1/-1"><input id="tmUntil" type="time" style="width:130px"><button class="btn sm" id="tmUntilGo">까지 시작</button></div>
           <div class="row" style="grid-column:1/-1"><span class="small muted">예배당 화면</span><select id="tmTv" style="width:auto"><option value="none">안 보임 (프롬프터만)</option><option value="corner">구석에 작게</option><option value="big">화면 가득 크게</option></select>
             <button class="btn sm" id="tmStop">정지</button></div>
         </div></details>
