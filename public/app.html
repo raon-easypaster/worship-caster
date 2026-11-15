@@ -149,7 +149,8 @@
           <input id="tmLabel" placeholder="이름 (예: 예배 시작까지)" style="grid-column:1/-1">
           <div class="row" style="grid-column:1/-1"><input id="tmMin" type="number" min="1" max="600" placeholder="5" style="width:70px"><span class="small">분</span><button class="btn sm" id="tmGo">시작</button></div>
           <div class="row" style="grid-column:1/-1"><input id="tmUntil" type="time" style="width:130px"><button class="btn sm" id="tmUntilGo">까지 시작</button></div>
-          <div class="row" style="grid-column:1/-1"><span class="small muted">예배당 화면</span><select id="tmTv" style="width:auto"><option value="none">안 보임 (프롬프터만)</option><option value="corner">구석에 작게</option><option value="big">화면 가득 크게</option></select>
+          <div class="row" style="grid-column:1/-1"><span class="small muted">예배당 화면</span><select id="tmTv" style="width:auto"><option value="none">안 보임 (프롬프터만)</option><option value="corner">구석에 작게</option><option value="big">화면 가득 크게</option><option value="over">배경 위에 타이머만 (로고처럼)</option></select>
+            <label class="small row" style="margin:0;gap:4px" title="예배당 화면과 같은 타이머를 유튜브(OBS)에도"><input type="checkbox" id="tmObs"> 🎥 유튜브에도</label>
             <button class="btn sm" id="tmStop">정지</button></div>
         </div></details>
       <details><summary>💬 무대 메시지 <span class="muted small">(프롬프터에만)</span></summary>

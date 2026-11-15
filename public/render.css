@@ -122,6 +122,9 @@
 .wc-tm-big { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
 .wc-tm-big .wc-tm-l { font-size: 6cqh; font-weight: 700; margin-bottom: 1cqh; text-shadow: 0 .4cqh 1.2cqh rgba(0,0,0,.7); }
 .wc-tm-big .wc-tm-v { font-size: 24cqh; font-weight: 900; letter-spacing: .03em; text-shadow: 0 .6cqh 2cqh rgba(0,0,0,.7); }
+.wc-tm-over { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }   /* 배경 위에 타이머만 (로고처럼, 어둡게 덮지 않음) */
+.wc-tm-over .wc-tm-l { font-size: 6.5cqh; font-weight: 700; margin-bottom: 1cqh; text-shadow: 0 .4cqh 1.6cqh rgba(0,0,0,.85); }
+.wc-tm-over .wc-tm-v { font-size: 26cqh; font-weight: 900; letter-spacing: .03em; text-shadow: 0 .6cqh 2.4cqh rgba(0,0,0,.85); }
 .wc-tm-corner { position: absolute; right: 3cqw; bottom: 4cqh; background: rgba(0,0,0,.62); padding: 1cqh 2.2cqw; border-radius: 1.4cqh; }
 .wc-tm-corner .wc-tm-l { font-size: 2.6cqh; opacity: .85; }
 .wc-tm-corner .wc-tm-v { font-size: 5.5cqh; font-weight: 800; }

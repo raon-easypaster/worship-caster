@@ -1211,7 +1211,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.13.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.13.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1545,7 +1545,7 @@ function tickTools() {
 }
 function initTools() {
   if (IS_EDITOR || !$('#tools')) return;
-  const timer = () => ({ label: $('#tmLabel').value.trim(), tv: $('#tmTv').value });
+  const timer = () => ({ label: $('#tmLabel').value.trim(), tv: $('#tmTv').value, obs: $('#tmObs').checked });
   // [시작]: 분 칸이 비어 있고 시각을 골라 두었으면 그 시각까지 (시각만 바꾸고 시작을 눌러도 5분이 되지 않게)
   $('#tmGo').onclick = () => {
     const m = +$('#tmMin').value, u = $('#tmUntil').value;
@@ -1559,15 +1559,18 @@ function initTools() {
   // 예배 시간: 예배 순서마다 저장. 정하거나 ▶를 누르면 '예배 시작까지' 타이머가 바로 시작 (정각에 사라짐)
   const svcTimer = () => {
     const v = $('#tmSvcTime').value; if (!v) return toast('예배 시간을 정하세요');
-    const tv = $('#tmTv').value === 'none' ? 'big' : $('#tmTv').value;
-    goLive({ timer: { label: '예배 시작까지', tv, until: v } }).then(() => toast(`${v} 예배 시작까지 타이머를 시작했습니다`)).catch(() => {});
+    // 예배당 화면 표시가 '안 보임'이면: 미디어 배경이 있으면 배경 위에 타이머만(로고처럼), 없으면 화면 가득
+    const tv = $('#tmTv').value === 'none' ? (snap?.live?.mediaBg ? 'over' : 'big') : $('#tmTv').value;
+    goLive({ timer: { label: '예배 시작까지', tv, obs: $('#tmObs').checked, until: v } }).then(() => toast(`${v} 예배 시작까지 타이머를 시작했습니다`)).catch(() => {});
   };
   $('#tmSvcGo').onclick = svcTimer;
   $('#tmSvcTime').onchange = async () => {
     const s = service(); if (s) { s.time = $('#tmSvcTime').value; await api('PUT', '/api/services/' + s.id, { time: s.time }).catch(() => {}); }
     svcTimer();
   };
-  $('#tmTv').onchange = () => { const t = snap?.live?.timer; if (t) goLive({ timer: { ...timer(), min: Math.max(0, (t.end - Date.now()) / 60000) } }); };
+  // 표시 방법·유튜브에도를 바꾸면 도는 타이머에 바로 (남은 시간·시각 그대로)
+  const retimer = () => { const t = snap?.live?.timer; if (t) goLive({ timer: { ...timer(), label: t.label, ...(t.clock ? { until: new Date(t.end).toTimeString().slice(0, 5) } : { min: Math.max(0, (t.end - Date.now()) / 60000) }) } }); };
+  $('#tmTv').onchange = retimer; $('#tmObs').onchange = retimer;
   const send = () => { const v = $('#msgIn').value.trim(); if (!v) return; goLive({ msg: v }); $('#msgIn').value = ''; toast('프롬프터에 메시지를 보냈습니다'); };
   $('#msgSend').onclick = send;
   $('#msgIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); send(); } });

@@ -179,7 +179,7 @@ function makeTimer(t) {
     end = d.getTime();
   }
   if (!end) return null;
-  return { end, label: String(t.label || '').slice(0, 60), tv: ['none', 'corner', 'big'].includes(t.tv) ? t.tv : 'none', clock: t.min == null };   // clock: '몇 시까지' 타이머
+  return { end, label: String(t.label || '').slice(0, 60), tv: ['none', 'corner', 'big', 'over'].includes(t.tv) ? t.tv : 'none', obs: !!t.obs, clock: t.min == null };   // clock: '몇 시까지' 타이머 · obs: 유튜브에도 · over: 배경 위에 타이머만(로고처럼)
 }
 
 // ── 앱 ─────────────────────────────────────────────

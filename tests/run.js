@@ -288,6 +288,23 @@ async function main() {
     ok(await c.eval(`(() => { const b = document.querySelector('#tmUntilGo').getBoundingClientRect(), p = document.querySelector('#tools').getBoundingClientRect(); return b.right <= p.right + 1; })()`), '[까지 시작] 단추가 칸 밖으로 잘림');
     await api('POST', '/api/live', { timer: null }); noErr();
   });
+  await check('타이머: 배경 위에 타이머만(로고처럼) + 유튜브에도, 0이 되면 슬라이드로', async () => {
+    const media = await api('GET', '/api/media');
+    await api('POST', '/api/live', { itemId: song.id, index: 0 });
+    await api('POST', '/api/live', { mediaBg: media.find(m => /mp4$/i.test(m.name)).url });
+    await api('POST', '/api/live', { timer: { min: 0.08, label: '예배 시작까지', tv: 'over', obs: true } });
+    await c.go(BASE + '/output?nohint', 1500);
+    const tv = await c.eval(`({ tm: !!document.querySelector('.wc-tm-over'), text: document.querySelector('#screen > .wc-layer:last-of-type .wc-text-main')?.innerText || '', bg: !!document.querySelector('.wc-mlayer video') })`);
+    ok(tv.tm && !tv.text && tv.bg, '예배당: ' + JSON.stringify(tv));
+    await c.go(BASE + '/overlay', 1500);
+    const ob = await c.eval(`({ tm: !!document.querySelector('.wc-tm-over'), bar: !!document.querySelector('.wc-ov') })`);
+    ok(ob.tm && !ob.bar, '유튜브: ' + JSON.stringify(ob));
+    await c.go(BASE + '/output?nohint', 800);
+    let back = false;
+    for (let i = 0; i < 16 && !back; i++) { await sleep(500); back = await c.eval(`!document.querySelector('.wc-tm-over') && (document.querySelector('#screen > .wc-layer:last-of-type .wc-text-main')?.innerText || '').includes('첫 줄')`); }
+    ok(back, '0이 된 뒤 슬라이드로 안 돌아옴');
+    await api('POST', '/api/live', { timer: null, reset: true }); noErr();
+  });
   await check('휴대폰 리모컨: 허용·PIN 화면', async () => {
     await api('PUT', '/api/settings', { remote: true });
     await c.go(BASE + '/remote', 1500);

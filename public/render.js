@@ -250,7 +250,7 @@
       snap = { ...snap, slide: picOnly ? null : { ...s0, img: undefined, elements: s0.elements && s0.elements.filter(e => e.type !== 'image') } };
     }
     const st = mainStyle(snap), s = snap.slide;
-    if (L.black || L.logo || !s) {
+    if (L.black || L.logo || !s || timerOver(snap)) {
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
       // 띄운 슬라이드가 없거나 '배경 위에 로고만'이면 미디어 배경이 보이게 (검은 화면을 켠 때만 가림)
@@ -272,6 +272,7 @@
   function bcMode(snap) {
     const s = snap.slide, L = snap.live || {};
     if (L.black || L.logo || L.clear || L.overlayOff || snap.item?.noBroadcast || !s) return 'off';
+    if (timerOver(snap) && L.timer.obs) return 'off';
     if (isHtmlFile(s)) return 'off';   // HTML 파일 자료는 스크립트가 돌아야 해서 OBS에는 보내지 않음 (OBS 제어 기능 보호)
     // 👤 사람 화면(P): 그림·악보·PPT·HTML 은 유튜브에 보내지 않음 → 카메라만 보임 (예배당 TV에는 그대로)
     if (L.camOnly && (isVisual(s) || snap.item?.bcFull)) return 'off';
@@ -442,11 +443,15 @@
     const neg = sec < 0, a = Math.abs(sec), h = Math.floor(a / 3600), m = Math.floor(a / 60) % 60, s = a % 60;
     return (neg ? '+' : '') + (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
   }
+  const timerUp = snap => { const t = snap.live?.timer; return !!(t && t.end && timeLeft(snap) > 0); };
+  const timerOver = snap => snap.live?.timer?.tv === 'over' && timerUp(snap);   // '배경 위에 타이머만': 슬라이드 글자 대신 타이머
   function extrasHTML(snap, mode) {
     const L = snap.live || {}, t = L.timer, p = snap.prop, parts = [];
     // 예배당 화면의 타이머는 0이 되면 사라짐 (프롬프터에는 넘긴 시간 +0:05 처럼 계속 보여 설교 시간 관리)
     // '몇 시까지' 타이머는 정시가 되면 프롬프터에서도 사라짐. '몇 분' 타이머는 프롬프터에 넘긴 시간을 계속 보임
-    const timerOn = t && t.end && ((mode === 'stage' && (!t.clock || timeLeft(snap) > 0)) || (mode === 'main' && ['corner', 'big'].includes(t.tv) && timeLeft(snap) > 0));
+    const shown = ['corner', 'big', 'over'].includes(t?.tv) && timerUp(snap);
+    const timerOn = t && t.end && ((mode === 'stage' && (!t.clock || timeLeft(snap) > 0)) || (mode === 'main' && shown && !L.black)
+      || (mode === 'overlay' && shown && t.obs && !L.overlayOff && !L.black));   // 유튜브에도: 예배당 화면과 같은 모양
     if (timerOn) {
       const kind = mode === 'stage' ? 'stage' : t.tv;
       parts.push(`<div class="wc-tm wc-tm-${kind}">${t.label ? `<div class="wc-tm-l">${esc(t.label)}</div>` : ''}<div class="wc-tm-v"></div></div>`);
@@ -468,7 +473,11 @@
     }
   }
   // 1초마다 부름: 타이머 숫자만 바꿈 (슬라이드는 다시 그리지 않음)
-  function tick(container, snap, mode) { if (snap) extras(container, snap, mode); }
+  function tick(container, snap, mode) {
+    if (!snap) return;
+    if (snap.live?.timer?.tv === 'over' && mode !== 'stage') render(container, snap, mode, { fade: true });   // 0이 되는 순간 슬라이드로 돌아옴
+    extras(container, snap, mode);
+  }
 
   window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt };
 })();

@@ -290,6 +290,7 @@
     "이 예배 순서의 시작 시각 — 바꾸면 '예배 시작까지' 타이머가 바로 시작됩니다": "Start time of this service — changing it starts the 'until service' timer right away",
     "타이머 '예배 시작까지'에 씁니다": "Used for the 'until service starts' timer",
     '까지 시작': 'Start until',
+    '배경 위에 타이머만 (로고처럼)': 'Timer only, over the background (like the logo)', '🎥 유튜브에도': '🎥 Also on YouTube', '예배당 화면과 같은 타이머를 유튜브(OBS)에도': 'Show the same timer on YouTube (OBS) too',
     // ── 서버 안내 ──
     '송출 제어는 운영 맥에서만 가능합니다': 'Only the operator computer can do this',
     '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)': 'Output controls work only on the operator computer (turn on the phone remote in ⚙︎ Settings to use a phone)',
