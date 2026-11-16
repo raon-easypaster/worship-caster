@@ -33,6 +33,8 @@
   document.title = { main: '예배당 화면', overlay: '방송 자막(OBS)', stage: '프롬프터' }[mode];
 
   const screen = document.getElementById('screen');
+  window.WC_YT_PLAYER = true;   // 유튜브 영상을 실제로 틀어 줌 (운영 화면 미리보기는 그림만)
+  window.WC_report = msg => { try { if (wsNow?.readyState === 1) wsNow.send(JSON.stringify(msg)); } catch {} };
   let snap = null;
   function connect() {
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
@@ -47,7 +49,7 @@
     };
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
-      if (m.type === 'live') { snap = m; WC.render(screen, snap, mode, { audio: location.pathname === '/output' }); syncScene(); checkSound(); }
+      if (m.type === 'live') { m._off = m.now - Date.now(); snap = m; WC.render(screen, snap, mode, { audio: location.pathname === '/output' }); syncScene(); checkSound(); }
       // 예배송출을 끄면 예배당 화면·프롬프터 창도 닫힘 (OBS 자막은 OBS 안이라 화면만 비움)
       if (m.type === 'lang' && m.lang !== I18N.lang) return location.reload();
       if (m.type === 'quit') {

@@ -12,6 +12,7 @@ const { WebSocketServer } = require('ws');
 const store = require('./lib/store');
 const bible = require('./lib/bible');
 const hymns = require('./lib/hymns');
+const readings = require('./lib/readings');
 const { importPptx } = require('./lib/pptx');
 const templates = require('./lib/templates');
 
@@ -22,6 +23,7 @@ fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const db = store.load();
 bible.loadAll(db.settings.bibleFolders);
 hymns.load();
+readings.load();
 
 // 기본 배경 영상 (직접 만든 반복 영상, 저작권 걱정 없음) — 처음 한 번만 미디어 칸에 넣음.
 // 사용자가 지운 영상은 다시 생기지 않음. 새 영상을 더 넣으면 SAMPLES_VER 를 올림
@@ -107,7 +109,7 @@ function addItem(b) {
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
 const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
-  msg: '', timer: null, prop: null, auto: null, rev: 0 };
+  msg: '', timer: null, prop: null, auto: null, yt: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
 const isLocal = req => {
@@ -273,7 +275,7 @@ app.get('/api/state', needAuth, (req, res) => {
   res.json({
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
     style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
-    bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), port: PORT, live: snapshot(),
+    bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), readingCount: readings.count(), port: PORT, live: snapshot(),
   });
 });
 
@@ -492,6 +494,25 @@ app.post('/api/hymns/upload', needLocal, upload.single('file'), (req, res) => {
 });
 app.delete('/api/hymns', needLocal, (req, res) => { hymns.clear(); res.json({ ok: true }); });
 
+// 교독문: 교회가 가진 교독문 파일을 한 번 가져오면 번호·제목·본문으로 바로 찾아 넣음
+const NO_READ = '교독문 파일을 먼저 가져오세요 (⚙︎ 설정 → 📖 교독문)';
+app.get('/api/readings', needAuth, (req, res) => res.json({ count: readings.count() }));
+app.get('/api/readings/:n(\\d{1,3})', needAuth, (req, res) => {
+  const r = readings.get(req.params.n);
+  if (!r) return res.status(404).json({ error: readings.count() ? `교독문 ${+req.params.n}번이 가져온 파일에 없습니다` : NO_READ });
+  res.json({ ...r, slides: readings.slides(req.params.n, req.query.lines) });
+});
+app.get('/api/readings-search', needAuth, (req, res) => res.json(readings.search(String(req.query.q || '').slice(0, 80))));
+app.post('/api/readings/upload', needLocal, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '파일 없음' });
+  try {
+    const r = readings.importFile(fs.readFileSync(req.file.path), fname(req.file));
+    if (!r.count) return res.status(400).json({ error: '교독문을 하나도 읽지 못했습니다. "1. 시편 1편"처럼 번호와 제목 줄로 시작하는지 확인하세요.' });
+    res.json(r);
+  } finally { fs.rm(req.file.path, { force: true }, () => {}); }
+});
+app.delete('/api/readings', needLocal, (req, res) => { readings.clear(); res.json({ ok: true }); });
+
 // 성경
 app.get('/api/bible', needAuth, (req, res) => res.json(bible.lookup(req.query.q, req.query.v)));
 app.post('/api/bible/upload', needAuth, upload.single('file'), (req, res) => {
@@ -666,6 +687,59 @@ app.post('/api/quit', needLocal, (req, res) => {
   setTimeout(() => process.exit(0), 300);
 });
 
+// ── 유튜브 영상: 예배당 화면·방송(OBS)·프롬프터에서 같은 영상을 같은 자리로 ──
+// live.yt = { id, title, pos(초), at(그 pos를 잰 시각), playing, dur, ended, tv, obs, stage, sound: tv|obs|both|none }
+function parseYt(v) {
+  v = String(v || '').trim().slice(0, 500);
+  let id = null, start = 0;
+  if (/^[\w-]{11}$/.test(v)) id = v;
+  else {
+    let u; try { u = new URL(/^https?:\/\//i.test(v) ? v : 'https://' + v); } catch { return null; }
+    const host = u.hostname.replace(/^(www|m|music)\./, '');
+    if (host === 'youtu.be') id = u.pathname.slice(1, 12);
+    else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      id = u.searchParams.get('v') || (u.pathname.match(/^\/(?:shorts|live|embed|v)\/([\w-]{11})/) || [])[1];
+    }
+    const t = u.searchParams.get('t') || u.searchParams.get('start') || '';
+    const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
+    if (m) start = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+  }
+  return id && /^[\w-]{11}$/.test(id) ? { id, start: Math.min(start, 86400) } : null;
+}
+const ytPos = y => Math.max(0, y.pos + (y.playing ? (Date.now() - y.at) / 1000 : 0));
+async function ytTitle(id) {
+  try {
+    const j = JSON.parse(await getText('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + id), 5000));
+    if (live.yt?.id === id && j?.title) { live.yt.title = String(j.title).slice(0, 120); pushLive(); }
+  } catch {}
+}
+function ytCommand(c) {
+  if (c === null || c === false) { live.yt = null; return; }
+  if (typeof c !== 'object') return;
+  if (c.open !== undefined) {
+    const p = parseYt(c.open);
+    if (!p) return;
+    const old = live.yt || {};
+    live.yt = { id: p.id, title: '', pos: p.start, at: Date.now(), playing: c.playing !== false, dur: 0, ended: false,
+      tv: old.tv ?? true, obs: old.obs ?? false, stage: old.stage ?? true, sound: old.sound || 'tv' };
+    live.black = false;
+    ytTitle(p.id);
+  }
+  const y = live.yt;
+  if (!y) return;
+  const now = ytPos(y);
+  const setPos = v => { y.pos = Math.max(0, y.dur ? Math.min(v, y.dur - 0.5) : v); y.at = Date.now(); y.ended = false; };
+  if (c.seek !== undefined && Number.isFinite(+c.seek)) setPos(+c.seek);
+  else if (c.step !== undefined && Number.isFinite(+c.step)) setPos(now + +c.step);
+  if (c.playing !== undefined && c.open === undefined) {
+    if (!c.playing && y.playing) { y.pos = now; y.at = Date.now(); }
+    if (c.playing && !y.playing) { if (y.ended) y.pos = 0; y.at = Date.now(); y.ended = false; }
+    y.playing = !!c.playing;
+  }
+  for (const k of ['tv', 'obs', 'stage']) if (c[k] !== undefined) y[k] = !!c[k];
+  if (['tv', 'obs', 'both', 'none'].includes(c.sound)) y.sound = c.sound;
+}
+
 app.post('/api/live', needControl, (req, res) => {
   const b = req.body || {};
   if (b.itemId !== undefined) {
@@ -699,7 +773,8 @@ app.post('/api/live', needControl, (req, res) => {
   if (b.timer !== undefined) live.timer = makeTimer(b.timer);
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
-  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null }); setAuto(null); }
+  if (b.yt !== undefined) ytCommand(b.yt);
+  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null, yt: null }); setAuto(null); }
   pushLive(); res.json(snapshot());
 });
 
@@ -734,6 +809,11 @@ wss.on('connection', (ws, req) => {
     }
     if (!ws.isLocal) return;
     if (m.type === 'audioBlocked') { for (const c of controls) sendTo(c, { type: 'audioBlocked' }); return; }   // 예배당 화면이 소리 재생을 막힘
+    // 유튜브 영상: 화면이 알려 주는 길이·끝남
+    if (m.type === 'ytInfo' && live.yt && m.id === live.yt.id && +m.dur > 0 && !live.yt.dur) { live.yt.dur = Math.round(+m.dur); pushLive(); return; }
+    if (m.type === 'ytEnded' && live.yt && m.id === live.yt.id && live.yt.playing) {
+      Object.assign(live.yt, { playing: false, ended: true, pos: live.yt.dur || ytPos(live.yt), at: Date.now() }); pushLive(); return;
+    }
     if (m.type === 'hello' && m.role === 'control') {
       const others = [...controls].filter(c => c !== ws && c.readyState === 1);
       controls.add(ws);

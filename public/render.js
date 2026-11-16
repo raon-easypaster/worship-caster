@@ -365,6 +365,15 @@
         ? `<div class="wc-mtop-in"><video src="${esc(top)}" autoplay muted loop playsinline></video></div>`
         : `<div class="wc-mtop-in"><div style="background-image:url('${esc(top)}')"></div></div>`, true, fade);
     }
+    {
+      // 유튜브 영상: 예배당 화면·방송·프롬프터 맨 위에 (운영 화면 미리보기는 그림만)
+      const y = L0.yt, on = ytShown(L0, mode), real = !!window.WC_YT_PLAYER && !opts.still;
+      const key = on ? (real ? 'p:' + y.id : 't:' + y.id + ':' + (y.playing ? 1 : 0)) : '';
+      persist(container, 'wc-yt', key, () => real
+        ? `<div class="wc-yt-in${mode === 'stage' ? ' st' : ''}"><div class="wc-yt-p"></div></div>`
+        : `<div class="wc-yt-in${mode === 'stage' ? ' st' : ''}"><div class="wc-yt-thumb" style="background-image:url('https://i.ytimg.com/vi/${esc(y.id)}/hqdefault.jpg')"><span>${y.playing ? '▶' : '⏸'} YouTube</span></div></div>`, true, fade);
+      if (on && real) ytSync(container, snap, mode);
+    }
     if (mode === 'main') {
       const mk = motionKey(snap, mainStyle(snap));
       persist(container, 'wc-mbase', mk, () => motionHTML(mk, opts.still), false, fade);
@@ -473,11 +482,82 @@
     }
   }
   // 1초마다 부름: 타이머 숫자만 바꿈 (슬라이드는 다시 그리지 않음)
+  // ── 유튜브 영상 ──────────────────────────────
+  function ytShown(L, mode) {
+    const y = L.yt;
+    if (!y || y.ended || !/^[\w-]{11}$/.test(y.id || '')) return false;
+    if (mode === 'main') return !!y.tv && !L.black;
+    if (mode === 'overlay') return !!y.obs && !L.overlayOff;
+    if (mode === 'stage') return !!y.stage;
+    return false;
+  }
+  let ytApi = null;
+  function ytLoad() {
+    if (window.YT?.Player) return Promise.resolve();
+    if (!ytApi) ytApi = new Promise(res => {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { try { prev?.(); } catch {} res(); };
+      const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(sc);
+    });
+    return ytApi;
+  }
+  // 서버가 정한 재생 위치 (화면마다 같은 자리)
+  function ytTarget(snap) {
+    const y = snap.live.yt;
+    return Math.max(0, y.pos + (y.playing ? (Date.now() + (snap._off || 0) - y.at) / 1000 : 0));
+  }
+  function ytSync(container, snap, mode) {
+    const el = container.querySelector(':scope > .wc-yt');
+    if (!el) return;
+    el._snap = snap; el._mode = mode;
+    if (el._ready) return ytApply(el);
+    if (el._loading) return;
+    el._loading = true;
+    ytLoad().then(() => {
+      if (!el.isConnected) return;
+      const y = el._snap.live.yt;
+      el._player = new YT.Player(el.querySelector('.wc-yt-p'), {
+        videoId: y.id, width: '100%', height: '100%',
+        playerVars: { autoplay: y.playing ? 1 : 0, mute: 1, start: Math.floor(ytTarget(el._snap)), controls: 0, rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3, fs: 0, disablekb: 1 },
+        events: {
+          onReady: () => {
+            el._ready = true;
+            const d = el._player.getDuration?.() || 0;
+            if (d > 0) window.WC_report?.({ type: 'ytInfo', id: y.id, dur: d });
+            ytApply(el);
+          },
+          onStateChange: e => { if (e.data === 0) window.WC_report?.({ type: 'ytEnded', id: el._snap.live.yt?.id }); },
+        },
+      });
+    }).catch(() => {});
+  }
+  function ytApply(el) {
+    const p = el._player, snap = el._snap, y = snap?.live?.yt;
+    if (!y || !p?.getPlayerState) return;
+    const want = ytTarget(snap), cur = p.getCurrentTime?.() || 0, st = p.getPlayerState();
+    const m = el._mode, sound = m === 'main' ? (y.sound === 'tv' || y.sound === 'both') : m === 'overlay' ? (y.sound === 'obs' || y.sound === 'both') : false;
+    if (sound && !el._blocked) { if (p.isMuted()) { p.unMute(); p.setVolume(100); } } else if (!p.isMuted()) p.mute();
+    if (y.playing) {
+      if (y.dur > 0 && Math.abs(cur - want) > 2) p.seekTo(want, true);   // 생방송(길이 없음)은 건드리지 않음
+      if (st !== 1 && st !== 3) p.playVideo();
+      // 브라우저가 소리 재생을 막으면 소리 없이라도 재생하고 운영 화면에 알림
+      if (sound && !el._checked) {
+        el._checked = true;
+        setTimeout(() => { if (el.isConnected && p.getPlayerState() !== 1 && !el._blocked) { el._blocked = true; p.mute(); p.playVideo(); window.WC_report?.({ type: 'audioBlocked' }); } }, 3000);
+      }
+    } else {
+      if (st === 1 || st === 3) p.pauseVideo();
+      if (Math.abs(cur - want) > 0.7) p.seekTo(want, true);
+    }
+  }
+
   function tick(container, snap, mode) {
     if (!snap) return;
+    const ytEl = container.querySelector(':scope > .wc-yt');
+    if (ytEl?._ready && snap.live?.yt) { ytEl._snap = snap; ytApply(ytEl); }
     if (snap.live?.timer?.tv === 'over' && mode !== 'stage') render(container, snap, mode, { fade: true });   // 0이 되는 순간 슬라이드로 돌아옴
     extras(container, snap, mode);
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt };
+  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown };
 })();

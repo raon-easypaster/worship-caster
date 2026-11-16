@@ -482,6 +482,40 @@ function openHymn() {
   setTimeout(() => qIn.focus(), 50);
 }
 
+// ＋ 교독문: 번호·제목·본문으로 찾아 예배 순서에 (교독문 파일은 ⚙︎ 설정에서 한 번 가져옴)
+function openReading() {
+  const body = openDlg(`
+    <div class="dlg-head"><h3>교독문 넣기</h3><button class="icon" data-x>✕</button></div>
+    <div class="row"><input id="rdQ" placeholder="번호, 제목, 본문 한 줄 (예: 13, 시편 23, 목자)" style="flex:1;font-size:18px" autofocus>
+      <select id="rdLines" style="width:auto" title="한 화면에 몇 줄씩 (바꾸면 기억합니다)">${[1, 2, 3, 4].map(n => `<option value="${n}">${n}줄씩</option>`).join('')}</select>
+      <button class="btn primary" id="rdGo">찾기</button></div>
+    <p class="muted small" style="margin:6px 0 0">번호만 치고 Enter면 바로 넣습니다. 2줄씩이면 한 화면에 인도자·회중 한 줄씩, '(다같이)' 부분은 따로 나옵니다.</p>
+    <div id="rdRes" style="margin-top:10px;max-height:52vh;overflow:auto">${S.readingCount ? '' : '<div class="notebox small">아직 가져온 교독문이 없습니다. ⚙︎ 설정 → 📖 교독문에서 교회가 가진 교독문 파일(.txt)을 한 번 가져오세요.</div>'}</div>
+    <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
+  const qIn = body.querySelector('#rdQ'), res = body.querySelector('#rdRes'), linesSel = body.querySelector('#rdLines');
+  try { linesSel.value = localStorage.getItem('wc-read-lines') || '2'; } catch { linesSel.value = '2'; }
+  linesSel.onchange = () => { try { localStorage.setItem('wc-read-lines', linesSel.value); } catch {} };
+  async function add(n) {
+    const r = await api('GET', `/api/readings/${n}?lines=${+linesSel.value || 2}`);
+    const it = await api('POST', '/api/items', { type: 'bible', title: `교독문 ${r.num} ${r.title}`, theme: 'word', slides: r.slides, after: afterId() });
+    selId = it.id;
+    toast(`교독문 ${r.num}번 '${r.title}'을(를) 넣었습니다`);
+  }
+  async function find(direct) {
+    const q = qIn.value.trim(); if (!q) return;
+    const list = await api('GET', '/api/readings-search?q=' + encodeURIComponent(q)).catch(() => []);
+    if (direct && list.length === 1 && /^(?:교독문\s*)?\d{1,3}\s*번?$/.test(q)) { await add(list[0].num); qIn.value = ''; res.innerHTML = ''; qIn.focus(); return; }
+    if (!list.length) { res.innerHTML = `<div class="muted small">${S.readingCount ? '찾지 못했습니다. 번호나 제목(예: 시편 23), 본문 한 줄로 찾아 보세요.' : '아직 가져온 교독문이 없습니다. ⚙︎ 설정 → 📖 교독문에서 파일을 가져오세요.'}</div>`; return; }
+    res.innerHTML = list.map((m, i) => `<div class="lyrow hrow"><div class="grow"><b>${m.num}. ${esc(m.title)}</b><br><span class="muted small">${esc(m.first || '')}</span></div>
+      <button class="btn sm primary" data-rd="${i}">넣기</button></div>`).join('');
+    res.querySelectorAll('[data-rd]').forEach(b => (b.onclick = () => add(list[+b.dataset.rd].num)));
+  }
+  body.querySelector('#rdGo').onclick = () => find(false);
+  qIn.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); find(true); } };
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  setTimeout(() => qIn.focus(), 50);
+}
+
 async function newService() {
   const T = await api('GET', '/api/templates');
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -1215,6 +1249,12 @@ function openSettings() {
       ${S.hymnCount ? '<button class="btn sm" id="stHymnDel">모두 지우기</button>' : ''}</div>
     <p class="muted small">찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일(.txt)을 한 번 가져오면 ＋ 찬송가에서 번호만 쳐서 바로 넣습니다.</p>
     <p class="muted small">형식: 곡마다 "305장 제목" 줄로 시작하고, 절은 "1." "2.", 후렴은 "후렴" 줄로 나눕니다. UTF-8 또는 EUC-KR.</p>
+    <h4 style="margin:18px 0 8px">📖 교독문</h4>
+    <div class="row wrap"><span>${S.readingCount ? `가져온 교독문 ${S.readingCount}편` : '<span class="muted">아직 가져온 교독문이 없습니다</span>'}</span>
+      <label class="btn sm">교독문 파일 가져오기<input type="file" id="stReading" accept=".txt,.json,text/plain,application/json" hidden></label>
+      ${S.readingCount ? '<button class="btn sm" id="stReadingDel">모두 지우기</button>' : ''}</div>
+    <p class="muted small">교독문은 성경 본문이라 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 교독문 파일(.txt)을 한 번 가져오면 ＋ 교독문에서 번호·제목으로 바로 넣습니다.</p>
+    <p class="muted small">형식: "1. 시편 1편"처럼 번호와 제목 줄로 시작하고, 그 아래 한 줄씩 번갈아 읽을 본문, 다 같이 읽는 부분 앞에는 "(다같이)" 줄. UTF-8 또는 EUC-KR.</p>
     <h4 style="margin:18px 0 8px">성경</h4>
     <div class="form">
       <label>성경 폴더</label><div>
@@ -1229,7 +1269,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.13.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.14.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1259,6 +1299,12 @@ function openSettings() {
     const fd = new FormData(); fd.append('file', f);
     try { const r = await api('POST', '/api/hymns/upload', fd); toast(`찬송가 ${r.count}곡을 가져왔습니다 (모두 ${r.total}곡)`); await reload(); openSettings(); } catch {}
   };
+  body.querySelector('#stReading').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const fd = new FormData(); fd.append('file', f);
+    try { const r = await api('POST', '/api/readings/upload', fd); toast(`교독문 ${r.count}편을 가져왔습니다 (모두 ${r.total}편)`); await reload(); openSettings(); } catch {}
+  };
+  body.querySelector('#stReadingDel')?.addEventListener('click', async () => { if (!confirm('가져온 교독문을 모두 지울까요?\n(예배 순서에 이미 넣은 교독문은 남습니다)')) return; await api('DELETE', '/api/readings'); await reload(); openSettings(); });
   body.querySelector('#stHymnDel')?.addEventListener('click', async () => { if (!confirm('가져온 찬송가 가사를 모두 지울까요?\n(자료실에 이미 넣은 찬송가는 남습니다)')) return; await api('DELETE', '/api/hymns'); await reload(); openSettings(); });
   body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
   body.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다'); });
@@ -1549,11 +1595,49 @@ function renderTools() {
   $('#autoBtn').classList.toggle('on', !!a);
   $('#autoBtn').textContent = a ? `⏩ 자동 넘김 중 (${a.sec}초)` : '⏩ 자동 넘김 시작';
   if (a) { $('#autoSec').value = String(a.sec); $('#autoLoop').checked = a.loop; }
-  const tabs = $('#toolsSum'); tabs.textContent = [L.timer && '⏱', L.msg && '💬', L.prop && '🏷', a && '⏩'].filter(Boolean).join(' ');
+  const tabs = $('#toolsSum'); tabs.textContent = [L.yt && '▶', L.timer && '⏱', L.msg && '💬', L.prop && '🏷', a && '⏩'].filter(Boolean).join(' ');
+  // 유튜브 영상
+  const y = L.yt;
+  $('#ytCtl').classList.toggle('hidden', !y);
+  if (y) {
+    $('#ytTitle').textContent = y.title || ('YouTube ' + y.id);
+    $('#ytPlay').textContent = y.playing ? '⏸ 일시정지' : '▶ 재생';
+    $('#ytPlay').classList.toggle('primary', !y.playing);
+    $('#ytTv').checked = !!y.tv; $('#ytObs').checked = !!y.obs; $('#ytStage').checked = !!y.stage; $('#ytSound').value = y.sound || 'tv';
+    if (y.title) ytRemember(y.id, y.title);
+  }
   tickTools();
 }
+// 최근에 띄운 유튜브 영상 (이 컴퓨터에만 기억)
+function ytRecent() { try { return JSON.parse(localStorage.getItem('wc-yt-recent') || '[]').filter(r => /^[\w-]{11}$/.test(r.id)); } catch { return []; } }
+function ytRemember(id, title) {
+  const list = ytRecent();
+  if (list[0]?.id === id && list[0]?.title === title) return;
+  try { localStorage.setItem('wc-yt-recent', JSON.stringify([{ id, title }, ...list.filter(r => r.id !== id)].slice(0, 6))); } catch {}
+  drawYtRecent();
+}
+function drawYtRecent() {
+  const box = $('#ytRecent'); if (!box) return;
+  const list = ytRecent();
+  box.innerHTML = list.length ? '<span class="small muted">최근</span>' + list.map((r, i) => `<button class="btn sm" data-ytr="${i}" title="${esc(r.title)}" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</button>`).join('') : '';
+  box.querySelectorAll('[data-ytr]').forEach(b => (b.onclick = () => goLive({ yt: { open: list[+b.dataset.ytr].id } })));
+}
+const ytNow = () => {
+  const y = snap?.live?.yt; if (!y) return 0;
+  if (snap.now && !snap._recv) snap._recv = Date.now();
+  const now = snap.now + (Date.now() - (snap._recv || Date.now()));
+  return Math.max(0, y.pos + (y.playing ? (now - y.at) / 1000 : 0));
+};
 function tickTools() {
   if (!snap || !$('#tmLeft')) return;
+  const y = snap.live.yt;
+  if (y) {
+    const t = Math.min(ytNow(), y.dur || Infinity), seek = $('#ytSeek');
+    $('#ytTime').textContent = WC.fmt(Math.round(t)).replace(/^-/, '') + (y.dur ? ' / ' + WC.fmt(y.dur) : '');
+    seek.disabled = !y.dur; seek.max = y.dur || 100;
+    if (!seek._drag) seek.value = Math.round(t);
+    $('#ytState').textContent = y.ended ? '끝남' : y.playing ? '재생 중' : '일시정지';
+  } else $('#ytState').textContent = '';
   const t = snap.live.timer;
   if (!t) { $('#tmLeft').textContent = ''; return; }
   if (snap.now && !snap._recv) snap._recv = Date.now();
@@ -1594,6 +1678,27 @@ function initTools() {
   $('#msgIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
   $('#msgClear').onclick = () => goLive({ msg: '' });
   document.querySelectorAll('[data-msg]').forEach(b => (b.onclick = () => { goLive({ msg: b.dataset.msg }); toast('프롬프터에 메시지를 보냈습니다'); }));
+  // 유튜브 영상
+  const ytOpen = () => {
+    const v = $('#ytUrl').value.trim(); if (!v) return toast('유튜브 주소를 붙여 넣으세요');
+    goLive({ yt: { open: v } }).then(() => {
+      if (!snap?.live?.yt) return toast('유튜브 주소를 알아보지 못했습니다');
+      $('#ytUrl').value = ''; toast('유튜브 영상을 띄웠습니다');
+    }).catch(() => {});
+  };
+  $('#ytOpen').onclick = ytOpen;
+  $('#ytUrl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ytOpen(); } });
+  $('#ytPlay').onclick = () => goLive({ yt: { playing: !snap?.live?.yt?.playing } });
+  $('#ytBack').onclick = () => goLive({ yt: { step: -10 } });
+  $('#ytFwd').onclick = () => goLive({ yt: { step: 10 } });
+  $('#ytRestart').onclick = () => goLive({ yt: { seek: 0 } });
+  $('#ytStop').onclick = () => goLive({ yt: null });
+  const seek = $('#ytSeek');
+  seek.oninput = () => { seek._drag = true; };
+  seek.onchange = () => { seek._drag = false; goLive({ yt: { seek: +seek.value } }); };
+  for (const k of ['tv', 'obs', 'stage']) $('#yt' + k[0].toUpperCase() + k.slice(1)).onchange = e => goLive({ yt: { [k]: e.target.checked } });
+  $('#ytSound').onchange = e => goLive({ yt: { sound: e.target.value } });
+  drawYtRecent();
   $('#propEdit').onclick = openProps;
   $('#autoBtn').onclick = () => {
     if (snap?.live?.auto) return goLive({ auto: null });
@@ -1739,6 +1844,7 @@ function bind() {
   $('#newPhrase').onclick = openPhrases;
   $('#newBible').onclick = openBible;
   $('#newHymn').onclick = openHymn;
+  $('#newReading').onclick = openReading;
   $('#newScore').onclick = openScore;
   $('#pptFile').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;

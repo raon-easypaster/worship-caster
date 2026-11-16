@@ -137,11 +137,33 @@ async function main() {
   // 운영 화면 열기 (앞 페이지 연결이 늦게 끊겨 '이미 열려 있음'이 뜨면 '이 창에서 계속')
   const openControl = async () => { await c.go(BASE + '/control', 2500); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300); };
   const noErr = () => { const e = c.errors.splice(0); ok(!e.length, '화면 오류: ' + e.join(' | ')); };
+  await check('유튜브 영상: 주소 알아보기·일시정지·10초·끄기·모두 끄기', async () => {
+    let r = await api('POST', '/api/live', { yt: { open: 'https://youtu.be/aqz-KE-bpKQ?t=1m30s' } });
+    ok(r.live.yt?.id === 'aqz-KE-bpKQ' && r.live.yt.pos === 90 && r.live.yt.playing && r.live.yt.tv && !r.live.yt.obs, JSON.stringify(r.live.yt));
+    await sleep(1200);
+    r = await api('POST', '/api/live', { yt: { playing: false } });
+    ok(!r.live.yt.playing && r.live.yt.pos >= 91 && r.live.yt.pos < 93, '일시정지 위치 ' + r.live.yt.pos);
+    r = await api('POST', '/api/live', { yt: { step: -10 } }); ok(Math.abs(r.live.yt.pos - 81.5) < 2, '10초 뒤로 ' + r.live.yt.pos);
+    r = await api('POST', '/api/live', { yt: { obs: true, sound: 'both' } }); ok(r.live.yt.obs && r.live.yt.sound === 'both', JSON.stringify(r.live.yt));
+    r = await api('POST', '/api/live', { yt: { open: 'https://evil.example/watch?v=aqz-KE-bpKQ' } }); ok(r.live.yt?.id === 'aqz-KE-bpKQ', '이상한 주소가 영상을 바꿈');
+    r = await api('POST', '/api/live', { yt: null }); ok(r.live.yt === null, '끄기 안 됨');
+    await api('POST', '/api/live', { yt: { open: 'aqz-KE-bpKQ' } });
+    r = await api('POST', '/api/live', { reset: true }); ok(r.live.yt === null, '모두 끄기에 영상이 남음');
+  });
+  await check('교독문: 파일 가져와 번호·제목으로 찾기 (다같이 따로)', async () => {
+    const fd = new FormData();
+    fd.append('file', new Blob(['98.점검 교독문\n가 줄\n나 줄\n다 줄&#160;\n(다같이)\n라 줄\n\n99. 시편 23편\n여호와는 나의 목자시니\n']), '교독문.txt');
+    const r = await api('POST', '/api/readings/upload', fd); ok(r.count === 2, JSON.stringify(r));
+    const g = await api('GET', '/api/readings/98?lines=2');
+    ok(g.slides.map(s => s.text).join('|') === '가 줄\n나 줄|다 줄|(다같이)\n라 줄' && g.slides[0].ref === '교독문 98 점검 교독문', JSON.stringify(g.slides));
+    const s = await api('GET', '/api/readings-search?q=' + encodeURIComponent('시편 23'));
+    ok(s.length === 1 && s[0].num === 99, JSON.stringify(s));
+  });
   await openControl();
   await check('운영 화면이 오류 없이 열림', async () => { ok(await c.eval(`!!document.querySelector('#slides')`), '운영 화면이 안 그려짐'); noErr(); });
   // 맨 위·왼쪽 단추를 실제로 눌러 창이 열리는지 (v0.4.0~0.11.0 자막 스타일 단추 버그 같은 것 방지)
   for (const [sel, name] of [['#styleBtn', '🎨 자막 스타일'], ['#settingsBtn', '⚙︎ 설정'], ['#obsBtn', '🎥 OBS 자막 주소'], ['#mediaBtn', '🖼 미디어'],
-    ['#newSong', '＋ 찬양'], ['#newBible', '＋ 성경'], ['#newHymn', '＋ 찬송가'], ['#newPhrase', '＋ 문구·성찬'], ['#newNotice', '＋ 광고'],
+    ['#newSong', '＋ 찬양'], ['#newBible', '＋ 성경'], ['#newHymn', '＋ 찬송가'], ['#newReading', '＋ 교독문'], ['#newPhrase', '＋ 문구·성찬'], ['#newNotice', '＋ 광고'],
     ['#newScore', '＋ PDF·악보'], ['#newHtml', '＋ HTML'], ['#svcConti', '📋 콘티']]) {
     await check(`단추 ${name} → 창이 열림`, async () => {
       c.errors.splice(0);   // 앞 점검의 오류가 넘어오지 않게
@@ -189,6 +211,18 @@ async function main() {
     const one = await add(1), three = await add(3), four = await add(4);
     ok(one.every(n => n === 1) && three.every(n => n === 3) && four.every(n => n === 4) && four.length === 2, `1줄 → ${one}, 3줄 → ${three}, 4줄 → ${four} (같은 곡 ${four.length}개)`);
     await c.eval(`(document.querySelector('#hLines').value = '2', document.querySelector('#hLines').dispatchEvent(new Event('change')), closeDlg(), 1)`);
+    noErr();
+  });
+  await check('＋ 교독문: 번호 Enter면 바로 예배 순서에, 줄 수대로', async () => {
+    await c.eval(`(closeDlg(), document.querySelector('#newReading').click(), 1)`); await sleep(500);
+    await c.eval(`(() => { const s = document.querySelector('#rdLines'); s.value = '1'; s.dispatchEvent(new Event('change')); const i = document.querySelector('#rdQ'); i.value = '98'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`);
+    await sleep(1500);
+    const st = await api('GET', '/api/state');
+    const it = st.items.find(i => i.title === '교독문 98 점검 교독문');
+    ok(it && it.type === 'bible' && it.slides.map(s => s.text).join('|') === '가 줄|나 줄|다 줄|(다같이)\n라 줄', it ? JSON.stringify(it.slides.map(s => s.text)) : '안 들어감');
+    await c.eval(`(() => { const i = document.querySelector('#rdQ'); i.value = '목자'; document.querySelector('#rdGo').click(); return 1; })()`); await sleep(700);
+    ok(await c.eval(`!!document.querySelector('#rdRes [data-rd]')`), '본문으로 찾은 목록이 없음');
+    await c.eval(`(document.querySelector('#rdLines').value = '2', document.querySelector('#rdLines').dispatchEvent(new Event('change')), closeDlg(), 1)`);
     noErr();
   });
   await check('자료 ✎ 편집 → 배경·추가 그림 따로', async () => {
@@ -323,6 +357,28 @@ async function main() {
     for (let i = 0; i < 16 && !back; i++) { await sleep(500); back = await c.eval(`!document.querySelector('.wc-tm-over') && (document.querySelector('#screen > .wc-layer:last-of-type .wc-text-main')?.innerText || '').includes('첫 줄')`); }
     ok(back, '0이 된 뒤 슬라이드로 안 돌아옴');
     await api('POST', '/api/live', { timer: null, reset: true }); noErr();
+  });
+  await check('▶ 유튜브 영상: 운영 화면에서 띄우고 예배당·프롬프터에 나오고 끄기', async () => {
+    await openControl();
+    await c.eval(`(document.querySelector('#ytBox').open = true, document.querySelector('#ytUrl').value = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ', document.querySelector('#ytOpen').click(), 1)`);
+    await sleep(1000);
+    let st = await api('GET', '/api/state');
+    ok(st.live.live.yt?.id === 'aqz-KE-bpKQ' && st.live.live.yt.playing, '띄우기 안 됨: ' + JSON.stringify(st.live.live.yt));
+    ok(await c.eval(`!document.querySelector('#ytCtl').classList.contains('hidden') && !!document.querySelector('#pvMain > .wc-yt')`), '조작판·미리보기가 안 보임');
+    await c.eval(`(document.querySelector('#ytPlay').click(), 1)`); await sleep(600);
+    st = await api('GET', '/api/state'); ok(!st.live.live.yt.playing, '⏸ 일시정지 안 됨');
+    await c.eval(`(document.querySelector('#ytStage').click(), 1)`); await sleep(400);   // 프롬프터에서 빼기
+    st = await api('GET', '/api/state'); ok(st.live.live.yt.stage === false, '프롬프터 끄기 안 됨');
+    await c.go(BASE + '/output?nohint', 1500);
+    ok(await c.eval(`!!document.querySelector('#screen > .wc-yt .wc-yt-in')`), '예배당 화면에 영상 자리가 없음');
+    await c.go(BASE + '/stage', 1200);
+    ok(!(await c.eval(`!!document.querySelector('#screen > .wc-yt')`)), '프롬프터에서 뺐는데 나옴');
+    await api('POST', '/api/live', { yt: { stage: true } }); await sleep(600);
+    ok(await c.eval(`!!document.querySelector('#screen > .wc-yt')`), '프롬프터에 다시 안 나옴');
+    await openControl();
+    await c.eval(`(document.querySelector('#ytStop').click(), 1)`); await sleep(600);
+    st = await api('GET', '/api/state'); ok(st.live.live.yt === null, '⏹ 끄기 안 됨');
+    ok(await c.eval(`document.querySelector('#ytCtl').classList.contains('hidden')`), '끈 뒤에도 조작판이 보임');
   });
   await check('휴대폰 리모컨: 허용·PIN 화면', async () => {
     await api('PUT', '/api/settings', { remote: true });

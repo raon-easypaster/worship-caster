@@ -4,6 +4,11 @@
 .wc-screen[data-ar="43"] { aspect-ratio: 4 / 3; }
 .wc-layer { position: absolute; inset: 0; transition: opacity .3s ease; overflow: hidden; }
 .wc-mtop-in { position: absolute; inset: 0; background: #000; }
+.wc-yt-in { position: absolute; inset: 0; background: #000; }
+.wc-yt-in.st { top: 11cqh; }
+.wc-yt-in iframe, .wc-yt-p { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.wc-yt-thumb { position: absolute; inset: 0; background: #000 center / contain no-repeat; }
+.wc-yt-thumb span { position: absolute; left: 3%; bottom: 5%; background: rgba(204,0,0,.9); color: #fff; font: 700 6cqh/1.4 sans-serif; padding: 0 2.4cqh; border-radius: 1cqh; }
 .wc-mtop-in > div, .wc-mtop-in > video { position: absolute; inset: 0; width: 100%; height: 100%; background: center / contain no-repeat; object-fit: contain; }
 .wc-img { position: absolute; inset: 5cqh 5cqw; background: center / contain no-repeat; object-fit: contain; width: 90cqw; height: 90cqh; }
 .wc-bg { position: absolute; inset: 0; width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; object-fit: cover; }
