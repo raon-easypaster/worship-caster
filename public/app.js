@@ -399,20 +399,38 @@ function openHymn() {
   const body = openDlg(`
     <div class="dlg-head"><h3>찬송가 넣기</h3><button class="icon" data-x>✕</button></div>
     <div class="row"><input id="hNum" placeholder="장 번호, 제목, 가사 한 줄 (예: 305, 나 같은 죄인)" style="flex:1;font-size:18px" autofocus>
+      <select id="hLines" style="width:auto" title="한 화면에 몇 줄씩 (바꾸면 기억합니다)">${[1, 2, 3, 4].map(n => `<option value="${n}">${n}줄씩</option>`).join('')}</select>
       <button class="btn primary" id="hGo">찾기</button></div>
     <p class="muted small" style="margin:6px 0 0">번호만 치고 Enter면 바로 넣습니다. 처음 쓰는 찬송가는 제목이나 가사로 찾아 넣으면서 장 번호를 적어 두면, 다음부터 번호로 바로 나옵니다.</p>
     <div id="hRes" style="margin-top:10px;max-height:52vh;overflow:auto"></div>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
-  const qIn = body.querySelector('#hNum'), res = body.querySelector('#hRes');
+  const qIn = body.querySelector('#hNum'), res = body.querySelector('#hRes'), linesSel = body.querySelector('#hLines');
+  try { linesSel.value = localStorage.getItem('wc-hymn-lines') || '2'; } catch { linesSel.value = '2'; }
+  linesSel.onchange = () => { try { localStorage.setItem('wc-hymn-lines', linesSel.value); } catch {} };
+  const LINES = () => +linesSel.value || 2;
   const isNum = q => /^(?:찬송가\s*)?\d{1,3}\s*장?$/.test(q.trim());
   const numOf = q => +q.replace(/\D/g, '');
   // 찬송가를 예배 순서에 (자료실에 같은 제목이 있으면 그 곡을 씀)
   async function addHymn(h) {
-    const have = S.items.find(i => KEEP.has(i.type) && i.title.trim() === h.title);
-    if (have) { await addSongToService(have.id); selId = have.id; }
-    else {
-      const slides = await api('POST', '/api/split', { text: h.lyrics, lines: 2 });
+    const same = S.items.filter(i => KEEP.has(i.type) && i.title.trim() === h.title);
+    // 예배 순서에 이미 들어 있는 것을 먼저 (같은 찬송가가 둘 이상이면)
+    const inSvc = new Set(service()?.itemIds || []);
+    const have = same.find(i => inSvc.has(i.id)) || same[0];
+    if (have) {
+      // 지금 고른 줄 수와 다르게 나뉘어 있으면 같은 제목 찬송가를 모두 다시 나눔 (1줄·2줄로 바꿔 쓰기)
+      if (h.lyrics) {
+        const slides = await api('POST', '/api/split', { text: h.lyrics, lines: LINES() });
+        for (const it of same) {
+          const most = Math.max(1, ...it.slides.map(s => String(s.text || '').split('\n').length));
+          const fresh = slides.map(s => ({ ...s, id: undefined }));
+          if (most !== Math.max(...slides.map(s => s.text.split('\n').length))) { const u = await api('PUT', '/api/items/' + it.id, { slides: fresh, arr: h.arr || it.arr || [] }); Object.assign(it, u); }
+        }
+      }
+      await addSongToService(have.id); selId = have.id;
+    } else {
+      const slides = await api('POST', '/api/split', { text: h.lyrics, lines: LINES() });
       const it = await api('POST', '/api/items', { type: 'song', title: h.title, slides, arr: h.arr || [], place: true, after: afterId() });
+      S.items.push(it);   // 곧바로 다시 넣어도 같은 곡이 둘 생기지 않게
       selId = it.id;
     }
     toast(`'${h.title}'을(를) 넣었습니다`);
@@ -1211,7 +1229,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.13.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.13.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };

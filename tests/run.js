@@ -172,6 +172,25 @@ async function main() {
     ok(found, '제목으로 찾은 목록이 없음');
     noErr(); await c.eval(`(closeDlg(), 1)`);
   });
+  await check('＋ 찬송가: 1줄·2줄·3줄·4줄씩 골라 넣기 (자료실에 있는 곡도 다시 나눔)', async () => {
+    // 같은 절이 2줄씩 빈 줄로 미리 나뉜 파일도 3·4줄로 나뉘어야 함 (새찬송가 파일 모양)
+    await api('POST', '/api/hymns/learn', { num: 444, title: '줄 점검곡', lyrics: '1. 가\n나\n\n다\n라\n\n2. 마\n바\n\n사\n아' });
+    // 같은 찬송가가 자료실에 둘 있어도 모두 바뀌어야 함
+    const dupSlides = await api('POST', '/api/split', { text: '가\n나', lines: 2 });
+    await api('POST', '/api/items', { type: 'song', title: '찬송가 444장 줄 점검곡', slides: dupSlides });
+    await api('POST', '/api/items', { type: 'song', title: '찬송가 444장 줄 점검곡', slides: dupSlides });
+    const add = async n => {
+      await c.eval(`(closeDlg(), document.querySelector('#newHymn').click(), 1)`); await sleep(500);
+      await c.eval(`(() => { const s = document.querySelector('#hLines'); s.value = '${n}'; s.dispatchEvent(new Event('change')); const i = document.querySelector('#hNum'); i.value = '444'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`);
+      await sleep(1500);
+      const st = await api('GET', '/api/state');
+      return st.items.filter(i => i.title === '찬송가 444장 줄 점검곡').map(it => Math.max(...it.slides.map(s => s.text.split('\n').length)));
+    };
+    const one = await add(1), three = await add(3), four = await add(4);
+    ok(one.every(n => n === 1) && three.every(n => n === 3) && four.every(n => n === 4) && four.length === 2, `1줄 → ${one}, 3줄 → ${three}, 4줄 → ${four} (같은 곡 ${four.length}개)`);
+    await c.eval(`(document.querySelector('#hLines').value = '2', document.querySelector('#hLines').dispatchEvent(new Event('change')), closeDlg(), 1)`);
+    noErr();
+  });
   await check('자료 ✎ 편집 → 배경·추가 그림 따로', async () => {
     await c.eval(`(select(S.items.find(i => i.title === '점검 찬양').id), 1)`); await sleep(400);
     await c.eval(`(document.querySelector('#editItem').click(), 1)`); await sleep(700);
