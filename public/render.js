@@ -83,9 +83,10 @@
   const safeOverlay = st => ({
     ...st, font: font(st.font), size: num(st.size, 4.6, 1, 20), color: col(st.color, '#ffffff'), box: col(st.box, '#0b1d3a'),
     boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
-    // 방송에 그림 보내는 방식: full 화면 가득 / part 화면 일부(크기·위치) / none 보내지 않음
-    imgMode: pick(st.imgMode, ['full', 'part', 'none'], 'full'), partSize: num(st.partSize, 35, 15, 70),
+    // 방송에 그림 보내는 방식: full 화면 가득 / part 화면 일부(크기·위치) / circle 화면 가득 + 사람 원 / none 보내지 않음
+    imgMode: pick(st.imgMode, ['full', 'part', 'circle', 'none'], 'full'), partSize: num(st.partSize, 35, 15, 70),
     partPos: pick(st.partPos, ['tr', 'mr', 'br', 'tl', 'ml', 'bl'], 'tr'),
+    circSize: num(st.circSize, 30, 12, 60), circPos: pick(st.circPos, ['tr', 'mr', 'br', 'tl', 'ml', 'bl'], 'br'),
   });
   const safeEl = e => ({
     ...e, x: num(e.x, 0), y: num(e.y, 0), w: num(e.w, 100, 0), h: num(e.h, 100, 0), size: num(e.size, 24, 1, 400),
@@ -293,6 +294,16 @@
         const v = { t: 'top', m: 'center', b: 'bottom' }[ov.partPos[0]], h = ov.partPos[1] === 'r' ? 'right' : 'left';
         const vCss = v === 'center' ? 'top:0' : `${v}:4%`;
         return `<div class="wc-layer"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
+      }
+      if (ov.imgMode === 'circle' && !snap.item?.bcFull) {
+        // 화면 가득 + 사람 원: 그림에 동그란 구멍을 뚫어 그 아래 OBS 카메라가 동그랗게 보임 (구멍 둘레에 흰 테)
+        const r = ov.circSize / 2, v = ov.circPos[0], h = ov.circPos[1];
+        const cx = h === 'r' ? `calc(97cqw - ${r}cqh)` : `calc(3cqw + ${r}cqh)`;
+        const cy = v === 't' ? `${4 + r}cqh` : v === 'm' ? '50cqh' : `${96 - r}cqh`;
+        const mask = `radial-gradient(circle at ${cx} ${cy},transparent ${r}cqh,#000 calc(${r}cqh + 1px))`;
+        const ph = opts.preview ? `<span class="wc-circ-ph">${T('👤 설교자')}</span>` : '';
+        return `<div class="wc-layer"><div class="wc-circ-img" style="background:${bg};-webkit-mask-image:${mask};mask-image:${mask}">${screen}</div>` +
+          `<div class="wc-circ" style="left:${cx};top:${cy};width:${ov.circSize}cqh">${ph}</div></div>`;
       }
       const pip = snap.live?.pip && snap.obs?.base && snap.obs?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
       return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;

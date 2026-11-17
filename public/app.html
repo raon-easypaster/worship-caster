@@ -113,11 +113,15 @@
       <details class="ovq-wrap"><summary>방송 바로 조절</summary>
       <div class="ovq" title="바꾸면 바로 방송에 적용됩니다">
         <label>그림 보내기</label>
-        <select data-ov="imgMode"><option value="full">화면 가득</option><option value="part">화면 일부 (카메라 보이게)</option><option value="none">보내지 않기 (자막만)</option></select>
+        <select data-ov="imgMode"><option value="full">화면 가득</option><option value="part">화면 일부 (카메라 보이게)</option><option value="circle">화면 가득 + 사람 원</option><option value="none">보내지 않기 (자막만)</option></select>
         <label class="part-only">일부 — 크기</label>
         <div class="row part-only"><input type="range" data-ov="partSize" min="15" max="70" step="1"><span class="ovq-v" data-ovv="partSize"></span></div>
         <label class="part-only">일부 — 위치</label>
         <select class="part-only" data-ov="partPos"><option value="tr">오른쪽 위</option><option value="mr">오른쪽 중간</option><option value="br">오른쪽 아래</option><option value="tl">왼쪽 위</option><option value="ml">왼쪽 중간</option><option value="bl">왼쪽 아래</option></select>
+        <label class="circ-only">원 — 크기</label>
+        <div class="row circ-only"><input type="range" data-ov="circSize" min="12" max="60" step="1"><span class="ovq-v" data-ovv="circSize"></span></div>
+        <label class="circ-only">원 — 위치</label>
+        <select class="circ-only" data-ov="circPos"><option value="tr">오른쪽 위</option><option value="mr">오른쪽 중간</option><option value="br">오른쪽 아래</option><option value="tl">왼쪽 위</option><option value="ml">왼쪽 중간</option><option value="bl">왼쪽 아래</option></select>
         <label>자막 위치</label>
         <select data-ov="position"><option value="bottom">아래</option><option value="top">위</option></select>
         <label>바 진하기</label>

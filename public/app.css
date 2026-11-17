@@ -181,6 +181,7 @@ body.editor .center-main { padding: 14px 18px; }
 .ovq-v { min-width: 34px; text-align: right; color: var(--muted); }
 .ovq-chk { display: flex; gap: 4px; align-items: center; color: var(--text) !important; }
 .ovq.no-part .part-only { display: none; }
+.ovq.no-circ .circ-only { display: none; }
 
 /* 슬라이드와 미디어 배경 사이 경계: 위아래로 끌어 높이 조절 */
 .hsplit { flex: none; height: 6px; cursor: row-resize; background: var(--line); position: relative; touch-action: none; }

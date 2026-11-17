@@ -305,6 +305,25 @@ async function main() {
     ok(before && !after, `켜기 전 그림 ${before}, 켠 뒤 그림 ${after}`);
     await api('POST', '/api/live', { camOnly: false });
   });
+  await check('⭕ 화면 가득 + 사람 원: 방송 그림에 동그란 구멍(카메라 자리), 다른 방식은 그대로', async () => {
+    const media = await api('GET', '/api/media');
+    const img = media.find(m => /\.(png|jpe?g)$/i.test(m.name)) || media[0];
+    const it = await api('POST', '/api/items', { type: 'score', title: '원 점검', slides: [{ bg: img.url, fit: 'contain' }], place: true });
+    await api('PUT', '/api/style', { overlay: { imgMode: 'circle', circSize: 999, circPos: 'zz' } });
+    let st = await api('GET', '/api/state');
+    ok(st.style.overlay.imgMode === 'circle' && st.style.overlay.circSize === 60 && st.style.overlay.circPos !== 'zz', '원 설정 저장·검증: ' + JSON.stringify(st.style.overlay));
+    await api('PUT', '/api/style', { overlay: { circSize: 30, circPos: 'br' } });
+    await api('POST', '/api/live', { itemId: it.id, index: 0, camOnly: false });
+    await c.go(BASE + '/overlay', 1500);
+    const r = await c.eval(`(() => { const m = document.querySelector('#screen .wc-circ-img'), ring = document.querySelector('#screen .wc-circ');
+      const b = ring && ring.getBoundingClientRect(), W = innerWidth, H = innerHeight;
+      return { img: !!(m && m.querySelector('.wc-bg, img, video')), mask: m ? (getComputedStyle(m).maskImage || getComputedStyle(m).webkitMaskImage) : '',
+        round: ring ? getComputedStyle(ring).borderRadius : '', w: b ? b.width / H : 0, right: b ? b.right / W : 0, bottom: b ? b.bottom / H : 0, ph: !!document.querySelector('.wc-circ-ph') }; })()`);
+    ok(r.img && /radial-gradient/.test(r.mask) && r.round === '50%' && Math.abs(r.w - 0.3) < 0.03 && r.right > 0.9 && r.bottom > 0.9 && !r.ph, '원: ' + JSON.stringify(r));
+    await api('PUT', '/api/style', { overlay: { imgMode: 'full' } }); await sleep(900);
+    const back = await c.eval(`!document.querySelector('#screen .wc-circ') && !!document.querySelector('#screen .wc-layer .wc-bg, #screen .wc-layer img')`);
+    ok(back, '화면 가득으로 돌아오지 않음'); noErr();
+  });
   await check('🖼 TV 그림 끄기(I): 예배당 화면에서 그림만 빠짐', async () => {
     const media = await api('GET', '/api/media');
     const it = await api('POST', '/api/items', { type: 'score', title: 'TV 그림 점검', slides: [{ bg: media[0].url, fit: 'contain' }, { text: '글자', img: media[1].url }], place: true });

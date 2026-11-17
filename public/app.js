@@ -1102,9 +1102,11 @@ function openStyle(pre) {
         <label>위치</label><select id="o_position"><option value="bottom" ${st.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${st.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
         <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${st.overlay.showTitle ? 'checked' : ''}>
         <label>그림 보내기</label><select id="o_imgMode" title="악보·사진·PPT 그림 슬라이드를 방송에 어떻게 보낼지">
-          ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(st.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+          ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['circle', '화면 가득 + 사람 원'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(st.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <label>일부 — 크기</label><input type="range" id="o_partSize" min="15" max="70" step="1" value="${esc(st.overlay.partSize ?? 35)}">
         <label>일부 — 위치</label><select id="o_partPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(st.overlay.partPos || 'tr') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <label>원 — 크기</label><input type="range" id="o_circSize" min="12" max="60" step="1" value="${esc(st.overlay.circSize ?? 30)}">
+        <label>원 — 위치</label><select id="o_circPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(st.overlay.circPos || 'br') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </div><div id="sPvOv" class="wc-screen pv checker" style="margin-top:10px"></div></div>
     </div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="sSave">적용</button></div>`);
@@ -1117,7 +1119,7 @@ function openStyle(pre) {
     const out = document.createElement('span'); out.className = 'muted small'; out.style.cssText = 'min-width:36px;text-align:right';
     const wrap = document.createElement('div'); wrap.className = 'row'; wrap.style.margin = '0';
     el.replaceWith(wrap); wrap.append(el, out);
-    const upd = () => (out.textContent = el.id.endsWith('Opacity') ? Math.round(el.value * 100) + '%' : el.id.endsWith('partSize') ? el.value + '%' : el.value);
+    const upd = () => (out.textContent = el.id.endsWith('Opacity') ? Math.round(el.value * 100) + '%' : /(part|circ)Size$/.test(el.id) ? el.value + '%' : el.value);
     el.addEventListener('input', upd); upd();
   });
   const paint = () => {
@@ -1178,14 +1180,19 @@ function openOBS() {
         <li>자막 브라우저 소스 속성 → <b>페이지 권한</b>을 <b>고급 접근 권한</b>(장면 변경 가능, 영어: Advanced access to OBS)으로 바꿉니다.</li>
         <li>아래에서 두 장면을 고르고 저장합니다. 그림이 나갈 때는 '예배-그림'으로, 글자 자막으로 돌아오면 '예배'로 OBS가 알아서 바뀝니다.
           장면을 저장해 두면 그림이 나갈 때 저절로 바뀝니다. (운영 화면의 👤 사람 화면(P)은 그림 대신 사람 화면만 보내는 단추입니다)</li>
-      </ol>`}</div>
+      </ol>`}
+      <p class="small" style="margin:6px 0 0">${EN ? `<b>⭕ Camera circle</b> (Send pictures: 'Full screen + camera circle'): the picture fills the screen with a round hole, and the camera <b>under</b> the caption source shows through it.
+        For the face to fill the circle, make one more scene (e.g. <b>Worship-Circle</b>) with the same caption source on top and the camera <b>below</b> it, shrunk so the face sits in the circle, then choose it as 'Camera circle scene' below.`
+      : `<b>⭕ 사람 원</b> (그림 보내기: '화면 가득 + 사람 원'): 그림은 화면 가득 나가고 동그란 구멍으로 자막 소스 <b>아래</b>의 카메라가 보입니다.
+        얼굴이 원에 꽉 차게 하려면 장면을 하나 더 만들어(예: <b>예배-원</b>) 같은 자막 소스를 맨 위에, 카메라는 그 <b>아래</b>에 두고 얼굴이 원 자리에 오도록 줄여 놓은 뒤 아래 '사람 원 장면'으로 고르세요.`}</p></div>
     <div class="form" style="margin-top:8px">
       <label>평소 장면</label>${sceneField('obsBase', S.settings.obsScenes?.base)}
       <label>사람 화면 장면</label>${sceneField('obsPip', S.settings.obsScenes?.pip)}
+      <label>사람 원 장면</label>${sceneField('obsCircle', S.settings.obsScenes?.circle)}
     </div>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button><button class="btn primary" id="obsSave">장면 저장</button></div>`);
   $('#dlgBody').querySelector('#obsSave').onclick = async () => {
-    await api('PUT', '/api/settings', { obsScenes: { base: $('#obsBase').value.trim(), pip: $('#obsPip').value.trim() } });
+    await api('PUT', '/api/settings', { obsScenes: { base: $('#obsBase').value.trim(), pip: $('#obsPip').value.trim(), circle: $('#obsCircle').value.trim() } });
     toast('저장했습니다'); closeDlg();
   };
   $('#dlgBody').querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다'); });
@@ -1269,7 +1276,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.14.0 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.14.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1355,7 +1362,7 @@ function bumpSize(grp, dir) {
 
 // 방송 자막 카드의 바로 조절 (그림 보내기·화면 일부 크기·위치·자막 위치·바 진하기·곡명)
 const PART_POS = { tr: '오른쪽 위', mr: '오른쪽 중간', br: '오른쪽 아래', tl: '왼쪽 위', ml: '왼쪽 중간', bl: '왼쪽 아래' };
-const OV_DEF = { imgMode: 'full', partSize: 35, partPos: 'tr', position: 'bottom', boxOpacity: 0.72, showTitle: true };
+const OV_DEF = { imgMode: 'full', partSize: 35, partPos: 'tr', circSize: 30, circPos: 'br', position: 'bottom', boxOpacity: 0.72, showTitle: true };
 let ovTimer = null;
 function showOverlayQuick() {
   const box = document.querySelector('.ovq'); if (!box || !snap) return;
@@ -1370,6 +1377,7 @@ function showOverlayQuick() {
     el.textContent = Math.round(el.dataset.ovv === 'boxOpacity' ? v * 100 : v) + '%';
   });
   box.classList.toggle('no-part', (o.imgMode || 'full') !== 'part');
+  box.classList.toggle('no-circ', o.imgMode !== 'circle');
   $('#ovMediaObs').checked = !!snap.live.mediaObs;
 }
 function initOverlayQuick() {

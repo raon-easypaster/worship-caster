@@ -118,6 +118,10 @@
 /* HTML 파일 자료: 1920×1080 으로 그린 뒤 줄임 */
 .wc-hfile { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; pointer-events: none; background: #000; }
 /* 방송 '화면 일부': 원래 크기로 그린 뒤 줄여서 구석에 */
+.wc-circ-img { position: absolute; inset: 0; }
+.wc-circ { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; box-sizing: border-box;
+  border: .6cqh solid rgba(255,255,255,.92); box-shadow: 0 .8cqh 3cqh rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+.wc-circ-ph { color: #fff; font-size: 3cqh; font-weight: 700; text-shadow: 0 0 .6cqh #000; }
 .wc-part { position: absolute; width: 100%; height: 100%; border-radius: 2.2cqh; overflow: hidden; box-shadow: 0 1cqh 4cqh rgba(0,0,0,.6); outline: .55cqh solid rgba(255,255,255,.85); }
 .wc-media { position: absolute; background-position: center; background-repeat: no-repeat; }
 

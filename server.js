@@ -388,7 +388,8 @@ const STYLE_RULES = {
   align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'], aspect: ['16:9', '4:3'],
   bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
   motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
-  imgMode: ['full', 'part', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
+  imgMode: ['full', 'part', 'circle', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
+  circSize: [12, 60], circPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
 };
 function cleanStyle(src, base) {
   const out = { ...base };
@@ -440,7 +441,7 @@ app.put('/api/settings', needLocal, (req, res) => {
   }
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
-    db.settings.obsScenes = { base: t(o.base), pip: t(o.pip) };
+    db.settings.obsScenes = { base: t(o.base), pip: t(o.pip), circle: t(o.circle) };
   }
   if (req.body.pin != null) sessions.clear();
   changed(); pushLive(); res.json({ ok: true });
@@ -613,7 +614,7 @@ function cleanRestore(src) {
       logo: LOGO_RE.test(S0.logo) ? S0.logo : '',
       titleLogo: TITLE_LOGO_RE.test(S0.titleLogo) ? S0.titleLogo : '',
       logoStyle: cleanLogoStyle(S0.logoStyle, store.DEFAULT_LOGO),
-      obsScenes: { base: t(S0.obsScenes?.base, 100), pip: t(S0.obsScenes?.pip, 100) },
+      obsScenes: { base: t(S0.obsScenes?.base, 100), pip: t(S0.obsScenes?.pip, 100), circle: t(S0.obsScenes?.circle, 100) },
       bibleFolders: folders,
     },
   };

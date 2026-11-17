@@ -81,13 +81,15 @@
   }
   function syncScene() {
     if (!obs || obsLevel < 4 || !snap?.obs) return;
-    const { base, pip } = snap.obs;
-    if (!base || !pip) return;
-    const part = snap.style?.overlay?.imgMode === 'part' && !snap.item?.bcFull;   // '화면 일부'는 OBS 장면 전환 없이 카메라가 보임
-    const want = WC.bcMode(snap) === 'full' && snap.live.pip && !part ? pip : base;
+    const { base, pip, circle } = snap.obs;
+    if (!base || !(pip || circle)) return;
+    const img = snap.item?.bcFull ? 'full' : snap.style?.overlay?.imgMode;
+    const full = WC.bcMode(snap) === 'full';
+    // '화면 일부'는 OBS 장면 전환 없이 카메라가 보임 · '사람 원'은 원 장면(카메라를 원 자리에 작게 놓은 장면)으로
+    const want = full && img === 'circle' && circle ? circle : full && snap.live.pip && pip && img !== 'part' && img !== 'circle' ? pip : base;
     obs.getCurrentScene(cur => {
       const name = cur?.name;
-      if ((name === base || name === pip) && name !== want) obs.setCurrentScene(want);  // 다른 장면(설교 전용 등)에 있을 땐 건드리지 않음
+      if ((name === base || name === pip || name === circle) && name !== want) obs.setCurrentScene(want);  // 다른 장면(설교 전용 등)에 있을 땐 건드리지 않음
     });
   }
   connect();
