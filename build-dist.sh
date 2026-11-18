@@ -49,6 +49,8 @@ find "$F" -type d -name scss -prune -exec rm -rf {} +
 find "$F" -type f -name '*.woff2' | grep -E -- '-(100|200|300|500|600)-(normal|italic)\.woff2$' | xargs rm -f
 find "$F" -type f -name '*-italic.woff2' -delete
 rm -f "$APPSRC/package-lock.json"
+# 자동 업데이트 묶음 (앱 안 Node.js 는 빼고 프로그램만 — 운영 화면 '지금 업데이트'가 받음)
+node -e "require('fs').writeFileSync(process.argv[2], require('./lib/updater').pack(process.argv[1]))" "$APPSRC" "$DIST/WorshipCaster-update.wcu"
 
 ABOUT_KO="예배송출 v$VERSION — 만든 사람: 쉬운목사 이광복 (무료로 나눕니다)"
 
@@ -149,5 +151,5 @@ if [ "${1:-}" = "--install" ]; then
   echo "설치: ~/Applications/예배송출.app"
 fi
 # 받은 파일이 깨지지 않았는지 확인하는 값 (릴리스 설명에 붙임)
-(cd "$DIST" && shasum -a 256 예배송출-mac.zip 예배송출-windows.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+(cd "$DIST" && shasum -a 256 예배송출-mac.zip 예배송출-windows.zip WorshipCaster-update.wcu > SHA256SUMS.txt && cat SHA256SUMS.txt)
 ls -lh "$DIST"

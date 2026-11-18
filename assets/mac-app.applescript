@@ -40,11 +40,41 @@ on startServer()
 	set missCount to 0
 end startServer
 
+-- 운영 화면을 앞으로: 독 앱이 직접 창 이름으로 찾아 올림 (맥 '손쉬운 사용'에서 예배송출을 허용해야 함)
+-- 운영 화면은 주소창 없는 크롬 '앱 창'이라 크롬 스크립트의 창 목록에는 안 나옴
 on showUI()
+	set raised to my raiseUI()
 	try
-		do shell script "curl -s -m 3 -X POST -H 'Origin: " & my base() & "' " & my base() & "/api/show > /dev/null"
+		if raised then
+			do shell script "curl -s -m 3 -X POST -H 'Origin: " & my base() & "' '" & my base() & "/api/show?raised=1' > /dev/null"
+		else
+			do shell script "curl -s -m 3 -X POST -H 'Origin: " & my base() & "' " & my base() & "/api/show > /dev/null"
+		end if
 	end try
 end showUI
+
+on raiseUI()
+	try
+		with timeout of 5 seconds
+			tell application "System Events"
+				if not (exists process "Google Chrome") then return false
+				tell process "Google Chrome"
+					set ws to (every window whose name is "예배송출" or name starts with "예배송출 - " or name is "Worship Caster" or name starts with "Worship Caster - ")
+					if (count of ws) is 0 then return false
+					set w to item 1 of ws
+					try
+						if value of attribute "AXMinimized" of w then set value of attribute "AXMinimized" of w to false
+					end try
+					perform action "AXRaise" of w
+					set frontmost to true
+				end tell
+			end tell
+		end timeout
+		return true
+	on error
+		return false
+	end try
+end raiseUI
 
 on run
 	if my alive() then

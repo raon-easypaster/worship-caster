@@ -24,3 +24,4 @@ hymns*.json
 *교독문*.txt
 *교독문*.json
 readings*.json
+tests/.upd-*/

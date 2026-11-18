@@ -181,6 +181,8 @@
   function motionKey(snap, st) {
     const L = snap.live || {}, s = snap.slide, main = snap.style.main || {};
     if (L.black || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
+    const iv = mediaUrl(snap.item?.motionVideo);   // 이 찬양에 저장해 둔 배경 영상이 먼저
+    if (iv) return 'video:' + iv;
     const t = themeOf(snap);
     const m = t.motion !== undefined ? t.motion : st.motion;
     if (!MOTIONS[m] || m === 'none') return '';

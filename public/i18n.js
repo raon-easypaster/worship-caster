@@ -16,8 +16,19 @@
     '시작': 'Start', '정지': 'Stop', '보내기': 'Send', '지우기': 'Clear', '위로': 'Up', '아래로': 'Down', '또는': 'or', '까지': 'until', '분': 'min',
     '쉬운목사 이광복': 'Easy Pastor Lee Kwangbok', '예배송출 · 만든 사람: 쉬운목사 이광복': 'Worship Caster · made by Easy Pastor Lee Kwangbok',
     '· 무료로 나눕니다': '· free to share',
+    // ── 새 버전 안내 · 자동 업데이트 ──
+    '독 아이콘으로 이 창을 앞으로 가져오려면: 맥 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → 예배송출 켜기': 'To bring this window forward from the Dock icon: Mac System Settings → Privacy & Security → Accessibility → turn on Worship Caster',
+    '새 버전 안내 보기': 'See what is new', '새 버전이 있습니다': 'A new version is available', '업데이트 내용': "What's new",
+    '설명이 없습니다': 'No description', 'GitHub에서 전체 보기': 'See it all on GitHub', '지금 업데이트': 'Update now', '받는 곳 열기': 'Open download page', '나중에': 'Later',
+    '자료(예배 순서·찬양·설정)는 그대로 남습니다. 받은 뒤 프로그램이 잠깐 꺼졌다가 새 버전으로 다시 켜집니다. 예배 중에는 하지 마세요.': 'Your data (services, songs, settings) stays. After the download the program closes for a moment and restarts in the new version. Do not do this during a service.',
+    '이 버전은 자동 설치 파일이 없습니다. 받는 곳에서 새 앱(폴더)을 받아 바꿔 넣으세요. 자료는 그대로 남습니다.': 'This version has no automatic install file. Download the new app (folder) and replace the old one. Your data stays.',
+    '지금 화면에 송출 중입니다. 업데이트하면 잠깐(몇 초) 화면이 멈춥니다. 계속할까요?': 'Something is on screen right now. Updating pauses the screens for a few seconds. Continue?',
+    '새 버전을 받는 중입니다… (인터넷에 따라 1~3분)': 'Downloading the new version… (1–3 min depending on your internet)',
+    '설치했습니다. 프로그램을 껐다 켜면 새 버전입니다.': 'Installed. Restart the program to use the new version.',
+    '설치했습니다. 새 버전으로 다시 켜는 중…': 'Installed. Restarting in the new version…', '새 버전으로 다시 켜는 중…': 'Restarting in the new version…',
+    '다시 켜지지 않았습니다. 예배송출을 껐다가 다시 켜 주세요.': 'It did not restart. Please quit Worship Caster and open it again.',
     // ── 로그인 ──
-    '예배송출 웹 편집기': 'Worship Caster Web Editor', '운영 맥에서 정한 PIN을 입력하세요.': 'Enter the PIN set on the operator computer.',
+    '예배송출 웹 편집기': 'Worship Caster Web Editor', '운영 랩탑에서 정한 PIN을 입력하세요.': 'Enter the PIN set on the operator computer.', '운영 노트북에서 정한 PIN을 입력하세요.': 'Enter the PIN set on the operator computer.',
     'PIN이 맞지 않습니다': 'Wrong PIN', 'PIN 로그인이 필요합니다': 'PIN login required',
     // ── 왼쪽: 예배 순서 · 자료실 ──
     '새 예배 순서': 'New service', '이름·날짜 변경': 'Rename / change date', '예배 순서 삭제': 'Delete service',
@@ -66,7 +77,7 @@
     '먼저 자료의 슬라이드를 하나 띄우세요': 'Show a slide from an item first',
     '사람 화면을 쓰려면 🎥 OBS 자막 주소 → 사람 화면 설정을 해 주세요': 'To use Camera PiP, set it up in 🎥 OBS Caption URL → camera scene',
     '바꾸면 바로 방송에 적용됩니다': 'Changes apply to the stream immediately', '그림 보내기': 'Pictures', '화면 가득': 'Full screen',
-    '화면 일부 (카메라 보이게)': 'Part of screen (camera visible)', '화면 가득 + 사람 원': 'Full screen + camera circle', '원 — 크기': 'Circle — size', '원 — 위치': 'Circle — position', '사람 원 장면': 'Camera circle scene', '👤 설교자': '👤 Speaker', '화면 일부': 'Part of screen', '보내지 않기 (자막만)': "Don't send (captions only)",
+    '화면 일부 (카메라 보이게)': 'Part of screen (camera visible)', '화면 가득 + 사람 원': 'Full screen + camera circle', '번역본 이름': 'Translation name', ' 화면에 번역본 이름 보이기 (예: 개역개정)': ' Show the translation name on screen (e.g. NIV)', '화면에 번역본 이름 보이기 (예: 개역개정)': 'Show the translation name on screen (e.g. NIV)', '원 — 크기': 'Circle — size', '원 — 위치': 'Circle — position', '사람 원 장면': 'Camera circle scene', '👤 설교자': '👤 Speaker', '화면 일부': 'Part of screen', '보내지 않기 (자막만)': "Don't send (captions only)",
     '보내지 않기': "Don't send", '자막 위치': 'Caption position', '바 진하기': 'Bar opacity', '위': 'Top', '아래': 'Bottom',
     '오른쪽 위': 'Top right', '오른쪽 중간': 'Middle right', '오른쪽 아래': 'Bottom right', '왼쪽 위': 'Top left', '왼쪽 중간': 'Middle left', '왼쪽 아래': 'Bottom left',
     '위 가운데': 'Top center', '아래 가운데': 'Bottom center', '가운데': 'Center', '왼쪽': 'Left', '오른쪽': 'Right', '구석에 작게': 'Small in a corner',
@@ -191,7 +202,7 @@
     // ── OBS ──
     '🎥 OBS에 자막 얹기': '🎥 Captions in OBS', '방송 PC(맥/윈도우)의 OBS에서': 'In OBS on the streaming PC (Mac/Windows),', '소스 ＋ → 브라우저': 'Sources ＋ → Browser',
     '를 추가하고 아래 주소를 넣으세요. 너비': 'and enter the address below. Width', ', 높이': ', height', '두면 자막만 투명하게 얹힙니다. (캡처 장비·NDI 플러그인 필요 없음)': 'and only the captions are overlaid transparently. (No capture card or NDI plugin needed)',
-    '· 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.': '· The streaming PC and this computer must be on the same network. Allow it if the firewall asks.',
+    '· 방송 PC와 이 랩탑은 같은 공유기(네트워크)에 있어야 합니다. 방화벽이 묻으면 "허용"을 누르세요.': '· The streaming PC and this computer must be on the same network. Allow it if the firewall asks.', '· 방송 PC와 이 노트북은 같은 공유기(네트워크)에 있어야 합니다. 방화벽이 묻으면 "허용"을 누르세요.': '· The streaming PC and this computer must be on the same network. Allow it if the firewall asks.',
     '· 같은 맥에서 OBS를 돌릴 때:': '· When OBS runs on this same computer:',
     '👤 그림·악보·PPT를 보낼 때 오른쪽 아래에 사람 화면 (선택)': '👤 Camera in the lower right when sending pictures (optional)',
     '평소 장면': 'Normal scene', '사람 화면 장면': 'Camera PiP scene', '장면 저장': 'Save scenes', 'OBS 장면 이름 그대로': 'Exact OBS scene name',
@@ -298,6 +309,9 @@
     '모든 휴대폰': 'Any phone', '아이폰 — 공유기가 다시 켜져도 그대로': 'iPhone — stays the same after the router restarts',
     '안 열리면: 같은 와이파이인지, 허용이 켜져 있는지 보세요. 공유기가 다시 켜지면 숫자 주소가 바뀌니 여기서 새 주소를 확인하세요.':
       "Not opening? Check the Wi-Fi and that it is allowed. The number address changes when the router restarts, so check the new one here.",
+    '배경으로 저장할 수 있는 것은 영상(mp4·mov·webm)입니다': 'Only videos (mp4·mov·webm) can be saved as a background',
+    '이 자료의 배경 영상을 뺐습니다': 'Removed this item\'s background video', '이 찬양의 배경 영상 빼기': 'Remove this item\'s background video',
+    '이 찬양의 글자 슬라이드 뒤에 늘 깔리는 배경 영상': 'Background video always shown behind this item\'s text slides',
     '⬆ 위에': '⬆ On top', '⏹ 그림 끄기': '⏹ Picture off', '화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)': 'Show on top (background and slide stay; remove with ⏹ Picture off)',
     '⬆ 위에 띄운 그림만 빼기 (배경·슬라이드는 그대로)': 'Remove only the picture shown on top (background and slide stay)',
     '화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다': 'Shown on top — remove it with ⏹ Picture off',
@@ -318,7 +332,7 @@
     '배경 위에 타이머만 (로고처럼)': 'Timer only, over the background (like the logo)', '🎥 유튜브에도': '🎥 Also on YouTube', '예배당 화면과 같은 타이머를 유튜브(OBS)에도': 'Show the same timer on YouTube (OBS) too',
     '1줄씩': '1 line', '2줄씩': '2 lines', '3줄씩': '3 lines', '4줄씩': '4 lines', '한 화면에 몇 줄씩 (바꾸면 기억합니다)': 'Lines per slide (remembered)',
     // ── 서버 안내 ──
-    '송출 제어는 운영 맥에서만 가능합니다': 'Only the operator computer can do this',
+    '송출 제어는 운영 랩탑에서만 가능합니다': 'Only the operator computer can do this', '송출 제어는 운영 노트북에서만 가능합니다': 'Only the operator computer can do this',
     '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)': 'Output controls work only on the operator computer (turn on the phone remote in ⚙︎ Settings to use a phone)',
     '다른 사이트에서 온 요청은 막혀 있습니다': 'Requests from other sites are blocked', '허용되지 않은 주소입니다': 'Address not allowed',
     '슬라이드 파일이 없습니다': 'Slide file not found',

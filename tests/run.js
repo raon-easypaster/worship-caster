@@ -50,6 +50,39 @@ async function main() {
     ok(!/display alert/.test(as), '알림 창(display alert)은 독 앱을 붙잡음');
     ok(/on reopen[\s\S]*startServer/.test(as), '꺼진 뒤 독 아이콘으로 다시 켜기가 없음');
   });
+  await check("운영 컴퓨터 이름: 맥은 '랩탑', 윈도우는 '노트북' (화면에 '맥'이 나오지 않음)", async () => {
+    const me = await api('GET', '/api/me');
+    const want = process.platform === 'win32' ? '노트북' : '랩탑';
+    ok(me.pc === want, `/api/me pc 기대 ${want}, 실제 ${me.pc}`);
+    const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    ok(/PC_NAME = process\.platform === 'win32' \? '노트북' : '랩탑'/.test(src), '윈도우에서 노트북으로 부르는 부분이 없음');
+    const strip = s => s.split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
+    for (const f of ['public/app.html', 'public/app.js', 'server.js']) {
+      const t = strip(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+      ok(!/운영 맥|이 맥은|맥 방화벽/.test(t), `${f} 에 아직 '맥' 문구가 있음`);
+    }
+    const i18n = fs.readFileSync(path.join(ROOT, 'public', 'i18n.js'), 'utf8');
+    for (const k of ['운영 랩탑에서 정한 PIN', '운영 노트북에서 정한 PIN', '이 랩탑은 같은 공유기', '이 노트북은 같은 공유기', '운영 노트북에서만 가능'])
+      ok(i18n.includes(k), `영어 사전에 '${k}' 가 없음`);
+  });
+  await check('맥 독 아이콘: 운영 화면(앱 창)을 창 이름으로 찾아 앞으로 (크롬 창 목록에는 앱 창이 없음)', async () => {
+    const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    const m = src.match(/const RAISE_SCRIPT = (\[[\s\S]*?\])\.join\('\\n'\);/);
+    ok(m, 'RAISE_SCRIPT 가 없음');
+    const script = eval(m[1]).join('\n');
+    ok(/System Events/.test(script) && /AXRaise/.test(script), '창 이름으로 올리는 방식이 아님');
+    const title = (fs.readFileSync(path.join(ROOT, 'public', 'app.html'), 'utf8').match(/<title>([^<]*)<\/title>/) || [])[1];
+    ok(title && script.includes(`name is "${title}"`), `운영 화면 제목(${title})과 찾는 이름이 다름`);
+    ok(!/repeat with w in windows/.test(src.slice(src.indexOf('function showUI'), src.indexOf('function showUI') + 2500)), '크롬 창 목록으로 찾는 옛 방식 (앱 창을 못 찾음, v0.14.1까지의 버그)');
+    const as = fs.readFileSync(path.join(ROOT, 'assets', 'mac-app.applescript'), 'utf8');
+    ok(/on raiseUI\(\)[\s\S]*AXRaise/.test(as) && as.includes(`name is "${title}"`), '독 앱이 직접 창을 올리지 않음 (맥 권한은 독 앱에 주어짐)');
+    ok(/with timeout of \d+ seconds/.test(as.slice(as.indexOf('on raiseUI'))), '창 올리기가 독 앱을 오래 붙잡을 수 있음');
+    if (process.platform === 'darwin') {
+      const out = path.join(DATA, 'raise.scpt');
+      require('child_process').execFileSync('osacompile', ['-o', out, '-e', script]);   // 문법만 확인 (실행하지 않음)
+      ok(fs.existsSync(out), '애플스크립트 문법 오류');
+    }
+  });
   await check('다른 사이트에서 온 요청은 막힘', async () => {
     const r = await fetch(BASE + '/api/live', { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
     ok(r.status === 403, '막히지 않음: ' + r.status);
@@ -161,6 +194,45 @@ async function main() {
   });
   await openControl();
   await check('운영 화면이 오류 없이 열림', async () => { ok(await c.eval(`!!document.querySelector('#slides')`), '운영 화면이 안 그려짐'); noErr(); });
+  await check('찬양마다 배경 영상: 자료실 영상을 슬라이드 칸에 끌어다 놓으면 저장·예배당 화면 뒤에 깔림·✕로 빼기', async () => {
+    const vid = (await api('GET', '/api/media')).find(m => /\.(mp4|mov|webm)$/i.test(m.url));
+    ok(vid, '시험할 영상이 없음');
+    const it = await api('POST', '/api/items', { title: '영상 점검곡', type: 'song', slides: [{ text: '가사 한 줄' }, { text: '가사 두 줄' }] });
+    // 엉뚱한 주소는 저장하지 않음
+    for (const bad of ['/media/../db.json', '/media/a.jpg', 'https://evil.example/a.mp4']) {
+      const r = await api('PUT', '/api/items/' + it.id, { motionVideo: bad });
+      ok(r.motionVideo === '', `잘못된 주소가 저장됨: ${bad}`);
+    }
+    c.errors.splice(0);
+    await c.eval(`(select(${JSON.stringify(it.id)}), 1)`); await sleep(300);
+    ok(await c.eval(`document.querySelector('#itemVid').classList.contains('hidden')`), '영상이 없는데 표시가 보임');
+    // 끌어다 놓기 (자료실 칸 → 슬라이드 칸)
+    await c.eval(`(() => { const dt = new DataTransfer(); dt.setData('application/x-wc-media', ${JSON.stringify(vid.url)});
+      const box = document.querySelector('#slides');
+      box.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      box.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); return 1; })()`);
+    await sleep(800);
+    let st = await api('GET', '/api/state'), saved = st.items.find(x => x.id === it.id);
+    ok(saved.motionVideo === vid.url, `저장 안 됨: ${saved.motionVideo}`);
+    ok(saved.slides.length === 2 && saved.slides[0].text === '가사 한 줄' && !saved.slides.some(s => s.bg), '슬라이드가 바뀜');
+    ok(!(await c.eval(`document.querySelector('#itemVid').classList.contains('hidden')`)), '머리줄에 영상 표시가 없음');
+    // 송출하면 예배당 화면 정보에 영상이 실리고, 화면 그리기에서 그 영상이 글자 뒤에 깔림
+    const r = await api('POST', '/api/live', { itemId: it.id, index: 0 });
+    ok(r.item?.motionVideo === vid.url, '송출 정보에 영상이 없음');
+    const html = await c.eval(`(() => { const d = document.createElement('div'); WC.render(d, { slide: { text: '가' }, style: S.style, live: {}, item: { motionVideo: ${JSON.stringify(vid.url)} } }, 'main', { fade: false }); return d.innerHTML; })()`);
+    ok(html.includes('m-video') && html.includes(vid.url), '예배당 화면에 영상이 안 깔림');
+    // 미디어 배경(누르기)을 따로 내보내면 그것이 먼저 (기존 동작 유지)
+    const html2 = await c.eval(`(() => { const d = document.createElement('div'); WC.render(d, { slide: { text: '가' }, style: S.style, live: { mediaBg: ${JSON.stringify(vid.url)} }, item: { motionVideo: ${JSON.stringify(vid.url)} } }, 'main', { fade: false }); return d.querySelectorAll('.m-video').length; })()`);
+    ok(html2 === 0, '미디어 배경을 내보냈는데 찬양 영상도 함께 깔림');
+    // ✕ 로 빼기
+    await c.eval(`(document.querySelector('#itemVidOff').click(), 1)`); await sleep(700);
+    st = await api('GET', '/api/state'); saved = st.items.find(x => x.id === it.id);
+    ok(saved.motionVideo === '', '빼기가 안 됨');
+    ok(await c.eval(`document.querySelector('#itemVid').classList.contains('hidden')`), '빼도 표시가 남음');
+    await api('POST', '/api/live', { reset: true });
+    await api('DELETE', '/api/items/' + it.id);
+    noErr();
+  });
   // 맨 위·왼쪽 단추를 실제로 눌러 창이 열리는지 (v0.4.0~0.11.0 자막 스타일 단추 버그 같은 것 방지)
   for (const [sel, name] of [['#styleBtn', '🎨 자막 스타일'], ['#settingsBtn', '⚙︎ 설정'], ['#obsBtn', '🎥 OBS 자막 주소'], ['#mediaBtn', '🖼 미디어'],
     ['#newSong', '＋ 찬양'], ['#newBible', '＋ 성경'], ['#newHymn', '＋ 찬송가'], ['#newReading', '＋ 교독문'], ['#newPhrase', '＋ 문구·성찬'], ['#newNotice', '＋ 광고'],
@@ -224,6 +296,30 @@ async function main() {
     ok(await c.eval(`!!document.querySelector('#rdRes [data-rd]')`), '본문으로 찾은 목록이 없음');
     await c.eval(`(document.querySelector('#rdLines').value = '2', document.querySelector('#rdLines').dispatchEvent(new Event('change')), closeDlg(), 1)`);
     noErr();
+  });
+  await check('＋ 성경: 번역본 이름 보이기를 끄면 구절만 (다음에도 기억), 켜면 (번역본)', async () => {
+    const fd = new FormData(); fd.append('file', new Blob(['창 3:16 점검 본문 하나\n창 3:17 점검 본문 둘\n']), '점검역.txt'); fd.append('name', '점검역');
+    const up = await api('POST', '/api/bible/upload', fd); ok(up.ok, JSON.stringify(up));
+    await openControl();
+    const make = async (show, q) => {
+      await c.eval(`(closeDlg(), document.querySelector('#newBible').click(), 1)`); await sleep(500);
+      await c.eval(`(() => { const v = document.querySelector('#bV'); v.value = '점검역'; const b = document.querySelector('#bShowV'); b.checked = ${show};
+        const i = document.querySelector('#bQ'); i.value = '${q}'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`);
+      await sleep(800); await c.eval(`(document.querySelector('#bMake').click(), 1)`); await sleep(900);
+    };
+    await make(false, '창 3:16');
+    let st = await api('GET', '/api/state');
+    let it = st.items.filter(i => i.type === 'bible' && i.slides[0]?.text === '점검 본문 하나').pop();
+    ok(it && it.slides[0].ref === '창세기 3:16', '끄면: ' + JSON.stringify(it?.slides[0]));
+    ok(st.settings.bibleNoVer === true, '설정이 기억되지 않음');
+    await c.eval(`(closeDlg(), document.querySelector('#newBible').click(), 1)`); await sleep(500);
+    ok(await c.eval(`document.querySelector('#bShowV').checked === false`), '다시 열면 꺼진 채로 나와야 함');
+    await make(true, '창 3:17');
+    st = await api('GET', '/api/state');
+    it = st.items.filter(i => i.type === 'bible' && i.slides[0]?.text === '점검 본문 둘').pop();
+    ok(it && it.slides[0].ref === '창세기 3:17 (점검역)', '켜면: ' + JSON.stringify(it?.slides[0]));
+    ok(st.settings.bibleNoVer === false, '다시 켠 설정이 기억되지 않음');
+    await c.eval(`(closeDlg(), 1)`); noErr();
   });
   await check('자료 ✎ 편집 → 배경·추가 그림 따로', async () => {
     await c.eval(`(select(S.items.find(i => i.title === '점검 찬양').id), 1)`); await sleep(400);
@@ -403,6 +499,63 @@ async function main() {
     await api('PUT', '/api/settings', { remote: true });
     await c.go(BASE + '/remote', 1500);
     ok(await c.eval(`!!document.querySelector('.big') || !!document.querySelector('#pin')`), '리모컨이 안 그려짐'); noErr();
+  });
+
+  // ── 자동 업데이트: 가짜 배포(이 컴퓨터 안)에서 받아 확인값 대조 → 자료 폴더에 설치 → 새 버전으로 다시 켜짐 ──
+  await check('🔔 자동 업데이트: 안내 창·확인값 틀리면 거절·설치 뒤 새 버전으로 다시 켜짐·자료 그대로', async () => {
+    const updater = require('../lib/updater');
+    ok((() => { try { updater.unpack(require('zlib').gzipSync(Buffer.concat([Buffer.from('WCU1'), (b => (b.writeUInt32BE(JSON.stringify({ version: '1.0.0', files: [['../evil.js', 1]] }).length), b))(Buffer.alloc(4)), Buffer.from(JSON.stringify({ version: '1.0.0', files: [['../evil.js', 1]] })), Buffer.from('x')]))); return false; } catch { return true; } })(), '묶음 밖 경로(../)를 막지 않음');
+    // 가짜 새 버전 99.0.0 (부품 node_modules 는 위 폴더의 것을 씀 → 시험 자료 폴더를 저장소 안 임시 폴더로)
+    const D2 = fs.mkdtempSync(path.join(ROOT, 'tests', '.upd-'));
+    const NEW = path.join(D2, 'src');
+    try {
+      for (const f of ['server.js', 'package.json', 'lib', 'public']) fs.cpSync(path.join(ROOT, f), path.join(NEW, f), { recursive: true, filter: x => !x.includes(path.join('public', 'samples')) });
+      const pj = JSON.parse(fs.readFileSync(path.join(NEW, 'package.json'))); pj.version = '99.0.0'; fs.writeFileSync(path.join(NEW, 'package.json'), JSON.stringify(pj));
+      const pkg = updater.pack(NEW);
+      let sums = '0'.repeat(64) + '  WorshipCaster-update.wcu\n';   // 처음엔 틀린 확인값
+      const http = require('http');
+      const mock = http.createServer((q, r) => {
+        const M = `http://localhost:${mock.address().port}`;
+        if (q.url === '/release') return r.end(JSON.stringify({ tag_name: 'v99.0.0', html_url: 'https://github.com/x', body: '## 예배송출 v99.0.0\n\n### 새로 생긴 것\n- **점검용 새 기능**\n\n### 받기\n| 표 |',
+          assets: [{ name: 'WorshipCaster-update.wcu', browser_download_url: M + '/pkg' }, { name: 'SHA256SUMS.txt', browser_download_url: M + '/sums' }] }));
+        if (q.url === '/pkg') return r.end(pkg);
+        if (q.url === '/sums') return r.end(sums);
+        r.statusCode = 404; r.end();
+      }).listen(0);
+      await sleep(200);
+      const P2 = PORT + 30, B2 = `http://localhost:${P2}`;
+      const DATA2 = path.join(D2, 'data');
+      const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(P2), WC_DATA_DIR: DATA2, NO_OPEN: '1', WC_UPDATE_API: `http://localhost:${mock.address().port}/release` }, stdio: 'ignore' });
+      const get = async u => (await fetch(B2 + u, { headers: { Origin: B2 } })).json();
+      const post = async (u, b) => (await fetch(B2 + u, { method: 'POST', headers: { Origin: B2, 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) })).json();
+      try {
+        for (let i = 0; i < 50; i++) { try { await fetch(B2 + '/api/me'); break; } catch { await sleep(200); } }
+        const item = await post('/api/items', { type: 'song', title: '업데이트 전 찬양', slides: [{ text: '가' }] });
+        const u = await get('/api/update');
+        ok(u.newer && u.latest === '99.0.0' && u.canInstall, '새 버전을 못 찾음: ' + JSON.stringify(u));
+        ok(u.notes.includes('점검용 새 기능') && !u.notes.includes('받기'), '업데이트 내용이 이상함: ' + u.notes);
+        // 운영 화면에 안내 창이 저절로 뜸
+        await c.go(B2 + '/control', 2500);
+        const dl = await c.eval(`({ open: !!document.querySelector('#updDlg')?.open, t: document.querySelector('#updDlg')?.innerText || '', btn: !!document.querySelector('#updBtn') })`);
+        ok(dl.open && dl.t.includes('v99.0.0') && dl.t.includes('점검용 새 기능') && dl.t.includes('지금 업데이트') && dl.btn, '안내 창: ' + JSON.stringify(dl));
+        await c.eval(`(document.querySelector('#updDlg .upd-later').click(), 1)`);
+        // 확인값이 틀리면 설치하지 않음
+        const bad = await post('/api/update/install');
+        ok(/확인값/.test(bad.error || '') && !fs.existsSync(path.join(DATA2, 'app-update', 'current.json')), '틀린 확인값인데 설치함: ' + JSON.stringify(bad));
+        sums = updater.sha256(pkg) + '  WorshipCaster-update.wcu\n';
+        const boot0 = (await get('/api/boot')).boot;
+        const r = await post('/api/update/install');
+        ok(r.ok && r.version === '99.0.0' && r.restart, '설치 실패: ' + JSON.stringify(r));
+        let now = null;
+        for (let i = 0; i < 60; i++) { await sleep(300); try { const b = await get('/api/boot'); if (b.boot !== boot0) { now = await get('/api/update'); break; } } catch {} }
+        ok(now && now.current === '99.0.0', '다시 켜진 뒤 새 버전이 아님: ' + JSON.stringify(now));
+        const st = await get('/api/state');
+        ok(st.items.some(i => i.id === item.id && i.title === '업데이트 전 찬양'), '업데이트 뒤 자료가 사라짐');
+        ok(fs.existsSync(path.join(DATA2, 'db-before-v99.0.0.json')), '업데이트 전 자료 한 벌이 없음');
+        await post('/api/quit');
+      } finally { s2.kill(); mock.close(); try { await fetch(B2 + '/api/quit', { method: 'POST', headers: { Origin: B2 } }); } catch {} }
+      await sleep(500);
+    } finally { fs.rmSync(D2, { recursive: true, force: true }); }
   });
 }
 

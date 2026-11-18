@@ -1,6 +1,17 @@
 // 예배송출 (Worship Caster) — 로컬 서버
 // 만든 사람: 쉬운목사 이광복
 // 예배당 화면(/output), OBS 투명 자막(/overlay), 프롬프터(/stage), 운영(/control), 웹 편집기(/editor)
+
+// 자동 업데이트로 받아 둔 새 프로그램이 있으면 그것을 실행 (앱 안 파일은 그대로, 자료 폴더/app-update)
+if (!process.env.WC_BUNDLE_DIR) {
+  process.env.WC_BUNDLE_DIR = __dirname;
+  const updater = require('./lib/updater');
+  const next = updater.pick(__dirname);
+  if (next) {
+    try { require(next); return; }   // eslint-disable-line no-unreachable
+    catch (e) { console.error('받아 둔 새 버전을 켜지 못해 앱에 든 버전으로 켭니다:', e); updater.markBad(next, e); }
+  }
+}
 const express = require('express');
 const http = require('http');
 const os = require('os');
@@ -75,6 +86,7 @@ function placeInService(id, after) {
   if (at >= 0) svc.itemIds.splice(at + 1, 0, id); else svc.itemIds.push(id);
 }
 const THEME_RE = /^[a-z_]{0,30}$/;
+const MV_RE = /^\/media\/[^\"'<>()\\\s]+\.(mp4|mov|m4v|webm)$/i;
 function itemFields(b, it = {}) {
   return {
     title: String(b.title ?? it.title ?? '새 자료').slice(0, 200),
@@ -88,6 +100,8 @@ function itemFields(b, it = {}) {
     bcFull: b.bcFull !== undefined ? !!b.bcFull : !!it.bcFull,
     // 곡 구성 순서 (예: ['1절','후렴','2절','후렴'])
     arr: Array.isArray(b.arr) ? b.arr.map(x => String(x).trim().slice(0, 20)).filter(Boolean).slice(0, 60) : (it.arr || []),
+    // 찬양마다 저장해 두는 움직이는 배경 영상 (자료실 영상을 가사 칸에 끌어다 놓음). '' = 없음
+    motionVideo: b.motionVideo !== undefined ? (MV_RE.test(String(b.motionVideo || '')) ? String(b.motionVideo) : '') : (it.motionVideo || ''),
     theme: THEME_RE.test(b.theme ?? '') ? (b.theme ?? it.theme ?? '') : (it.theme || ''),
     // 콘티: 키·빠르기(BPM)·흐름 메모
     key: b.key !== undefined ? String(b.key ?? '').trim().slice(0, 10) : (it.key || ''),
@@ -122,7 +136,9 @@ const sessions = new Set();
 const cookieToken = req => (req.headers.cookie || '').match(/wc_session=([a-f0-9]+)/)?.[1];
 const authed = req => isLocal(req) || sessions.has(cookieToken(req));
 const needAuth = (req, res, next) => authed(req) ? next() : res.status(401).json({ error: 'PIN 로그인이 필요합니다' });
-const needLocal = (req, res, next) => isLocal(req) ? next() : res.status(403).json({ error: '송출 제어는 운영 맥에서만 가능합니다' });
+// 운영 컴퓨터를 부르는 말: 맥은 '랩탑', 윈도우는 '노트북' (목사님 요청)
+const PC_NAME = process.platform === 'win32' ? '노트북' : '랩탑';
+const needLocal = (req, res, next) => isLocal(req) ? next() : res.status(403).json({ error: `송출 제어는 운영 ${PC_NAME}에서만 가능합니다` });
 // 송출 조작: 운영 컴퓨터, 또는 '휴대폰 리모컨'을 켜 두었을 때 PIN으로 들어온 기기
 const canControl = req => isLocal(req) || (!!db.settings.remote && authed(req));
 const needControl = (req, res, next) => canControl(req) ? next() : res.status(403).json({ error: '송출 조작은 운영 컴퓨터에서만 됩니다 (⚙︎ 설정에서 휴대폰 리모컨을 켜면 휴대폰에서도 됨)' });
@@ -148,7 +164,7 @@ function snapshot() {
   return {
     type: 'live', live: { ...live }, style: db.style, now: Date.now(), prop,
     logo: { url: db.settings.logo, ...db.settings.logoStyle }, obs: db.settings.obsScenes,
-    item: item ? { id: item.id, title: item.title, type: item.type, count: sl.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '' } : null,
+    item: item ? { id: item.id, title: item.title, type: item.type, count: sl.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '', motionVideo: item.motionVideo || '' } : null,
     slide, next,
   };
 }
@@ -269,7 +285,7 @@ app.post('/api/html', needAuth, upload.single('file'), (req, res) => {
   fs.renameSync(req.file.path, path.join(SLIDES_DIR, id + '.html'));
   res.json({ url: `/slides/${id}.html` });
 });
-app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(req), lang: db.settings.lang === 'en' ? 'en' : 'ko' }));
+app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(req), pc: PC_NAME, lang: db.settings.lang === 'en' ? 'en' : 'ko' }));
 
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
@@ -342,7 +358,7 @@ app.post('/api/services', needAuth, (req, res) => {
   if (tm) s.time = tm;
   db.services.push(s); db.currentServiceId = s.id;
   for (const step of tpl?.steps || []) {
-    const b = step === 'COMMUNION' ? templates.communionItem(bible)
+    const b = step === 'COMMUNION' ? templates.communionItem(bible, db.settings.bibleNoVer)
       : { type: 'text', title: step[0].split('\n')[0], theme: step[1], slides: [{ text: step[0] }] };
     addItem(b);   // 찬양이 아니므로 지금 예배 순서 끝에 들어감
   }
@@ -350,7 +366,7 @@ app.post('/api/services', needAuth, (req, res) => {
 });
 // 템플릿 목록 · 내 문구
 app.get('/api/templates', needAuth, (req, res) => res.json({ phrases: templates.PHRASES, services: templates.SERVICE_LIST }));
-app.post('/api/templates/communion', needAuth, (req, res) => { const it = addItem({ ...templates.communionItem(bible), after: req.body?.after }); changed(); res.json(it); });
+app.post('/api/templates/communion', needAuth, (req, res) => { const it = addItem({ ...templates.communionItem(bible, db.settings.bibleNoVer), after: req.body?.after }); changed(); res.json(it); });
 // 이름 자막 목록
 app.put('/api/props', needAuth, (req, res) => {
   const t = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -435,6 +451,7 @@ app.put('/api/settings', needLocal, (req, res) => {
   if (req.body.titleLogo != null) db.settings.titleLogo = TITLE_LOGO_RE.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
   if (req.body.updateCheck !== undefined) db.settings.updateCheck = !!req.body.updateCheck;   // 새 버전 알림
+  if (req.body.bibleNoVer !== undefined) db.settings.bibleNoVer = !!req.body.bibleNoVer;   // 성경 구절 아래에 번역본 이름(개역개정 등) 안 보이기
   if (req.body.lang !== undefined) {   // 메뉴 언어 — 바뀌면 열린 화면·리모컨도 새로고침
     const l = req.body.lang === 'en' ? 'en' : 'ko';
     if (l !== (db.settings.lang || 'ko')) { db.settings.lang = l; setTimeout(() => broadcast({ type: 'lang', lang: l }), 300); }
@@ -447,30 +464,100 @@ app.put('/api/settings', needLocal, (req, res) => {
   changed(); pushLive(); res.json({ ok: true });
 });
 
-// ── 새 버전 알림: GitHub 에서 최신 버전 번호만 확인 (6시간에 한 번, 이쪽 정보는 보내지 않음) ──
+// ── 새 버전 알림·자동 설치: GitHub 배포에서 최신 버전 번호와 설명만 확인 (6시간에 한 번, 이쪽 정보는 보내지 않음) ──
+const updater = require('./lib/updater');
 const APP_VERSION = require('./package.json').version;
 const DOWNLOAD_PAGE = 'https://raon-easypaster.github.io/worship-caster/';
-const upd = { at: 0, latest: null };
-const isNewer = (a, b) => {
-  const p = s => String(s).split('.').map(n => +n || 0);
-  const x = p(a), y = p(b);
-  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
-  return false;
-};
+const RELEASE_API = process.env.WC_UPDATE_API || 'https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest';
+const UPDATE_ASSET = 'WorshipCaster-update.wcu';
+const upd = { at: 0, latest: null, notes: '', page: '', pkg: '', sums: '' };
+const isNewer = updater.isNewer;
+// 배포 설명에서 '받기' 표 앞까지만 (무엇이 바뀌었는지)
+const releaseNotes = body => String(body || '').split(/\n#{2,3}\s*받기/)[0].replace(/^##\s*예배송출 v[\d.]+\s*\n/, '').trim().slice(0, 4000);
+// 받는 주소는 깃허브 배포 파일만 (다른 곳으로 받지 않음)
+const okAsset = u => { try { const x = new URL(u); return x.protocol === 'https:' && x.hostname === 'github.com' && x.pathname.startsWith('/raon-easypaster/worship-caster/releases/download/'); } catch { return false; } };
+async function fetchRelease() {
+  const r = await fetch(RELEASE_API, { headers: { 'User-Agent': 'worship-caster', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(6000) });
+  if (!r.ok) throw new Error('깃허브 응답 ' + r.status);
+  const j = await r.json();
+  const tag = String(j.tag_name || '').replace(/^v/, '');
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(tag)) throw new Error('버전 번호를 읽지 못함');
+  const asset = n => (j.assets || []).find(x => x.name === n)?.browser_download_url || '';
+  const test = !!process.env.WC_UPDATE_API;   // 자동 점검에서만 다른 주소 허용
+  const pick = n => { const u = asset(n); return u && (test || okAsset(u)) ? u : ''; };
+  Object.assign(upd, { latest: tag, notes: releaseNotes(j.body), page: String(j.html_url || ''), pkg: pick(UPDATE_ASSET), sums: pick('SHA256SUMS.txt') });
+}
 app.get('/api/update', needLocal, async (req, res) => {
   if (db.settings.updateCheck === false) return res.json({ current: APP_VERSION, off: true });
-  if (Date.now() - upd.at > 6 * 3600e3) {
+  if (Date.now() - upd.at > 6 * 3600e3 || req.query.now === '1' && Date.now() - upd.at > 60e3) {
     upd.at = Date.now();
-    try {
-      const r = await fetch('https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest',
-        { headers: { 'User-Agent': 'worship-caster', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(6000) });
-      const tag = r.ok ? String((await r.json()).tag_name || '').replace(/^v/, '') : '';
-      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(tag)) upd.latest = tag;
-      else upd.at = Date.now() - 6 * 3600e3 + 10 * 60e3;    // 실패하면 10분 뒤 다시
-    } catch { upd.at = Date.now() - 6 * 3600e3 + 10 * 60e3; }   // 인터넷이 없으면 조용히 넘어감
+    try { await fetchRelease(); }
+    catch { upd.at = Date.now() - 6 * 3600e3 + 10 * 60e3; }   // 인터넷이 없으면 조용히 넘어감, 10분 뒤 다시
   }
-  res.json({ current: APP_VERSION, latest: upd.latest, newer: !!upd.latest && isNewer(upd.latest, APP_VERSION), url: DOWNLOAD_PAGE });
+  const newer = !!upd.latest && isNewer(upd.latest, APP_VERSION);
+  res.json({ current: APP_VERSION, latest: upd.latest, newer, url: DOWNLOAD_PAGE,
+    notes: newer ? upd.notes : '', page: /^https:\/\/github\.com\//.test(upd.page) ? upd.page : '',
+    canInstall: newer && !!upd.pkg && !!upd.sums, installing: !!updState.busy });
 });
+
+// 지금 업데이트: 받기 → 확인값 대조 → 자료 폴더에 풀기 → 다시 켜기
+const updState = { busy: false };
+async function getBuf(url, max) {
+  const r = await fetch(url, { headers: { 'User-Agent': 'worship-caster' }, redirect: 'follow', signal: AbortSignal.timeout(10 * 60e3) });
+  if (!r.ok) throw new Error('받지 못했습니다 (' + r.status + ')');
+  const b = Buffer.from(await r.arrayBuffer());
+  if (b.length > max) throw new Error('파일이 너무 큽니다');
+  return b;
+}
+app.post('/api/update/install', needLocal, async (req, res) => {
+  if (updState.busy) return res.status(409).json({ error: '이미 업데이트하는 중입니다' });
+  if (!upd.latest || !isNewer(upd.latest, APP_VERSION) || !upd.pkg || !upd.sums) return res.status(400).json({ error: '설치할 새 버전이 없습니다' });
+  updState.busy = true;
+  try {
+    const sums = (await getBuf(upd.sums, 64 * 1024)).toString('utf8');
+    const want = (sums.split('\n').map(l => l.trim().match(/^([a-f0-9]{64})\s+\*?(.+)$/i)).find(m => m && m[2] === UPDATE_ASSET) || [])[1];
+    if (!want) throw new Error('확인값(SHA256SUMS)에 업데이트 파일이 없습니다');
+    const pkg = await getBuf(upd.pkg, 150 * 1024 * 1024);
+    if (updater.sha256(pkg) !== want.toLowerCase()) throw new Error('받은 파일의 확인값이 맞지 않습니다 (받다가 깨졌을 수 있음). 잠시 뒤 다시 해 보세요');
+    store.flush();
+    const r = updater.install(pkg, { expectVersion: upd.latest, currentVersion: APP_VERSION });
+    res.json({ ok: true, version: r.version, restart: process.env.WC_NO_RESTART !== '1' });
+    if (process.env.WC_NO_RESTART !== '1') setTimeout(restartSelf, 400);
+    else updState.busy = false;
+  } catch (e) {
+    updState.busy = false;
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 다시 켜기: 새 본체를 먼저 띄워 자료를 다 읽게 한 뒤(준비됨 신호) 지금 것을 끔 → 끊기는 시간이 아주 짧음
+function restartSelf() {
+  const { spawn } = require('child_process');
+  const dir = process.env.WC_BUNDLE_DIR || __dirname;
+  const env = { ...process.env, WC_RESTARTED: '1' };
+  delete env.WC_BUNDLE_DIR;                       // 새 본체가 받아 둔 버전을 다시 고르게
+  store.flush();
+  const bye = () => {
+    broadcast({ type: 'restart' });
+    for (const c of wss.clients) try { c.terminate(); } catch {}
+    try { server.closeAllConnections?.(); } catch {}
+    server.close();
+    setTimeout(() => process.exit(0), 150);
+  };
+  try {
+    if (process.platform === 'win32') {
+      // 윈도우: 처음처럼 'WorshipCaster' 창을 새로 띄움 (닫으면 꺼지는 창)
+      spawn('cmd.exe', ['/c', 'start', '"WorshipCaster (close this window to quit)"', '/min', `"${process.execPath}"`, 'server.js'],
+        { cwd: dir, env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
+      setTimeout(bye, 300);
+    } else {
+      const child = spawn(process.execPath, ['server.js'], { cwd: dir, env, detached: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+      const t = setTimeout(bye, 30000);           // 준비 신호가 안 와도 30초 뒤엔 넘겨 줌
+      child.on('message', m => { if (m === 'ready') { clearTimeout(t); child.disconnect(); child.unref(); bye(); } });
+      child.on('exit', code => { clearTimeout(t); updState.busy = false; console.error('새 본체가 바로 꺼졌습니다 (코드 ' + code + '). 지금 버전으로 계속합니다'); });
+    }
+  } catch (e) { updState.busy = false; console.error('다시 켜지 못했습니다:', e); }
+}
 
 // 찬송가 (교회가 가진 가사 파일을 가져와 번호로 찾음)
 app.get('/api/hymns', needAuth, (req, res) => res.json({ count: hymns.count() }));
@@ -671,7 +758,7 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
 // 송출 제어 (운영 맥 전용)
 // 프로그램 종료 (운영 맥에서만)
 // 아이콘을 다시 눌렀을 때 (두 번째 실행이 이 주소를 부름)
-app.post('/api/show', needLocal, (req, res) => res.json({ result: showUI() }));
+app.post('/api/show', needLocal, (req, res) => res.json({ result: showUI(req.query.raised === '1') }));   // raised=1: 독 앱이 이미 창을 올림
 
 // 운영 화면 창 크기·위치 기억 (다음에 켤 때 그대로)
 app.put('/api/window', needLocal, (req, res) => {
@@ -831,17 +918,32 @@ wss.on('connection', (ws, req) => {
 wss.on('error', () => {}); // 포트 문제는 아래 server.on('error') 에서 처리
 
 // 이미 열린 운영 창이 있으면 그 창을 앞으로, 없을 때만 새 창
-function showUI() {
+// 운영 화면 창(제목 '예배송출', 크롬이 ' - 프로필' 을 붙이기도 함)을 맨 앞으로
+const RAISE_SCRIPT = [
+  'tell application "System Events"', 'tell process "Google Chrome"',
+  'set ws to (every window whose name is "예배송출" or name starts with "예배송출 - " or name is "Worship Caster" or name starts with "Worship Caster - ")',
+  'if (count of ws) is 0 then return "none"', 'set w to item 1 of ws',
+  'try', 'if value of attribute "AXMinimized" of w then set value of attribute "AXMinimized" of w to false', 'end try',
+  'perform action "AXRaise" of w', 'set frontmost to true', 'end tell', 'end tell', 'return "raised"',
+].join('\n');
+function showUI(raised = false) {
   const open = [...controls].filter(c => c.readyState === 1);
   if (!open.length) { openUI(); return 'opened'; }
   open.forEach(c => sendTo(c, { type: 'focus' }));
+  if (raised) return 'focused';
   const { exec } = require('child_process');
   // 맥: 크롬의 여러 창 중 '운영 화면' 창을 맨 앞으로 (그냥 크롬을 앞으로 하면 다른 창이 앞에 올 수 있음)
+  // 운영 화면은 주소창 없는 '앱 창'이라 크롬 스크립트의 창 목록에 안 나옴 → 창 이름으로 찾아 올림 (System Events)
+  // 처음 한 번 맥이 '손쉬운 사용' 허용을 물음. 허용 전에는 크롬만 앞으로
   if (process.platform === 'darwin' && fs.existsSync('/Applications/Google Chrome.app')) {
-    const as = ['tell application "Google Chrome"', 'repeat with w in windows',
-      `if URL of active tab of w contains "localhost:${PORT}/control" then`, 'set index of w to 1', 'set minimized of w to false', 'exit repeat', 'end if',
-      'end repeat', 'activate', 'end tell'];
-    exec('osascript ' + as.map(l => `-e '${l}'`).join(' '), err => { if (err) exec('open -a "Google Chrome"'); });
+    const { execFile } = require('child_process');
+    execFile('osascript', ['-e', RAISE_SCRIPT], (err, out, errOut) => {
+      if (err || String(out).trim() !== 'raised') {
+        if (err) console.log('운영 화면 창을 앞으로 가져오지 못해 크롬만 앞으로 가져옵니다 (맥 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → 예배송출 허용):', String(errOut || err.message).trim().split('\n').pop());
+        exec('open -a "Google Chrome"');
+        if (err && !showUI.hinted) { showUI.hinted = true; open.forEach(c => sendTo(c, { type: 'raiseHint' })); }   // 한 번만 안내
+      }
+    });
   }
   else if (process.platform === 'win32') exec(`powershell -NoProfile -Command "(New-Object -ComObject WScript.Shell).AppActivate('예배송출')"`);
   return 'focused';
@@ -869,7 +971,10 @@ function openUI() {
 }
 
 // 이미 켜져 있으면(포트 사용 중) 창만 열고 끝냄 → 아이콘을 여러 번 눌러도 안전
+let portTries = 0;
 server.on('error', e => {
+  // 업데이트 뒤 다시 켜는 중: 앞의 본체가 자리를 비울 때까지 잠깐 기다림
+  if (e.code === 'EADDRINUSE' && process.env.WC_RESTARTED === '1' && portTries++ < 150) return setTimeout(() => server.listen(PORT), 200);
   if (e.code === 'EADDRINUSE') {
     // 이미 실행 중 → 실행 중인 프로그램에게 "창 보여 줘"라고만 전하고 끝냄 (새 창을 마구 열지 않음)
     console.log('이미 실행 중입니다. 열려 있는 운영 화면을 앞으로 가져옵니다.');
@@ -883,6 +988,7 @@ server.on('error', e => {
   else { console.error(e); process.exit(1); }
 });
 
+if (process.env.WC_RESTARTED === '1' && process.send) { try { process.send('ready'); } catch {} }   // 자료를 다 읽었음 → 앞의 본체가 꺼져도 됨
 server.listen(PORT, () => {
   const lan = lanAddresses();
   console.log('\n  ✝  예배송출 (Worship Caster) 실행 중 — 만든 사람: 쉬운목사 이광복\n');
@@ -897,5 +1003,5 @@ server.listen(PORT, () => {
     console.log(`  웹 편집기     http://${ip}:${PORT}/editor    (PIN: ${db.settings.pin})`);
   }
   console.log('');
-  if (process.env.NO_OPEN !== '1') openUI();
+  if (process.env.NO_OPEN !== '1' && process.env.WC_RESTARTED !== '1') openUI();   // 업데이트 뒤엔 열려 있던 창이 스스로 새로고침
 });

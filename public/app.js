@@ -106,6 +106,9 @@ function renderSlides() {
   const it = item(selId);
   $('#itemTitle').textContent = it ? it.title : '자료를 선택하세요';
   $('#editItem').disabled = !it;
+  const mv = it?.motionVideo || '';
+  $('#itemVid').classList.toggle('hidden', !mv);
+  if (mv) $('#itemVid .t').textContent = '🎞 ' + decodeURIComponent(mv.split('/').pop());
   const grid = $('#slides');
   grid.innerHTML = '';
   if (!it) return;
@@ -206,6 +209,8 @@ function select(id) { selId = id; renderServices(); renderLib(); renderSlides();
 // 다른 운영 창이 자막을 넘기는 중이면 이 창은 쉬게 함 (실수로 두 창에서 넘기는 일 방지)
 let inactive = false;
 let wsNow = null;
+let PC = '랩탑';   // 운영 컴퓨터를 부르는 말 (맥 '랩탑', 윈도우 '노트북') — /api/me 의 pc
+let bootSeen = '', restarting = false;   // 업데이트 뒤 다시 켜짐 알아채기
 let stopped = false;   // 프로그램을 끈 뒤에는 다시 연결하지 않음 (빈 창이 '열린 운영 창'으로 잡히지 않게)
 async function goLive(b) { if (!IS_EDITOR && !inactive) snap = await api('POST', '/api/live', b); }
 
@@ -236,6 +241,8 @@ function connectWS() {
   const ws = new WebSocket('ws://' + location.host + '/ws');
   wsNow = ws;
   ws.onopen = () => {
+    // 업데이트로 본체가 다시 켜졌으면 화면도 새 프로그램으로 (다른 운영 창·웹 편집기 포함)
+    fetch('/api/boot', { cache: 'no-store' }).then(r => r.json()).then(j => { if (bootSeen && j.boot !== bootSeen && restarting) location.reload(); bootSeen = j.boot; }).catch(() => {});
     if (!IS_EDITOR && !inactive) ws.send(JSON.stringify({ type: 'hello', role: 'control' }));  // "나는 운영 창"
     if (S) reload().catch(() => {});  // 끊겼다 다시 연결되면 놓친 변경 반영
   };
@@ -252,6 +259,8 @@ function connectWS() {
     if (m.type === 'obs') { obsInfo = m; document.dispatchEvent(new Event('obsinfo')); }
     if (m.type === 'audioBlocked') toast('🔊 예배당 화면 창이 소리를 막았습니다 — TV 창을 한 번 클릭(또는 F 키)한 뒤 다시 띄우세요');
     if (m.type === 'dup' || m.type === 'replaced') showWindowNotice(m.type);
+    if (m.type === 'raiseHint') { toast('독 아이콘으로 이 창을 앞으로 가져오려면: 맥 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → 예배송출 켜기'); clearTimeout($('#toast')._h); $('#toast')._h = setTimeout(() => $('#toast').classList.remove('show'), 9000); }
+    if (m.type === 'restart') { restarting = true; toast('새 버전으로 다시 켜는 중…'); }
     if (m.type === 'quit') { stopped = true; ws.close(); closeOpenedWins(); setTimeout(() => window.close(), 800); }
     if (m.type === 'quit') document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px">예배송출이 종료되었습니다.</div>';
   };
@@ -900,6 +909,7 @@ function openBible() {
       <label>번역본</label><select id="bV">${S.bibleVersions.map(v => `<option ${v === S.bibleDefault ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
       <label>함께 보일 번역본</label><select id="bV2"><option value="">없음</option>${S.bibleVersions.map(v => `<option>${esc(v)}</option>`).join('')}</select>
       <label>슬라이드당 절 수</label><select id="bN"><option>1</option><option>2</option><option>3</option></select>
+      <label>번역본 이름</label><label class="ovq-chk" title="구절 아래 '창세기 3:16 (개역개정)'의 (개역개정) 부분 — 끄면 '창세기 3:16'만 나옵니다. 다음에도 기억합니다"><input type="checkbox" id="bShowV" ${S.settings.bibleNoVer ? '' : 'checked'}> 화면에 번역본 이름 보이기 (예: 개역개정)</label>
     </div>
     <p class="muted small">성경 본문은 ⚙︎ 설정 → 성경 폴더 또는 성경 텍스트 가져오기로 연결합니다.</p>
     <div id="bOut" class="verse-list muted">구절을 입력하고 Enter</div>
@@ -925,7 +935,8 @@ function openBible() {
   body.querySelector('#bV').onchange = run;
   body.querySelector('#bV2').onchange = run;
   body.querySelector('#bMake').onclick = async () => {
-    const n = +body.querySelector('#bN').value, slides = [];
+    const n = +body.querySelector('#bN').value, slides = [], showV = body.querySelector('#bShowV').checked;
+    if (S.settings.bibleNoVer !== !showV) { S.settings.bibleNoVer = !showV; api('PUT', '/api/settings', { bibleNoVer: !showV }).catch(() => {}); }
     for (let i = 0; i < res.verses.length; i += n) {
       const g = res.verses.slice(i, i + n);
       const r = g.length > 1 ? `${g[0].v}-${g[g.length - 1].v}` : g[0].v;
@@ -934,9 +945,9 @@ function openBible() {
       let text = g.map(v => line(v, v.text)).join('\n');
       const t2 = g.filter(v => v2map[v.v]).map(v => line(v, v2map[v.v])).join('\n');
       if (t2) text += '\n\n' + t2;
-      slides.push({ text, ref: `${res.book} ${res.ch}:${r} (${res.version}${t2 ? ' · ' + res2.version : ''})` });
+      slides.push({ text, ref: `${res.book} ${res.ch}:${r}` + (showV ? ` (${res.version}${t2 ? ' · ' + res2.version : ''})` : '') });
     }
-    const it = await api('POST', '/api/items', { type: 'bible', title: `${res.title} ${res.version}`, theme: 'word', slides, after: afterId() });
+    const it = await api('POST', '/api/items', { type: 'bible', title: showV ? `${res.title} ${res.version}` : res.title, theme: 'word', slides, after: afterId() });
     selId = it.id; closeDlg(); toast('말씀 슬라이드를 만들고 예배 순서에 넣었습니다');
   };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -1161,7 +1172,7 @@ function openOBS() {
     카메라 소스 <b>위에</b> 두면 자막만 투명하게 얹힙니다. (캡처 장비·NDI 플러그인 필요 없음)</p>`}
     ${urls.map(([u, n], i) => `<div class="small ${i ? 'muted' : ''}" style="margin:8px 0 2px">${i ? '' : '⭐ '}<span>${n}</span></div><div class="copy row"><input readonly value="${u}"><button class="btn" data-copy="${u}">복사</button></div>`).join('')}
     <p class="muted small">
-    ${EN ? '· The streaming computer and this one must be on the same network. Allow it if the firewall asks.' : '· 방송 PC와 이 맥은 같은 공유기(네트워크)에 있어야 합니다. 맥 방화벽이 묻으면 "허용"을 누르세요.'}<br>
+    ${EN ? '· The streaming computer and this one must be on the same network. Allow it if the firewall asks.' : `· 방송 PC와 이 ${PC}은 같은 공유기(네트워크)에 있어야 합니다. 방화벽이 묻으면 "허용"을 누르세요.`}<br>
     ${EN ? '· Web editor (weekday prep):' : '· 웹 편집기(주중 준비):'} <code>${S.host || S.lan[0] ? `http://${S.host || S.lan[0]}:${S.port}/editor` : '-'}</code> · PIN <b>${esc(S.settings.pin || '')}</b> ${EN ? '(change in ⚙︎ Settings)' : '(⚙︎ 설정에서 변경)'}</p>
     <h4 id="obsPipBox" style="margin:18px 0 6px">👤 그림·악보·PPT를 보낼 때 오른쪽 아래에 사람 화면 (선택)</h4>
     <div class="notebox">${EN ? 'Status:' : '상태:'} ${!obsInfo ? '<span class="muted">OBS 자막 소스가 아직 연결되지 않았습니다</span>'
@@ -1276,7 +1287,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.14.1 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.14.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1403,7 +1414,7 @@ async function loadMediaBin() {
 function renderMediaBin() {
   const grid = $('#mbGrid'); if (!grid) return;
   const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
-  grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로">
+  grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" draggable="true" title="${esc(f.name)} — 누르면 예배당 화면 배경으로${isVid(f.url) ? ' · 위쪽 슬라이드 칸으로 끌어다 놓으면 이 찬양의 배경 영상으로 저장' : ''}">
       <div class="mb-th">${isVid(f.url) ? `<video src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
       <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button>
       <button class="mb-top" title="화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)">⬆ 위에</button></div>
@@ -1419,6 +1430,7 @@ function renderMediaBin() {
       el.addEventListener('mouseenter', () => v.play().catch(() => {}));   // 마우스를 올리면 미리 재생
       el.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0.5; });
     }
+    el.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-wc-media', el.dataset.url); e.dataTransfer.effectAllowed = 'copy'; });
     el.querySelector('.mb-del').onclick = e => { e.stopPropagation(); deleteMedia(el.dataset.url, e.currentTarget.dataset.del); };
     el.querySelector('.mb-top').onclick = e => { e.stopPropagation(); goLive({ mediaTop: el.dataset.url }).then(() => toast('화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다')).catch(() => {}); };
     el.onclick = () => goLive({ mediaBg: el.dataset.url, mediaFit: fitMem()[el.dataset.url] || 'auto' }).then(() => toast('예배당 화면 배경으로 내보냈습니다')).catch(() => {});
@@ -1427,7 +1439,7 @@ function renderMediaBin() {
 }
 // 미디어 파일 삭제: 어디서 쓰는지 알려 주고, 지금 배경이면 끄고 지움
 async function deleteMedia(url, name) {
-  const used = (S?.items || []).filter(it => (it.slides || []).some(s => s.bg === url || s.img === url || (s.elements || []).some(e => e.src === url)));
+  const used = (S?.items || []).filter(it => it.motionVideo === url || (it.slides || []).some(s => s.bg === url || s.img === url || (s.elements || []).some(e => e.src === url)));
   const isLive = snap?.live?.mediaBg === url;
   let msg = `'${name}' 파일을 삭제할까요?\n삭제하면 되돌릴 수 없습니다.`;
   if (S?.settings?.logo === url || S?.settings?.titleLogo === url) msg += '\n\n※ 설정에서 로고로 쓰고 있는 파일입니다.';
@@ -1863,6 +1875,26 @@ function bind() {
     toast(`슬라이드 ${it.slides.length}장을 가져왔습니다`);
   };
   $('#editItem').onclick = () => selId && openItemEditor(selId);
+  // 찬양마다 배경 영상: 아래 자료실의 영상을 슬라이드 칸에 끌어다 놓으면 이 자료에 저장
+  const slidesBox = $('#slides');
+  const isMediaDrag = e => [...(e.dataTransfer?.types || [])].includes('application/x-wc-media');
+  slidesBox.addEventListener('dragover', e => { if (!isMediaDrag(e) || !selId) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; slidesBox.classList.add('drop-on'); });
+  slidesBox.addEventListener('dragleave', e => { if (!slidesBox.contains(e.relatedTarget)) slidesBox.classList.remove('drop-on'); });
+  slidesBox.addEventListener('drop', async e => {
+    slidesBox.classList.remove('drop-on');
+    const url = e.dataTransfer.getData('application/x-wc-media');
+    if (!url) return;
+    e.preventDefault();
+    const it = item(selId); if (!it) return;
+    if (!isVid(url)) { toast('배경으로 저장할 수 있는 것은 영상(mp4·mov·webm)입니다'); return; }
+    await api('PUT', '/api/items/' + it.id, { motionVideo: url });
+    toast(I18N.lang === 'en' ? `Saved as the background video of '${it.title}' — shown behind its text slides` : `'${it.title}' 배경 영상으로 저장했습니다 — 글자 슬라이드 뒤에 늘 깔립니다`);
+  });
+  $('#itemVidOff').onclick = async () => {
+    const it = item(selId); if (!it) return;
+    await api('PUT', '/api/items/' + it.id, { motionVideo: '' });
+    toast('이 자료의 배경 영상을 뺐습니다');
+  };
   initSplits();
   $('#styleBtn').onclick = () => openStyle();   // 클릭 정보가 '고치던 스타일'로 넘어가지 않게
   $('#mediaBtn').onclick = () => openMediaPicker(null, null);
@@ -1923,7 +1955,9 @@ function bind() {
   $('#modeTag').textContent = IS_EDITOR ? '웹 편집기 · 준비 전용' : '운영 · 송출';
   const me = await fetch('/api/me').then(r => r.json());
   I18N.setLang(me.lang);   // 메뉴 언어 (⚙︎ 설정)
+  if (me.pc) PC = me.pc;
   if (!me.authed) {
+    $('#loginHint').textContent = `운영 ${PC}에서 정한 PIN을 입력하세요.`;
     $('#login').classList.remove('hidden');
     $('#loginForm').onsubmit = async e => {
       e.preventDefault();
@@ -1940,13 +1974,74 @@ function bind() {
   if (!IS_EDITOR) { checkUpdate(); setInterval(checkUpdate, 6 * 3600e3); }
 })();
 
-// 새 버전이 나왔으면 맨 위에 알림 단추 (⚙︎ 설정에서 끌 수 있음)
+// 새 버전이 나왔으면 맨 위에 알림 단추 + 업데이트 안내 창 (⚙︎ 설정에서 끌 수 있음)
+// 안내 창은 송출 중에는 저절로 뜨지 않음. '나중에'를 누르면 그 버전은 하루 동안 다시 띄우지 않음
+let updInfo = null;
 async function checkUpdate() {
   const u = await fetch('/api/update').then(r => r.json()).catch(() => null);
   $('#updBtn')?.remove();
   if (!u?.newer || !/^https:\/\//.test(u.url)) return;
-  const a = Object.assign(document.createElement('a'), { id: 'updBtn', className: 'btn update', href: u.url, target: '_blank', rel: 'noopener',
-    title: `지금 v${u.current} → 새 버전 v${u.latest}. 받아서 앱(폴더)만 바꾸면 자료는 그대로 남습니다` });
+  updInfo = u;
+  const a = Object.assign(document.createElement('button'), { id: 'updBtn', className: 'btn update', title: '새 버전 안내 보기' });
   a.textContent = `🔔 새 버전 v${u.latest}`;
+  a.onclick = () => showUpdate(u);
   $('#styleBtn').before(a);
+  let later = {};
+  try { later = JSON.parse(localStorage.getItem('wc-upd-later') || '{}'); } catch {}
+  const onAir = snap?.live && snap.live.itemId && !snap.live.clear;
+  if (!onAir && !dlg.open && !(Date.now() - (later[u.latest] || 0) < 864e5)) showUpdate(u);
+}
+// 배포 설명(마크다운 조금)을 안전하게 보여 줌
+function mdLite(md) {
+  const inl = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  let html = '', inList = false;
+  for (const raw of String(md || '').split('\n')) {
+    const l = raw.trim();
+    const li = l.match(/^[-*]\s+(.*)/);
+    if (li) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${inl(li[1])}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    if (!l) continue;
+    const h = l.match(/^#{1,4}\s+(.*)/);
+    if (h) html += `<h4>${inl(h[1])}</h4>`;
+    else if (/^>/.test(l)) html += `<p class="muted">${inl(l.replace(/^>\s*/, ''))}</p>`;
+    else if (!/^\|/.test(l)) html += `<p>${inl(l)}</p>`;
+  }
+  return html + (inList ? '</ul>' : '');
+}
+function showUpdate(u) {
+  let d = $('#updDlg');
+  if (!d) { d = Object.assign(document.createElement('dialog'), { id: 'updDlg' }); document.body.append(d); }
+  d.innerHTML = `<div class="upd-head"><div class="upd-ic">✝</div><h3>새 버전이 있습니다</h3>
+      <div class="upd-ver"><span>v${esc(u.current)}</span> → <b>v${esc(u.latest)}</b></div></div>
+    <div class="upd-body"><div class="small muted">업데이트 내용</div>
+      <div class="upd-notes" data-noi18n>${mdLite(u.notes) || `<p class="muted">설명이 없습니다</p>`}</div>
+      ${u.page ? `<a class="small" href="${esc(u.page)}" target="_blank" rel="noopener">GitHub에서 전체 보기</a>` : ''}
+      <p class="small muted upd-hint">${u.canInstall ? '자료(예배 순서·찬양·설정)는 그대로 남습니다. 받은 뒤 프로그램이 잠깐 꺼졌다가 새 버전으로 다시 켜집니다. 예배 중에는 하지 마세요.' : '이 버전은 자동 설치 파일이 없습니다. 받는 곳에서 새 앱(폴더)을 받아 바꿔 넣으세요. 자료는 그대로 남습니다.'}</p>
+      <div class="upd-msg small"></div>
+      <button class="btn primary upd-go">${u.canInstall ? '지금 업데이트' : '받는 곳 열기'}</button>
+      <button class="btn upd-later">나중에</button></div>`;
+  const msg = d.querySelector('.upd-msg'), go = d.querySelector('.upd-go'), later = d.querySelector('.upd-later');
+  later.onclick = () => {
+    try { const m = JSON.parse(localStorage.getItem('wc-upd-later') || '{}'); m[u.latest] = Date.now(); localStorage.setItem('wc-upd-later', JSON.stringify(m)); } catch {}
+    d.close();
+  };
+  go.onclick = async () => {
+    if (!u.canInstall) { window.open(u.url, '_blank', 'noopener'); return; }
+    if (snap?.live?.itemId && !snap.live.clear && !confirm('지금 화면에 송출 중입니다. 업데이트하면 잠깐(몇 초) 화면이 멈춥니다. 계속할까요?')) return;
+    go.disabled = later.disabled = true;
+    msg.textContent = '새 버전을 받는 중입니다… (인터넷에 따라 1~3분)';
+    const boot0 = await fetch('/api/boot').then(r => r.json()).then(j => j.boot).catch(() => '');
+    const r = await fetch('/api/update/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()).catch(e => ({ error: e.message }));
+    if (r.error) { msg.textContent = '⚠️ ' + r.error; go.disabled = later.disabled = false; return; }
+    if (!r.restart) { msg.textContent = '설치했습니다. 프로그램을 껐다 켜면 새 버전입니다.'; return; }
+    msg.textContent = '설치했습니다. 새 버전으로 다시 켜는 중…';
+    restarting = true;
+    for (let i = 0; i < 90; i++) {
+      await new Promise(f => setTimeout(f, 1000));
+      const b = await fetch('/api/boot', { cache: 'no-store' }).then(r => r.json()).then(j => j.boot).catch(() => null);
+      if (b && b !== boot0) { location.reload(); return; }
+    }
+    msg.textContent = '다시 켜지지 않았습니다. 예배송출을 껐다가 다시 켜 주세요.';
+  };
+  if (!d.open) d.showModal();
 }
