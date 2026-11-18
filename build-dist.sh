@@ -6,6 +6,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
+# 서명 열쇠가 있는지 먼저 확인 (오래 걸리는 빌드 뒤에 실패하지 않게)
+if [ "${ALLOW_UNSIGNED:-}" != "1" ]; then
+  node tools/signing-key.js check || { echo "서명 열쇠가 없어 배포 파일을 만들지 않습니다 (docs/서명열쇠.md). 서명 없이 만들려면 ALLOW_UNSIGNED=1"; exit 1; }
+fi
 NODE_V="v24.22.3"                       # Node.js LTS (지원 기간: 2028년 4월까지)
 CACHE="$ROOT/.build-cache"
 DIST="$ROOT/dist"
@@ -152,4 +156,12 @@ if [ "${1:-}" = "--install" ]; then
 fi
 # 받은 파일이 깨지지 않았는지 확인하는 값 (릴리스 설명에 붙임)
 (cd "$DIST" && shasum -a 256 예배송출-mac.zip 예배송출-windows.zip WorshipCaster-update.wcu > SHA256SUMS.txt && cat SHA256SUMS.txt)
+# 확인값 목록에 만든 사람의 서명 (자동 업데이트가 이 서명이 맞아야만 설치함). 비밀 열쇠는 저장소 밖: docs/서명열쇠.md
+#   깃허브 배포에 SHA256SUMS.txt.sig 도 꼭 함께 올리세요. 빠지면 앱은 [받는 곳 열기]로만 안내합니다.
+rm -f "$DIST/SHA256SUMS.txt.sig"
+if [ "${ALLOW_UNSIGNED:-}" = "1" ] && [ ! -f "${WC_SIGNING_KEY:-$HOME/.worshipcaster-signing/update-signing-key.pem}" ]; then
+  echo "⚠️ 서명 열쇠가 없어 서명하지 않았습니다 (ALLOW_UNSIGNED=1). 이 배포는 자동 업데이트되지 않습니다."
+else
+  node tools/signing-key.js sign "$DIST/SHA256SUMS.txt" || { echo "서명 실패 — 배포 파일에 서명하지 못했습니다 (docs/서명열쇠.md)"; exit 1; }
+fi
 ls -lh "$DIST"

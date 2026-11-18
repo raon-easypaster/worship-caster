@@ -502,7 +502,7 @@ async function main() {
   });
 
   // ── 자동 업데이트: 가짜 배포(이 컴퓨터 안)에서 받아 확인값 대조 → 자료 폴더에 설치 → 새 버전으로 다시 켜짐 ──
-  await check('🔔 자동 업데이트: 안내 창·확인값 틀리면 거절·설치 뒤 새 버전으로 다시 켜짐·자료 그대로', async () => {
+  await check('🔔 자동 업데이트: 안내 창·확인값 틀리면 거절·서명이 틀리면 거절·설치 뒤 새 버전으로 다시 켜짐·자료 그대로·받아 둔 파일이 바뀌면 실행 안 함·서명이 없으면 자동 설치 안 함', async () => {
     const updater = require('../lib/updater');
     ok((() => { try { updater.unpack(require('zlib').gzipSync(Buffer.concat([Buffer.from('WCU1'), (b => (b.writeUInt32BE(JSON.stringify({ version: '1.0.0', files: [['../evil.js', 1]] }).length), b))(Buffer.alloc(4)), Buffer.from(JSON.stringify({ version: '1.0.0', files: [['../evil.js', 1]] })), Buffer.from('x')]))); return false; } catch { return true; } })(), '묶음 밖 경로(../)를 막지 않음');
     // 가짜 새 버전 99.0.0 (부품 node_modules 는 위 폴더의 것을 씀 → 시험 자료 폴더를 저장소 안 임시 폴더로)
@@ -512,20 +512,30 @@ async function main() {
       for (const f of ['server.js', 'package.json', 'lib', 'public']) fs.cpSync(path.join(ROOT, f), path.join(NEW, f), { recursive: true, filter: x => !x.includes(path.join('public', 'samples')) });
       const pj = JSON.parse(fs.readFileSync(path.join(NEW, 'package.json'))); pj.version = '99.0.0'; fs.writeFileSync(path.join(NEW, 'package.json'), JSON.stringify(pj));
       const pkg = updater.pack(NEW);
+      // 시험용 서명 열쇠 (실제 열쇠는 쓰지 않음). 앱에는 WC_UPDATE_PUBKEY 로 시험용 공개 열쇠를 알려 줌 (가짜 배포를 쓸 때만 통함)
+      const crypto = require('crypto');
+      const key = crypto.generateKeyPairSync('ed25519'), other = crypto.generateKeyPairSync('ed25519');
+      const signWith = (k, d) => crypto.sign(null, Buffer.from(d), k.privateKey).toString('base64');
+      ok(!updater.verifySig('가', signWith(key, '가')), '시험용 공개 열쇠 없이도 서명이 맞다고 함');
       let sums = '0'.repeat(64) + '  WorshipCaster-update.wcu\n';   // 처음엔 틀린 확인값
+      let sig = signWith(key, sums), noSig = false;
       const http = require('http');
       const mock = http.createServer((q, r) => {
         const M = `http://localhost:${mock.address().port}`;
         if (q.url === '/release') return r.end(JSON.stringify({ tag_name: 'v99.0.0', html_url: 'https://github.com/x', body: '## 예배송출 v99.0.0\n\n### 새로 생긴 것\n- **점검용 새 기능**\n\n### 받기\n| 표 |',
-          assets: [{ name: 'WorshipCaster-update.wcu', browser_download_url: M + '/pkg' }, { name: 'SHA256SUMS.txt', browser_download_url: M + '/sums' }] }));
+          assets: [{ name: 'WorshipCaster-update.wcu', browser_download_url: M + '/pkg' }, { name: 'SHA256SUMS.txt', browser_download_url: M + '/sums' },
+            ...(noSig ? [] : [{ name: 'SHA256SUMS.txt.sig', browser_download_url: M + '/sig' }])] }));
         if (q.url === '/pkg') return r.end(pkg);
         if (q.url === '/sums') return r.end(sums);
+        if (q.url === '/sig') return r.end(sig);
         r.statusCode = 404; r.end();
       }).listen(0);
       await sleep(200);
       const P2 = PORT + 30, B2 = `http://localhost:${P2}`;
       const DATA2 = path.join(D2, 'data');
-      const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(P2), WC_DATA_DIR: DATA2, NO_OPEN: '1', WC_UPDATE_API: `http://localhost:${mock.address().port}/release` }, stdio: 'ignore' });
+      const env2 = { ...process.env, WC_DATA_DIR: DATA2, NO_OPEN: '1', WC_UPDATE_API: `http://localhost:${mock.address().port}/release`, WC_UPDATE_PUBKEY: updater.publicKeyText(key.publicKey) };
+      const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...env2, PORT: String(P2) }, stdio: 'ignore' });
+      let s3;
       const get = async u => (await fetch(B2 + u, { headers: { Origin: B2 } })).json();
       const post = async (u, b) => (await fetch(B2 + u, { method: 'POST', headers: { Origin: B2, 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) })).json();
       try {
@@ -542,7 +552,12 @@ async function main() {
         // 확인값이 틀리면 설치하지 않음
         const bad = await post('/api/update/install');
         ok(/확인값/.test(bad.error || '') && !fs.existsSync(path.join(DATA2, 'app-update', 'current.json')), '틀린 확인값인데 설치함: ' + JSON.stringify(bad));
+        // 확인값은 맞아도 서명이 다른 열쇠로 되어 있으면 설치하지 않음 (깃허브 계정을 빼앗겨 바꿔치기한 경우)
         sums = updater.sha256(pkg) + '  WorshipCaster-update.wcu\n';
+        sig = signWith(other, sums);
+        const forged = await post('/api/update/install');
+        ok(/서명/.test(forged.error || '') && forged.manual && !fs.existsSync(path.join(DATA2, 'app-update', 'current.json')), '서명이 틀린데 설치함: ' + JSON.stringify(forged));
+        sig = signWith(key, sums);
         const boot0 = (await get('/api/boot')).boot;
         const r = await post('/api/update/install');
         ok(r.ok && r.version === '99.0.0' && r.restart, '설치 실패: ' + JSON.stringify(r));
@@ -553,7 +568,29 @@ async function main() {
         ok(st.items.some(i => i.id === item.id && i.title === '업데이트 전 찬양'), '업데이트 뒤 자료가 사라짐');
         ok(fs.existsSync(path.join(DATA2, 'db-before-v99.0.0.json')), '업데이트 전 자료 한 벌이 없음');
         await post('/api/quit');
-      } finally { s2.kill(); mock.close(); try { await fetch(B2 + '/api/quit', { method: 'POST', headers: { Origin: B2 } }); } catch {} }
+        await sleep(800);
+        // 받아 둔 프로그램 파일을 누가 바꾸면, 켤 때 확인해서 실행하지 않고 앱에 든 버전으로 켬
+        const V = path.join(DATA2, 'app-update', '99.0.0');
+        ok(fs.existsSync(path.join(V, '.SHA256SUMS.txt.sig')), '설치 때 서명을 남겨 두지 않음');
+        fs.appendFileSync(path.join(V, 'lib', 'updater.js'), '\n// 바꿔치기\n');
+        // 이번 배포에는 서명 파일이 없음 → 자동 설치 대신 [받는 곳 열기]
+        noSig = true;
+        const P3 = P2 + 1, B3 = `http://localhost:${P3}`;
+        s3 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...env2, PORT: String(P3) }, stdio: 'ignore' });
+        for (let i = 0; i < 50; i++) { try { await fetch(B3 + '/api/me'); break; } catch { await sleep(200); } }
+        const g3 = async u => (await fetch(B3 + u, { headers: { Origin: B3 } })).json();
+        const u3 = await g3('/api/update');
+        ok(u3.current === require('../package.json').version, '바뀐 파일이 있는데 받아 둔 버전으로 켜짐: ' + JSON.stringify(u3));
+        ok(!fs.existsSync(V) && fs.readdirSync(path.join(DATA2, 'app-update', 'bad')).some(f => /^99\.0\.0/.test(f)), '바뀐 받아 둔 버전을 치우지 않음');
+        ok(u3.newer && !u3.canInstall, '서명 파일이 없는데 자동 설치를 하겠다고 함: ' + JSON.stringify(u3));
+        const ns = await (await fetch(B3 + '/api/update/install', { method: 'POST', headers: { Origin: B3, 'Content-Type': 'application/json' }, body: '{}' })).json();
+        ok(ns.manual && /서명/.test(ns.error || '') && !fs.existsSync(path.join(DATA2, 'app-update', 'current.json')), '서명 파일이 없는데 설치함: ' + JSON.stringify(ns));
+        await c.go(B3 + '/control', 2500);
+        const d3 = await c.eval(`({ open: !!document.querySelector('#updDlg')?.open, go: document.querySelector('#updDlg .upd-go')?.textContent || '' })`);
+        ok(d3.open && d3.go.includes('받는 곳 열기'), '서명이 없을 때 안내 창 단추: ' + JSON.stringify(d3));
+        await c.eval(`(document.querySelector('#updDlg .upd-later').click(), 1)`);
+        await fetch(B3 + '/api/quit', { method: 'POST', headers: { Origin: B3 } }).catch(() => {});
+      } finally { s2.kill(); s3?.kill(); mock.close(); try { await fetch(B2 + '/api/quit', { method: 'POST', headers: { Origin: B2 } }); } catch {} }
       await sleep(500);
     } finally { fs.rmSync(D2, { recursive: true, force: true }); }
   });

@@ -22,6 +22,8 @@
     '설명이 없습니다': 'No description', 'GitHub에서 전체 보기': 'See it all on GitHub', '지금 업데이트': 'Update now', '받는 곳 열기': 'Open download page', '나중에': 'Later',
     '자료(예배 순서·찬양·설정)는 그대로 남습니다. 받은 뒤 프로그램이 잠깐 꺼졌다가 새 버전으로 다시 켜집니다. 예배 중에는 하지 마세요.': 'Your data (services, songs, settings) stays. After the download the program closes for a moment and restarts in the new version. Do not do this during a service.',
     '이 버전은 자동 설치 파일이 없습니다. 받는 곳에서 새 앱(폴더)을 받아 바꿔 넣으세요. 자료는 그대로 남습니다.': 'This version has no automatic install file. Download the new app (folder) and replace the old one. Your data stays.',
+    '⚠️ 이 배포에는 서명이 없어 자동으로 설치하지 않습니다. 받는 곳에서 새 앱을 받아 바꿔 넣으세요': '⚠️ This release is not signed, so it will not install automatically. Download the new app and replace the old one.',
+    '⚠️ 배포 파일의 서명이 맞지 않아 설치하지 않았습니다. 받는 곳에서 새 앱을 받아 바꿔 넣으세요': '⚠️ The release signature did not match, so nothing was installed. Download the new app and replace the old one.',
     '지금 화면에 송출 중입니다. 업데이트하면 잠깐(몇 초) 화면이 멈춥니다. 계속할까요?': 'Something is on screen right now. Updating pauses the screens for a few seconds. Continue?',
     '새 버전을 받는 중입니다… (인터넷에 따라 1~3분)': 'Downloading the new version… (1–3 min depending on your internet)',
     '설치했습니다. 프로그램을 껐다 켜면 새 버전입니다.': 'Installed. Restart the program to use the new version.',

@@ -469,8 +469,8 @@ const updater = require('./lib/updater');
 const APP_VERSION = require('./package.json').version;
 const DOWNLOAD_PAGE = 'https://raon-easypaster.github.io/worship-caster/';
 const RELEASE_API = process.env.WC_UPDATE_API || 'https://api.github.com/repos/raon-easypaster/worship-caster/releases/latest';
-const UPDATE_ASSET = 'WorshipCaster-update.wcu';
-const upd = { at: 0, latest: null, notes: '', page: '', pkg: '', sums: '' };
+const UPDATE_ASSET = updater.UPDATE_ASSET;
+const upd = { at: 0, latest: null, notes: '', page: '', pkg: '', sums: '', sig: '' };
 const isNewer = updater.isNewer;
 // 배포 설명에서 '받기' 표 앞까지만 (무엇이 바뀌었는지)
 const releaseNotes = body => String(body || '').split(/\n#{2,3}\s*받기/)[0].replace(/^##\s*예배송출 v[\d.]+\s*\n/, '').trim().slice(0, 4000);
@@ -485,7 +485,7 @@ async function fetchRelease() {
   const asset = n => (j.assets || []).find(x => x.name === n)?.browser_download_url || '';
   const test = !!process.env.WC_UPDATE_API;   // 자동 점검에서만 다른 주소 허용
   const pick = n => { const u = asset(n); return u && (test || okAsset(u)) ? u : ''; };
-  Object.assign(upd, { latest: tag, notes: releaseNotes(j.body), page: String(j.html_url || ''), pkg: pick(UPDATE_ASSET), sums: pick('SHA256SUMS.txt') });
+  Object.assign(upd, { latest: tag, notes: releaseNotes(j.body), page: String(j.html_url || ''), pkg: pick(UPDATE_ASSET), sums: pick(updater.SUMS), sig: pick(updater.SUMS + '.sig') });
 }
 app.get('/api/update', needLocal, async (req, res) => {
   if (db.settings.updateCheck === false) return res.json({ current: APP_VERSION, off: true });
@@ -497,7 +497,7 @@ app.get('/api/update', needLocal, async (req, res) => {
   const newer = !!upd.latest && isNewer(upd.latest, APP_VERSION);
   res.json({ current: APP_VERSION, latest: upd.latest, newer, url: DOWNLOAD_PAGE,
     notes: newer ? upd.notes : '', page: /^https:\/\/github\.com\//.test(upd.page) ? upd.page : '',
-    canInstall: newer && !!upd.pkg && !!upd.sums, installing: !!updState.busy });
+    canInstall: newer && !!upd.pkg && !!upd.sums && !!upd.sig, installing: !!updState.busy });
 });
 
 // 지금 업데이트: 받기 → 확인값 대조 → 자료 폴더에 풀기 → 다시 켜기
@@ -512,21 +512,24 @@ async function getBuf(url, max) {
 app.post('/api/update/install', needLocal, async (req, res) => {
   if (updState.busy) return res.status(409).json({ error: '이미 업데이트하는 중입니다' });
   if (!upd.latest || !isNewer(upd.latest, APP_VERSION) || !upd.pkg || !upd.sums) return res.status(400).json({ error: '설치할 새 버전이 없습니다' });
+  if (!upd.sig) return res.status(400).json({ error: '이 배포에는 서명이 없어 자동으로 설치하지 않습니다. 받는 곳에서 새 앱을 받아 바꿔 넣으세요', manual: true });
   updState.busy = true;
   try {
     const sums = (await getBuf(upd.sums, 64 * 1024)).toString('utf8');
-    const want = (sums.split('\n').map(l => l.trim().match(/^([a-f0-9]{64})\s+\*?(.+)$/i)).find(m => m && m[2] === UPDATE_ASSET) || [])[1];
-    if (!want) throw new Error('확인값(SHA256SUMS)에 업데이트 파일이 없습니다');
+    const sig = (await getBuf(upd.sig, 4 * 1024)).toString('utf8');
+    // 서명부터 확인 (틀리면 큰 파일은 받지도 않음)
+    if (!updater.verifySig(sums, sig)) throw Object.assign(new Error('배포 파일의 서명이 맞지 않아 설치하지 않았습니다. 받는 곳에서 새 앱을 받아 바꿔 넣으세요'), { manual: true });
+    if (!updater.sumFor(sums, UPDATE_ASSET)) throw new Error('확인값(SHA256SUMS)에 업데이트 파일이 없습니다');
     const pkg = await getBuf(upd.pkg, 150 * 1024 * 1024);
-    if (updater.sha256(pkg) !== want.toLowerCase()) throw new Error('받은 파일의 확인값이 맞지 않습니다 (받다가 깨졌을 수 있음). 잠시 뒤 다시 해 보세요');
     store.flush();
-    const r = updater.install(pkg, { expectVersion: upd.latest, currentVersion: APP_VERSION });
+    // install 이 서명·확인값을 다시 확인하고 풀어 둠
+    const r = updater.install(pkg, { expectVersion: upd.latest, currentVersion: APP_VERSION, sums, sig });
     res.json({ ok: true, version: r.version, restart: process.env.WC_NO_RESTART !== '1' });
     if (process.env.WC_NO_RESTART !== '1') setTimeout(restartSelf, 400);
     else updState.busy = false;
   } catch (e) {
     updState.busy = false;
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message, manual: !!e.manual });
   }
 });
 

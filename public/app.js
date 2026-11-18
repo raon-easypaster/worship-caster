@@ -2032,7 +2032,11 @@ function showUpdate(u) {
     msg.textContent = '새 버전을 받는 중입니다… (인터넷에 따라 1~3분)';
     const boot0 = await fetch('/api/boot').then(r => r.json()).then(j => j.boot).catch(() => '');
     const r = await fetch('/api/update/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()).catch(e => ({ error: e.message }));
-    if (r.error) { msg.textContent = '⚠️ ' + r.error; go.disabled = later.disabled = false; return; }
+    if (r.error) {
+      msg.textContent = '⚠️ ' + r.error; go.disabled = later.disabled = false;
+      if (r.manual) { u.canInstall = false; go.textContent = '받는 곳 열기'; }   // 서명이 없거나 틀리면 받는 곳에서 직접 받게
+      return;
+    }
     if (!r.restart) { msg.textContent = '설치했습니다. 프로그램을 껐다 켜면 새 버전입니다.'; return; }
     msg.textContent = '설치했습니다. 새 버전으로 다시 켜는 중…';
     restarting = true;
