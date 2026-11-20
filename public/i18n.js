@@ -314,6 +314,8 @@
     '배경으로 저장할 수 있는 것은 영상(mp4·mov·webm)입니다': 'Only videos (mp4·mov·webm) can be saved as a background',
     '이 자료의 배경 영상을 뺐습니다': 'Removed this item\'s background video', '이 찬양의 배경 영상 빼기': 'Remove this item\'s background video',
     '이 찬양의 글자 슬라이드 뒤에 늘 깔리는 배경 영상': 'Background video always shown behind this item\'s text slides',
+    '⚠️ 자료 파일을 되살렸습니다': '⚠️ Your data was restored', '저장된 자료 파일(db.json)이 깨져서 읽지 못했습니다.': 'The saved data file (db.json) was damaged and could not be read.',
+    '되살릴 보관본이 없어 예시 자료로 시작했습니다.': 'No saved copy was found, so it started with sample data.',
     '⬆ 위에': '⬆ On top', '⏹ 그림 끄기': '⏹ Picture off', '화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)': 'Show on top (background and slide stay; remove with ⏹ Picture off)',
     '⬆ 위에 띄운 그림만 빼기 (배경·슬라이드는 그대로)': 'Remove only the picture shown on top (background and slide stay)',
     '화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다': 'Shown on top — remove it with ⏹ Picture off',

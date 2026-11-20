@@ -32,6 +32,18 @@ async function reload() {
   S = await api('GET', '/api/state');
   if (!snap) snap = S.live;
   renderAll();
+  if (S.recovered && !IS_EDITOR && !$('#dlg').open) showRecovered(S.recovered);
+}
+// 자료 파일이 깨져 보관본으로 되살렸을 때 한 번 알림 (깨진 파일은 지우지 않고 남겨 둠)
+function showRecovered(r) {
+  const body = openDlg(`
+    <div class="dlg-head"><h3>⚠️ 자료 파일을 되살렸습니다</h3></div>
+    <p>저장된 자료 파일(db.json)이 깨져서 읽지 못했습니다.</p>
+    ${r.from ? `<p><b>가장 최근 보관본(${esc(r.from)})으로 되살렸습니다.</b> 그 뒤에 고친 내용은 빠졌을 수 있으니 오늘 예배 순서를 한 번 확인해 주세요.</p>`
+      : '<p><b>되살릴 보관본이 없어 예시 자료로 시작했습니다.</b> 백업 파일이 있으면 ⚙︎ 설정 → 💾 백업에서 되살리세요.</p>'}
+    <p class="muted small">깨진 파일은 지우지 않고 자료 폴더에 <code>${esc(r.broken)}</code> 로 남겨 두었습니다.</p>
+    <div class="dlg-foot"><button class="btn primary" id="recOk">확인</button></div>`);
+  body.querySelector('#recOk').onclick = () => { api('POST', '/api/recovered/ok').catch(() => {}); S.recovered = null; closeDlg(); };
 }
 
 // ── 화면 그리기 ─────────────────────────────────
@@ -70,8 +82,38 @@ function renderServices() {
       if (a === 'down' && i < ids.length - 1) [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]];
       saveService(ids);
     };
+    // 끌어서 순서 옮기기 (↑↓ 화살표도 그대로)
+    li.draggable = true;
+    li.dataset.idx = i;
+    li.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-wc-svc', String(i)); e.dataTransfer.effectAllowed = 'move'; li.classList.add('dragging'); });
+    li.addEventListener('dragend', () => { li.classList.remove('dragging'); ol.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); });
+    li.addEventListener('dragover', e => {
+      if (![...e.dataTransfer.types].includes('application/x-wc-svc')) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      const r = li.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+      ol.querySelectorAll('.drop-before,.drop-after').forEach(x => x !== li && x.classList.remove('drop-before', 'drop-after'));
+      li.classList.toggle('drop-after', after); li.classList.toggle('drop-before', !after);
+    });
+    li.addEventListener('dragleave', e => { if (!li.contains(e.relatedTarget)) li.classList.remove('drop-before', 'drop-after'); });
+    li.addEventListener('drop', e => {
+      const from = +e.dataTransfer.getData('application/x-wc-svc');
+      if (!Number.isInteger(from)) return;
+      e.preventDefault();
+      const after = li.classList.contains('drop-after');
+      li.classList.remove('drop-before', 'drop-after');
+      const ids = moveIdx(svc.itemIds, from, i + (after ? 1 : 0));
+      if (ids.join() !== svc.itemIds.join()) saveService(ids);
+    });
     ol.appendChild(li);
   });
+}
+// 순서 목록에서 from 번째를 to 자리(원래 목록 기준, 그 앞)로 옮긴 새 목록
+function moveIdx(list, from, to) {
+  const ids = [...list];
+  if (from < 0 || from >= ids.length) return ids;
+  const [x] = ids.splice(from, 1);
+  ids.splice(to > from ? to - 1 : to, 0, x);
+  return ids;
 }
 
 function renderLib() {
@@ -1287,7 +1329,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.14.2 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.14.3 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
@@ -1888,11 +1930,13 @@ function bind() {
     const it = item(selId); if (!it) return;
     if (!isVid(url)) { toast('배경으로 저장할 수 있는 것은 영상(mp4·mov·webm)입니다'); return; }
     await api('PUT', '/api/items/' + it.id, { motionVideo: url });
+    it.motionVideo = url; renderSlides();   // 서버 알림을 기다리지 않고 바로 표시
     toast(I18N.lang === 'en' ? `Saved as the background video of '${it.title}' — shown behind its text slides` : `'${it.title}' 배경 영상으로 저장했습니다 — 글자 슬라이드 뒤에 늘 깔립니다`);
   });
   $('#itemVidOff').onclick = async () => {
     const it = item(selId); if (!it) return;
     await api('PUT', '/api/items/' + it.id, { motionVideo: '' });
+    it.motionVideo = ''; renderSlides();
     toast('이 자료의 배경 영상을 뺐습니다');
   };
   initSplits();

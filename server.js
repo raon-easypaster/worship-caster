@@ -292,10 +292,12 @@ app.get('/api/state', needAuth, (req, res) => {
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
     style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), readingCount: readings.count(), port: PORT, live: snapshot(),
+    recovered: isLocal(req) ? store.recoveredInfo() : null,   // 자료 파일이 깨져 보관본으로 되살렸으면 알림
   });
 });
 
 const changed = () => { store.save(); broadcast({ type: 'data' }); };
+app.post('/api/recovered/ok', needLocal, (req, res) => { store.clearRecovered(); res.json({ ok: true }); });
 
 // 자료(곡/말씀/광고/PPT)
 app.post('/api/items', needAuth, (req, res) => { const it = addItem(req.body || {}); changed(); res.json(it); });
@@ -659,7 +661,9 @@ app.get('/api/backup', needLocal, (req, res) => {
   const JSZip = require('jszip');
   const zip = new JSZip();
   zip.file('db.json', JSON.stringify(db, null, 2));
-  zip.file('예배송출-백업.txt', `예배송출 백업 — 가져온 성경 텍스트가 들어 있을 수 있으니 이 파일은 남에게 나누지 마세요 (${new Date().toLocaleString('ko-KR')})\n⚙︎ 설정 → 백업·복원 → 백업 파일로 되살리기 에서 이 zip 파일을 고르세요.\n`);
+  zip.file('예배송출-백업.txt', `예배송출 백업 — 가져온 성경·찬송가·교독문이 들어 있을 수 있으니 이 파일은 남에게 나누지 마세요 (${new Date().toLocaleString('ko-KR')})\n⚙︎ 설정 → 백업·복원 → 백업 파일로 되살리기 에서 이 zip 파일을 고르세요.\n`);
+  // 가져온 찬송가·교독문 (교회가 가진 파일에서 가져온 것 — 이 컴퓨터 밖에 나누지 않음)
+  for (const f of [hymns.FILE, readings.FILE]) if (fs.existsSync(f)) zip.file('data/' + path.basename(f), fs.readFileSync(f));
   for (const [dir, sub] of [[MEDIA_DIR, 'media'], [SLIDES_DIR, 'slides'], [bible.BIBLE_DIR, 'bible']]) {
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
@@ -734,6 +738,15 @@ app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, base), await f.async('nodebuffer'));
       files++;
+    }
+    // 찬송가·교독문 (예전 백업에는 없음 → 지금 것 그대로)
+    for (const [mod, name] of [[hymns, 'hymns.json'], [readings, 'readings.json']]) {
+      const f = zip.file('data/' + name);
+      if (!f) continue;
+      const j = JSON.parse(await f.async('string'));
+      if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(name + ' 이 잘못됨');
+      fs.writeFileSync(mod.FILE + '.tmp', JSON.stringify(j)); fs.renameSync(mod.FILE + '.tmp', mod.FILE);
+      mod.load(); files++;
     }
     store.replace(cleanRestore(next));
     Object.assign(live, { itemId: null, index: 0, mediaBg: null });

@@ -257,3 +257,9 @@ table.conti input { width: 100%; padding: 4px 6px; }
 .item-vid .t { overflow: hidden; text-overflow: ellipsis; }
 .item-vid .icon { width: 20px; height: 20px; padding: 0; font-size: 11px; }
 #slides.drop-on { outline: 3px dashed #2f6df6; outline-offset: 4px; border-radius: 10px; background: rgba(47,109,246,.06); }
+
+/* 예배 순서 끌어 옮기기 */
+#serviceList li[draggable="true"] { cursor: grab; }
+#serviceList li.dragging { opacity: .4; }
+#serviceList li.drop-before { box-shadow: inset 0 3px 0 #2f6df6; }
+#serviceList li.drop-after { box-shadow: inset 0 -3px 0 #2f6df6; }

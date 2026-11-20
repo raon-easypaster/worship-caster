@@ -40,9 +40,23 @@ async function launch(dir, port = 9339) {
 
   const api = {
     errors,
-    async go(url, ms = 1500) { await send('Page.navigate', { url }); await sleep(ms); },
+    // 페이지가 다 열릴 때까지(최대 15초) 기다린 뒤 ms 만큼 더 기다림 — 컴퓨터가 바쁠 때 빈 화면을 점검하지 않게
+    async go(url, ms = 1500) {
+      await send('Page.navigate', { url });
+      await sleep(100);
+      for (let i = 0; i < 75; i++) {
+        // 이동 중에는 대답이 없을 수 있어 1초만 기다림 (멈추지 않게)
+        const r = await Promise.race([send('Runtime.evaluate', { expression: 'location.href + "|" + document.readyState', returnByValue: true }).catch(() => null), sleep(1000).then(() => null)]);
+        const v = String(r?.result?.value || '');
+        if (v.endsWith('|complete') && !v.startsWith('about:blank')) break;
+        await sleep(200);
+      }
+      await sleep(ms);
+    },
     async eval(expr) {
-      const r = await send('Runtime.evaluate', { expression: `(async () => { return (${expr}); })()`, awaitPromise: true, returnByValue: true });
+      // 20초 안에 대답이 없으면 실패로 (점검 전체가 멈추지 않게)
+      const r = await Promise.race([send('Runtime.evaluate', { expression: `(async () => { return (${expr}); })()`, awaitPromise: true, returnByValue: true }),
+        sleep(20000).then(() => { throw new Error('화면이 20초 동안 대답하지 않음: ' + String(expr).slice(0, 80)); })]);
       if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails.exception?.description || r.exceptionDetails.text).slice(0, 300));
       return r.result.value;
     },

@@ -156,6 +156,57 @@ async function main() {
     const bad = new FormData(); bad.append('file', new Blob(['x']), 'x.zip');
     const b = await api('POST', '/api/restore', bad, { allowFail: true }); ok(b.status === 400, '깨진 파일을 받아들임');
   });
+  await check('백업에 찬송가·교독문도 들어가고, 되살리면 돌아옴', async () => {
+    const up = (url, name, text) => { const fd = new FormData(); fd.append('file', new Blob([text]), name); return api('POST', url, fd); };
+    await up('/api/hymns/upload', '찬송가.txt', '999장 백업 점검 찬송\n1. 첫 줄\n둘째 줄\n');
+    await up('/api/readings/upload', '교독문.txt', '1. 백업 점검 교독문\n가 줄\n나 줄\n');
+    const before = await api('GET', '/api/state');
+    const r = await fetch(BASE + '/api/backup'); const buf = Buffer.from(await r.arrayBuffer());
+    const zip = await require(path.join(ROOT, 'node_modules', 'jszip')).loadAsync(buf);
+    ok(zip.file('data/hymns.json') && zip.file('data/readings.json'), '백업에 찬송가·교독문이 없음: ' + Object.keys(zip.files).filter(n => !n.startsWith('media/')).join(', '));
+    await api('DELETE', '/api/hymns'); await api('DELETE', '/api/readings');
+    let st = await api('GET', '/api/state'); ok(st.hymnCount === 0 && st.readingCount === 0, '지우기가 안 됨');
+    const fd = new FormData(); fd.append('file', new Blob([buf]), 'b.zip');
+    await api('POST', '/api/restore', fd);
+    st = await api('GET', '/api/state');
+    ok(st.hymnCount === before.hymnCount && st.readingCount === before.readingCount, `되살린 뒤 찬송가 ${st.hymnCount}/${before.hymnCount} · 교독문 ${st.readingCount}/${before.readingCount}`);
+    ok((await api('GET', '/api/readings/1?lines=2')).slides?.length >= 1, '되살린 교독문을 못 찾음');
+  });
+  await check('날마다 자동 보관본: 저장하면 backups/db-오늘.json 이 생김 (최근 14개)', async () => {
+    await api('PUT', '/api/style', { main: { size: 6.3 } }); await sleep(400);
+    const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const f = path.join(DATA, 'backups', `db-${day}.json`);
+    ok(fs.existsSync(f), '오늘 보관본이 없음');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8')); ok(Array.isArray(j.items) && j.items.length > 0, '보관본이 자료가 아님');
+    const src = fs.readFileSync(path.join(ROOT, 'lib', 'store.js'), 'utf8'); ok(/KEEP_DAYS = 14/.test(src), '보관 개수 규칙이 바뀜');
+  });
+  await check('자료 파일이 깨지면 예시 자료로 덮어쓰지 않고, 깨진 파일은 남기고 최근 보관본으로 되살림', async () => {
+    const run = async (setup) => {
+      const D = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-broken-')), P = PORT + 40, B = `http://localhost:${P}`;
+      setup(D);
+      const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(P), WC_DATA_DIR: D, NO_OPEN: '1' }, stdio: 'ignore' });
+      try {
+        for (let i = 0; i < 50; i++) { try { await fetch(B + '/api/me'); break; } catch { await sleep(200); } }
+        const st = await (await fetch(B + '/api/state', { headers: { Origin: B } })).json();
+        await sleep(400);
+        return { st, files: fs.readdirSync(D), db: (() => { try { return JSON.parse(fs.readFileSync(path.join(D, 'db.json'), 'utf8')); } catch { return null; } })() };
+      } finally { s2.kill(); await sleep(300); fs.rmSync(D, { recursive: true, force: true }); }
+    };
+    const good = { items: [{ id: 'aaaaaaaaaaaa', title: '보관본 찬양', type: 'song', slides: [{ text: '가' }] }], services: [], settings: { pin: '123456' } };
+    // 1) 보관본이 있으면 그것으로
+    let r = await run(D => {
+      fs.writeFileSync(path.join(D, 'db.json'), '{ "items": [ 깨진');
+      fs.mkdirSync(path.join(D, 'backups')); fs.writeFileSync(path.join(D, 'backups', 'db-2026-01-01.json'), JSON.stringify(good));
+    });
+    ok(r.st.items?.some(i => i.title === '보관본 찬양'), '보관본으로 되살리지 않음: ' + (r.st.items || []).map(i => i.title).slice(0, 3).join(', '));
+    ok(r.st.recovered?.from === 'backups/db-2026-01-01.json', '운영 화면 알림 정보가 없음: ' + JSON.stringify(r.st.recovered));
+    ok(r.files.some(f => /^db\.broken-\d+\.json$/.test(f)), '깨진 파일을 남기지 않음: ' + r.files.join(', '));
+    ok(r.db?.items?.some(i => i.title === '보관본 찬양'), 'db.json 이 되살린 자료로 다시 쓰이지 않음');
+    // 2) 보관본이 없으면 예시 자료로 시작하되 깨진 파일은 남김
+    r = await run(D => fs.writeFileSync(path.join(D, 'db.json'), 'xx'));
+    ok(r.st.items?.length > 0 && r.st.recovered && !r.st.recovered.from, '예시 자료·알림이 없음');
+    ok(r.files.some(f => /^db\.broken-\d+\.json$/.test(f)), '깨진 파일을 남기지 않음(보관본 없음)');
+  });
   await check('설정: 언어·화면 비율·스타일 저장', async () => {
     await api('PUT', '/api/style', { main: { aspect: '4:3', size: 7 } });
     const st = await api('GET', '/api/state'); ok(st.style.main.aspect === '4:3' && st.style.main.size === 7, '스타일 저장 안 됨');
@@ -168,7 +219,12 @@ async function main() {
   chrome = await launch(fs.mkdtempSync(path.join(os.tmpdir(), 'wc-chrome-')));
   const c = chrome;
   // 운영 화면 열기 (앞 페이지 연결이 늦게 끊겨 '이미 열려 있음'이 뜨면 '이 창에서 계속')
-  const openControl = async () => { await c.go(BASE + '/control', 2500); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300); };
+  const openControl = async () => {
+    await c.go(BASE + '/control', 2500); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300);
+    // 자료(S)를 다 받을 때까지 기다림 (늦으면 다음 점검이 빈 화면을 보게 됨)
+    for (let i = 0; i < 40 && !(await c.eval(`typeof S !== 'undefined' && !!S`)); i++) await sleep(250);
+    if (!(await c.eval(`typeof S !== 'undefined' && !!S`))) console.log('      (운영 화면 자료가 안 옴:', await c.eval(`fetch('/api/state').then(r => r.status + ' ' + r.statusText).catch(e => String(e))`), ')');
+  };
   const noErr = () => { const e = c.errors.splice(0); ok(!e.length, '화면 오류: ' + e.join(' | ')); };
   await check('유튜브 영상: 주소 알아보기·일시정지·10초·끄기·모두 끄기', async () => {
     let r = await api('POST', '/api/live', { yt: { open: 'https://youtu.be/aqz-KE-bpKQ?t=1m30s' } });
@@ -228,10 +284,36 @@ async function main() {
     await c.eval(`(document.querySelector('#itemVidOff').click(), 1)`); await sleep(700);
     st = await api('GET', '/api/state'); saved = st.items.find(x => x.id === it.id);
     ok(saved.motionVideo === '', '빼기가 안 됨');
+    for (let i = 0; i < 15 && !(await c.eval(`document.querySelector('#itemVid').classList.contains('hidden')`)); i++) await sleep(200);   // 바쁠 때 화면이 늦게 바뀜
     ok(await c.eval(`document.querySelector('#itemVid').classList.contains('hidden')`), '빼도 표시가 남음');
     await api('POST', '/api/live', { reset: true });
     await api('DELETE', '/api/items/' + it.id);
     noErr();
+  });
+  await check('예배 순서: 끌어서 옮기기 (아래로·위로) + ↑↓ 화살표 그대로', async () => {
+    const mk = t => api('POST', '/api/items', { title: t, type: 'phrase', slides: [{ text: t }] });
+    const a = await mk('끌기 가'), b = await mk('끌기 나'), d = await mk('끌기 다');
+    const svc = await api('POST', '/api/services', { name: '끌기 점검 예배' });
+    await api('PUT', '/api/services/' + svc.id, { itemIds: [a.id, b.id, d.id] });
+    await openControl(); c.errors.splice(0);
+    const order = async () => (await api('GET', '/api/state')).services.find(x => x.id === svc.id).itemIds.map(id => [a, b, d].find(x => x.id === id).title.slice(-1)).join('');
+    // from 번째를 to 번째 칸의 위(half=0)·아래(half=1)에 놓기
+    const drag = (from, to, half) => c.eval(`(() => {
+      const li = [...document.querySelectorAll('#serviceList li')], dt = new DataTransfer();
+      li[${from}].dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+      const r = li[${to}].getBoundingClientRect(), y = r.top + r.height * (${half} ? 0.8 : 0.2);
+      li[${to}].dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true, clientY: y }));
+      li[${to}].dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true, clientY: y }));
+      li[${from}].dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true })); return 1; })()`);
+    ok(await c.eval(`document.querySelector('#serviceList li').draggable`), '순서 칸을 끌 수 없음');
+    await drag(0, 2, 1); await sleep(600); ok(await order() === '나다가', '맨 위를 맨 아래로: ' + await order());
+    await drag(2, 0, 0); await sleep(600); ok(await order() === '가나다', '맨 아래를 맨 위로: ' + await order());
+    await drag(0, 1, 1); await sleep(600); ok(await order() === '나가다', '한 칸 아래로: ' + await order());
+    await drag(1, 1, 0); await sleep(600); ok(await order() === '나가다', '제자리에 놓았는데 바뀜: ' + await order());
+    await c.eval(`(document.querySelectorAll('#serviceList li')[1].querySelector('[data-a=up]').click(), 1)`); await sleep(600);
+    ok(await order() === '가나다', '↑ 화살표가 안 됨: ' + await order());
+    noErr();
+    await api('DELETE', '/api/services/' + svc.id).catch(() => {});
   });
   // 맨 위·왼쪽 단추를 실제로 눌러 창이 열리는지 (v0.4.0~0.11.0 자막 스타일 단추 버그 같은 것 방지)
   for (const [sel, name] of [['#styleBtn', '🎨 자막 스타일'], ['#settingsBtn', '⚙︎ 설정'], ['#obsBtn', '🎥 OBS 자막 주소'], ['#mediaBtn', '🖼 미디어'],
