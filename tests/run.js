@@ -207,6 +207,50 @@ async function main() {
     ok(r.st.items?.length > 0 && r.st.recovered && !r.st.recovered.from, '예시 자료·알림이 없음');
     ok(r.files.some(f => /^db\.broken-\d+\.json$/.test(f)), '깨진 파일을 남기지 않음(보관본 없음)');
   });
+  await check("가사 찾기: 사이트가 막거나 느리면 '인터넷 끊김'이라고 하지 않음, 정말 끊겼을 때만 인터넷 안내", async () => {
+    const http = require('http');
+    // 가짜 가사 사이트: LRCLIB 는 처음 한 번 500 뒤 결과, 벅스는 늘 429 (자동 검색 막음)
+    let lrcHits = 0, mode = 'retry-ok';
+    const mock = http.createServer((req, res) => {
+      if (req.url.startsWith('/api/search')) {
+        lrcHits++;
+        if (mode === 'down' || (mode === 'retry-ok' && lrcHits === 1)) { res.writeHead(500); return res.end('err'); }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify([{ trackName: '점검 찬양', artistName: '점검', plainLyrics: '첫 줄\n둘째 줄' }]));
+      }
+      res.writeHead(429, { 'Retry-After': '1' }); res.end('잠시만 기다려 주세요');
+    });
+    await new Promise(r => mock.listen(0, r));
+    const MB = `http://localhost:${mock.address().port}`;
+    // 열려 있지 않은 곳 = 연결 불가 (빈 번호를 잠깐 잡았다 놓음)
+    const freePort = await new Promise(r => { const t = http.createServer(); t.listen(0, () => { const p = t.address().port; t.close(() => r(p)); }); });
+    const dead = `http://127.0.0.1:${freePort}`;
+    const run = async (env, fn) => {
+      const D = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-lyr-')), P = PORT + 50, B = `http://localhost:${P}`;
+      const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(P), WC_DATA_DIR: D, NO_OPEN: '1', ...env }, stdio: 'ignore' });
+      try {
+        for (let i = 0; i < 50; i++) { try { await fetch(B + '/api/me'); break; } catch { await sleep(200); } }
+        const r = await fetch(B + '/api/lyrics?q=' + encodeURIComponent('점검'), { headers: { Origin: B } });
+        return await fn(r.status, await r.json());
+      } finally { s2.kill(); await sleep(300); fs.rmSync(D, { recursive: true, force: true }); }
+    };
+    try {
+      // 1) LRCLIB 가 한 번 실패해도 다시 물어 찾음, 벅스가 막혀도 결과는 나옴
+      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j) => {
+        ok(st === 200 && Array.isArray(j) && j[0]?.title === '점검 찬양', `다시 묻기가 안 됨: ${st} ${JSON.stringify(j).slice(0, 120)}`);
+        ok(lrcHits === 2, 'LRCLIB 에 다시 묻지 않음: ' + lrcHits);
+      });
+      // 2) 둘 다 사이트 문제(500·429) → 인터넷이 아니라 '사이트가 대답하지 않음'
+      mode = 'down';
+      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j) => {
+        ok(st === 502 && j.code === 'busy' && !/인터넷에 연결/.test(j.error), `사이트 문제를 인터넷 끊김으로 알림: ${JSON.stringify(j)}`);
+      });
+      // 3) 정말 연결이 안 되면 인터넷 안내
+      await run({ WC_LYRICS_LRCLIB: dead, WC_LYRICS_BUGS: dead }, (st, j) => {
+        ok(st === 502 && j.code === 'offline' && /인터넷/.test(j.error), `연결 불가인데 인터넷 안내가 없음: ${JSON.stringify(j)}`);
+      });
+    } finally { mock.close(); }
+  });
   await check('설정: 언어·화면 비율·스타일 저장', async () => {
     await api('PUT', '/api/style', { main: { aspect: '4:3', size: 7 } });
     const st = await api('GET', '/api/state'); ok(st.style.main.aspect === '4:3' && st.style.main.size === 7, '스타일 저장 안 됨');

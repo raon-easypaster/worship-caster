@@ -318,24 +318,34 @@ app.post('/api/split', needAuth, (req, res) => res.json(store.splitLyrics(req.bo
 
 // 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB) 먼저, 모자라면 벅스
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
+// 가사 사이트 주소 (점검에서만 가짜 사이트로 바꿈)
+const LRCLIB = process.env.WC_LYRICS_LRCLIB || 'https://lrclib.net';
+const BUGS = process.env.WC_LYRICS_BUGS || 'https://music.bugs.co.kr';
+// 정말 인터넷이 안 될 때 나는 오류 (주소를 못 찾음·연결 불가) — 사이트가 느리거나 막은 것과 구분
+const OFFLINE = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL']);
+const isOffline = e => OFFLINE.has(e?.cause?.code || e?.code);
 const getText = (url, ms = 7000) => fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(ms) })
-  .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)));
+  .then(r => r.ok ? r.text() : Promise.reject(Object.assign(new Error('HTTP ' + r.status), { status: r.status })));
 const unent = s => s.replace(/&(lt|gt|quot|#39|apos|nbsp|amp);/g, (_, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ', amp: '&' }[e]));
 const lyricTidy = s => unent(String(s || '')).replace(/\r/g, '').replace(/<[^>]*>/g, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 20000);
 async function lrclib(q) {
-  const j = JSON.parse(await getText('https://lrclib.net/api/search?q=' + encodeURIComponent(q)));
+  // 무료 서버라 가끔 느림 → 12초까지 기다리고, 느리거나 서버 오류면 한 번 더
+  const url = LRCLIB + '/api/search?q=' + encodeURIComponent(q);
+  const text = await getText(url, 12000).catch(e => (isOffline(e) || (e.status && e.status < 500) ? Promise.reject(e) : getText(url, 12000)));
+  const j = JSON.parse(text);
   return (Array.isArray(j) ? j : []).filter(x => x && x.plainLyrics && !x.instrumental).slice(0, 6)
     .map(x => ({ src: 'LRCLIB', title: String(x.trackName || ''), artist: String(x.artistName || ''), text: lyricTidy(x.plainLyrics) }));
 }
 async function bugs(q) {
-  const html = await getText('https://music.bugs.co.kr/search/track?q=' + encodeURIComponent(q));
+  // 벅스는 자동 검색을 막아 둘 때가 있음(429·확인 화면) → 뚫지 않고 바로 건너뜀
+  const html = await getText(BUGS + '/search/track?q=' + encodeURIComponent(q), 5000);
   const rows = [], seen = new Set();
   for (const m of html.matchAll(/<tr [^>]*trackId="(\d+)"[^>]*rowType="track"[\s\S]*?<p class="title"[\s\S]*?title="([^"]*)"[\s\S]*?<p class="artist">[\s\S]*?title="([^"]*)"/g)) {
     if (seen.has(m[1])) continue; seen.add(m[1]);
     rows.push({ id: m[1], title: unent(m[2]), artist: unent(m[3]) });
     if (rows.length >= 10) break;
   }
-  const got = await Promise.all(rows.map(r => getText('https://music.bugs.co.kr/track/' + r.id).then(h => {
+  const got = await Promise.all(rows.map(r => getText(BUGS + '/track/' + r.id).then(h => {
     const m = h.match(/class="lyricsContainer">\s*<p><xmp>([\s\S]*?)<\/xmp>/);
     return m ? { src: '벅스', title: r.title, artist: r.artist, text: lyricTidy(m[1]) } : null;
   }).catch(() => null)));
@@ -347,7 +357,12 @@ app.get('/api/lyrics', needAuth, async (req, res) => {
   const [a, b] = await Promise.allSettled([lrclib(q), bugs(q)]);
   const seen = new Set();   // 같은 가사(편곡만 다른 곡)는 하나만
   const list = [...(a.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
-  if (!list.length && a.status === 'rejected' && b.status === 'rejected') return res.status(502).json({ error: '인터넷에 연결할 수 없습니다' });
+  if (!list.length && a.status === 'rejected' && b.status === 'rejected') {
+    // 둘 다 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
+    if (isOffline(a.reason) && isOffline(b.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
+    console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 벅스', b.reason?.message);
+    return res.status(502).json({ error: '가사 사이트가 지금 대답하지 않습니다. 잠시 뒤 다시 찾거나, 아래 구글·네이버로 찾아 붙여 넣으세요', code: 'busy' });
+  }
   res.json(list);
 });
 

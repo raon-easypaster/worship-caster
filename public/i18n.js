@@ -112,6 +112,8 @@
     '가사를 찾지 못했습니다. 제목을 줄이거나 가수 이름을 넣어 보세요. 아래 구글·네이버로 찾아도 됩니다.':
       'No lyrics found. Try a shorter title or add the artist, or search Google / Naver below.',
     '인터넷에 연결할 수 없습니다': 'No internet connection',
+    '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요': 'No internet connection. Check this computer\'s internet.',
+    '가사 사이트가 지금 대답하지 않습니다. 잠시 뒤 다시 찾거나, 아래 구글·네이버로 찾아 붙여 넣으세요': 'The lyrics sites are not responding right now. Try again later, or search Google/Naver below and paste.',
     '가사를 넣었습니다. 확인 후 [나누어 슬라이드 만들기]를 누르세요': 'Lyrics added. Check them, then press [Split into slides]',
     '정리했습니다. 확인 후 [나누어 슬라이드 만들기]를 누르세요': 'Cleaned up. Check, then press [Split into slides]',
     '복사한 가사가 없습니다. 가사 칸에 직접 붙여넣은 뒤 다시 누르세요': 'Nothing copied. Paste into the lyrics box, then press again',
