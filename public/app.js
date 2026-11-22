@@ -1198,8 +1198,7 @@ async function pdfCanvases(data, base, onPage) {
 
 // PPT 가져오기: 그림으로(원본 모양 그대로, 이 컴퓨터의 리브레오피스·키노트·파워포인트로 바꿈) 또는 글자로(고쳐 쓰기)
 function openPpt() {
-  let mode = 'image';
-  try { mode = localStorage.getItem('wc-ppt-mode') === 'text' ? 'text' : 'image'; } catch {}
+  const mode = 'image';   // 언제나 '그림으로 — 원본 모양 그대로'가 먼저 골라져 있음 (사용자 요청 · 지난번 고른 것을 기억하지 않음)
   const body = openDlg(`
     <div class="dlg-head"><h3>PPT 가져오기</h3><button class="icon" data-x>✕</button></div>
     <div class="form">
@@ -1210,7 +1209,7 @@ function openPpt() {
         <label class="ppt-mode"><input type="radio" name="pptMode" value="text" ${mode === 'text' ? 'checked' : ''}> <b>글자로 — 고쳐 쓸 수 있게</b> <span class="muted small">글자·표·그림만 뽑아 넣습니다. 도형·아이콘·디자인은 빠지거나 달라질 수 있습니다. (.pptx만)</span></label>
       </div>
     </div>
-    <p class="muted small">그림으로 가져올 때는 이 컴퓨터의 <b>리브레오피스</b>·<b>키노트</b>(맥) 또는 <b>파워포인트</b>(윈도우)로 바꿉니다. 처음 한 번 "키노트를 제어하도록 허용" 질문이 나오면 [허용]을 누르세요.
+    <p class="muted small">그림으로 가져올 때는 이 컴퓨터의 <b>리브레오피스</b>·<b>이음오피스</b>·<b>키노트</b>(맥) 또는 <b>파워포인트</b>(윈도우)로 바꿉니다. 처음 한 번 "키노트를 제어하도록 허용" 질문이 나오면 [허용]을 누르세요.
     잘 안 되면 파워포인트·키노트에서 <b>PDF로 저장</b>한 뒤 [＋ PDF·악보]로 넣으면 똑같이 들어갑니다.</p>
     <div id="pptProg" class="muted"></div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="pptGo">가져오기</button></div>`);
@@ -1219,7 +1218,6 @@ function openPpt() {
     const f = body.querySelector('#pptIn').files[0];
     if (!f) return toast('파일을 고르세요');
     const m = body.querySelector('[name=pptMode]:checked').value;
-    try { localStorage.setItem('wc-ppt-mode', m); } catch {}
     const prog = body.querySelector('#pptProg'), go = body.querySelector('#pptGo'); go.disabled = true;
     const base = f.name.replace(/\.[^.]+$/, '');
     try {

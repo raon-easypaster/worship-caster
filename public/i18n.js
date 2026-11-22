@@ -40,7 +40,7 @@
     '(권장) 글자·도형·아이콘·배경이 PPT와 똑같이 나옵니다. 글자는 고칠 수 없습니다.': '(Recommended) Text, shapes, icons and backgrounds look exactly like the PPT. Text cannot be edited.',
     '글자로 — 고쳐 쓸 수 있게': 'As text — editable', '글자·표·그림만 뽑아 넣습니다. 도형·아이콘·디자인은 빠지거나 달라질 수 있습니다. (.pptx만)': 'Takes only text, tables and pictures. Shapes, icons and design may be lost or look different. (.pptx only)',
     '파워포인트·키노트 발표 자료 가져오기 (원본 모양 그대로 그림으로, 또는 글자로)': 'Import a PowerPoint/Keynote presentation (as pictures exactly like the original, or as text)',
-    '그림으로 가져올 때는 이 컴퓨터의 ': 'Picture import uses ', '리브레오피스': 'LibreOffice', '키노트': 'Keynote', '파워포인트': 'PowerPoint',
+    '그림으로 가져올 때는 이 컴퓨터의 ': 'Picture import uses ', '리브레오피스': 'LibreOffice', '키노트': 'Keynote', '파워포인트': 'PowerPoint', '이음오피스': 'IeumOffice',
     '(맥) 또는 ': '(Mac) or ', '(윈도우)로 바꿉니다. 처음 한 번 "키노트를 제어하도록 허용" 질문이 나오면 [허용]을 누르세요.': '(Windows) on this computer. If asked once to allow control of Keynote, press [Allow].',
     '잘 안 되면 파워포인트·키노트에서 ': 'If it does not work, save it ', 'PDF로 저장': 'as PDF', '한 뒤 [＋ PDF·악보]로 넣으면 똑같이 들어갑니다.': ' in PowerPoint/Keynote and add it with [＋ PDF · Score] — it looks the same.',
     '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 몇 분 걸릴 수 있습니다)': 'Converting exactly like the original… (many slides can take a few minutes)',

@@ -915,11 +915,12 @@ async function main() {
     for (let i = 0; i < 30 && !poster; i++) { await sleep(300); poster = (await api('GET', '/api/state')).items.find(x => x.title === '세로포스터'); }
     ok(poster && poster.slides.length === 1, '세로 사진이 나뉨: ' + (poster ? poster.slides.length + '장' : '안 들어감'));
   });
-  await check('＋ PPT 그림으로 가져오기(화면): 방식 고르는 창 · 원본 모양 그대로 장마다 그림 슬라이드(PPT 자료) · 방송에는 그림으로 · 글자로 가져오기도 남아 있음', async () => {
+  await check('＋ PPT 그림으로 가져오기(화면): 방식 고르는 창(언제나 그림으로가 먼저) · 원본 모양 그대로 장마다 그림 슬라이드(PPT 자료) · 방송에는 그림으로 · 글자로 가져오기도 남아 있음', async () => {
     await openControl();
     const before = (await api('GET', '/api/state')).items.length;
-    await c.eval(`(document.querySelector('#newPpt').click(), 1)`); await sleep(300);
-    ok(await c.eval(`!!document.querySelector('#pptIn') && document.querySelectorAll('[name=pptMode]').length === 2 && document.querySelector('[name=pptMode][value=image]').checked`), '방식 고르는 창이 없거나 기본이 그림이 아님');
+    // 예전에 '글자로'를 골라 둔 컴퓨터에서도 언제나 '그림으로'가 먼저 골라져 있음 (사용자 요청)
+    await c.eval(`(localStorage.setItem('wc-ppt-mode', 'text'), document.querySelector('#newPpt').click(), 1)`); await sleep(300);
+    ok(await c.eval(`!!document.querySelector('#pptIn') && document.querySelectorAll('[name=pptMode]').length === 2 && document.querySelector('[name=pptMode][value=image]').checked`), '방식 고르는 창이 없거나 기본이 그림이 아님 (예전에 글자로를 골랐던 경우)');
     await c.eval(`(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([80,75,3,4])], '강의자료.pptx')); const i = document.querySelector('#pptIn'); i.files = dt.files; document.querySelector('#pptGo').click(); return 1; })()`);
     let it = null;
     for (let i = 0; i < 40 && !it; i++) { await sleep(300); const st = await api('GET', '/api/state'); if (st.items.length > before) it = st.items.find(x => x.title === '강의자료'); }
