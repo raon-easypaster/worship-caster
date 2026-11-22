@@ -172,9 +172,22 @@
     return `<img class="wc-logo" src="${esc(url)}" style="position:absolute;${POS[pos] || POS.c};height:${num(size, 40, 2, 95)}cqh;max-width:92cqw;object-fit:contain;opacity:${num(opacity, 1, 0.05, 1)}">`;
   }
 
-  const themeOf = snap => THEMES[snap.item?.theme] || THEMES[''];
+  // 교회가 만든 '내 모양'(my_…): 송출 화면은 snap.themes, 운영 화면 미리보기는 setThemes 로 받음
+  let CUSTOM = {};
+  const setThemes = o => { CUSTOM = o && typeof o === 'object' ? o : {}; };
+  function themeOf(snap) {
+    const key = snap.item?.theme, my = /^my_/.test(key || '') ? (snap.themes || CUSTOM)[key] : null;
+    if (my) return { ...(THEMES[my.base] || {}), ...my };
+    return THEMES[key] || THEMES[''];
+  }
+  // 내 모양의 배경 사진: 글자만 있는 슬라이드에 배경으로 깔기 (슬라이드에 따로 넣은 배경·미디어 배경이 먼저)
+  function withThemeBg(snap) {
+    const s = snap.slide, u = mediaUrl(themeOf(snap).bgImg);
+    if (!u || isVideo(u) || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || mediaUrl(snap.live?.mediaBg)) return snap;
+    return { ...snap, slide: { ...s, bg: u } };
+  }
   function mainStyle(snap) {
-    const { name, motion, ...t } = themeOf(snap);
+    const { name, motion, base, bgImg, ...t } = themeOf(snap);
     return safeMain({ ...snap.style.main, ...t });
   }
   // 이 슬라이드 뒤에 깔 움직이는 배경 (그림·PPT·HTML 슬라이드에는 깔지 않음)
@@ -184,6 +197,8 @@
     const iv = mediaUrl(snap.item?.motionVideo);   // 이 찬양에 저장해 둔 배경 영상이 먼저
     if (iv) return 'video:' + iv;
     const t = themeOf(snap);
+    const tv = mediaUrl(t.bgImg);   // 내 모양의 배경 영상
+    if (tv && isVideo(tv)) return 'video:' + tv;
     const m = t.motion !== undefined ? t.motion : st.motion;
     if (!MOTIONS[m] || m === 'none') return '';
     if (m === 'video') { const u = mediaUrl(main.motionVideo); return u ? 'video:' + u : ''; }
@@ -352,6 +367,7 @@
 
   // 페이드 전환 렌더
   function render(container, snap, mode, opts = {}) {
+    snap = withThemeBg(snap);
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
     const L0 = snap.live || {};
@@ -382,9 +398,12 @@
       // 유튜브 영상: 예배당 화면·방송·프롬프터 맨 위에 (운영 화면 미리보기는 그림만)
       const y = L0.yt, on = ytShown(L0, mode), real = !!window.WC_YT_PLAYER && !opts.still;
       const key = on ? (real ? 'p:' + y.id : 't:' + y.id + ':' + (y.playing ? 1 : 0)) : '';
+      const st = mode === 'stage' ? ' st' : '';
       persist(container, 'wc-yt', key, () => real
-        ? `<div class="wc-yt-in${mode === 'stage' ? ' st' : ''}"><div class="wc-yt-p"></div></div>`
-        : `<div class="wc-yt-in${mode === 'stage' ? ' st' : ''}"><div class="wc-yt-thumb" style="background-image:url('https://i.ytimg.com/vi/${esc(y.id)}/hqdefault.jpg')"><span>${y.playing ? '▶' : '⏸'} YouTube</span></div></div>`, true, fade);
+        ? (y.file ? `<div class="wc-yt-in${st}"><video class="wc-yt-p wc-yt-v" src="${esc(y.file)}" playsinline preload="auto" muted></video></div>`
+          : `<div class="wc-yt-in${st}"><div class="wc-yt-p"></div></div>`)
+        : y.file ? `<div class="wc-yt-in${st}"><video class="wc-yt-p wc-yt-v" src="${esc(y.file)}#t=${Math.max(0.5, Math.floor(y.pos || 0))}" muted preload="metadata"></video><div class="wc-yt-thumb" style="background:none"><span class="mine">${y.playing ? '▶' : '⏸'} 내 영상</span></div></div>`
+        : `<div class="wc-yt-in${st}"><div class="wc-yt-thumb" style="background-image:url('https://i.ytimg.com/vi/${esc(y.id)}/hqdefault.jpg')"><span>${y.playing ? '▶' : '⏸'} YouTube</span></div></div>`, true, fade);
       if (on && real) ytSync(container, snap, mode);
     }
     if (mode === 'main') {
@@ -498,7 +517,7 @@
   // ── 유튜브 영상 ──────────────────────────────
   function ytShown(L, mode) {
     const y = L.yt;
-    if (!y || y.ended || !/^[\w-]{11}$/.test(y.id || '')) return false;
+    if (!y || y.ended || !(/^[\w-]{11}$/.test(y.id || '') || (y.file && mediaUrl(y.file) && isVideo(y.file)))) return false;
     if (mode === 'main') return !!y.tv && !L.black;
     if (mode === 'overlay') return !!y.obs && !L.overlayOff;
     if (mode === 'stage') return !!y.stage;
@@ -526,6 +545,7 @@
     if (el._ready) return ytApply(el);
     if (el._loading) return;
     el._loading = true;
+    if (snap.live.yt.file) return fileSync(el);
     ytLoad().then(() => {
       if (!el.isConnected) return;
       const y = el._snap.live.yt;
@@ -543,6 +563,33 @@
         },
       });
     }).catch(() => {});
+  }
+  // 내 영상(파일): <video> 를 유튜브 플레이어와 같은 모양으로 감싸 같은 맞추기(ytApply)를 씀
+  function fileSync(el) {
+    const v = el.querySelector('video.wc-yt-v');
+    if (!v) return;
+    let st = -1;   // -1 준비 전, 0 끝, 1 재생, 2 멈춤, 3 불러오는 중
+    v.addEventListener('playing', () => (st = 1));
+    v.addEventListener('pause', () => { if (st !== 0) st = 2; });
+    v.addEventListener('waiting', () => (st = 3));
+    v.addEventListener('ended', () => { st = 0; window.WC_report?.({ type: 'ytEnded', id: el._snap.live.yt?.id }); });
+    el._player = {
+      getPlayerState: () => st,
+      getCurrentTime: () => v.currentTime,
+      getDuration: () => (Number.isFinite(v.duration) ? v.duration : 0),
+      seekTo: t => { try { v.currentTime = t; } catch {} },
+      playVideo: () => { const p = v.play(); if (p) p.catch(e => { if (e.name === 'NotAllowedError' && !v.muted) { el._blocked = true; v.muted = true; v.play().catch(() => {}); window.WC_report?.({ type: 'audioBlocked' }); } }); },
+      pauseVideo: () => v.pause(),
+      isMuted: () => v.muted, mute: () => { v.muted = true; }, unMute: () => { v.muted = false; }, setVolume: n => { v.volume = Math.max(0, Math.min(1, n / 100)); },
+    };
+    const ready = () => {
+      if (el._ready) return;
+      el._ready = true; st = 2;
+      const y = el._snap.live.yt, d = el._player.getDuration();
+      if (d > 0) window.WC_report?.({ type: 'ytInfo', id: y.id, dur: d });
+      ytApply(el);
+    };
+    if (v.readyState >= 1) ready(); else v.addEventListener('loadedmetadata', ready, { once: true });
   }
   function ytApply(el) {
     const p = el._player, snap = el._snap, y = snap?.live?.yt;
@@ -572,5 +619,5 @@
     extras(container, snap, mode);
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown };
+  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
 })();

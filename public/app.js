@@ -27,9 +27,16 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 const item = id => S.items.find(i => i.id === id);
 const mediaName = u => decodeURIComponent(String(u || '').split('/').pop());
 const service = () => S.services.find(s => s.id === S.currentServiceId);
+// 모양(테마) 고르기 목록: 교회가 만든 '내 모양'을 맨 위에
+const myThemes = () => Object.entries(S?.settings?.themes || {});
+const themeOpts = cur => (myThemes().length ? `<optgroup label="🎨 내 모양">${myThemes().map(([k, t]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup><optgroup label="기본 모양">` : '')
+  + Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('') + (myThemes().length ? '</optgroup>' : '');
+// 새로 넣을 때 처음 쓸 모양 (⚙︎ 설정 → 🎨 모양에서 정함)
+const defTheme = (kind, fallback = '') => { const v = S?.settings?.themeDefaults?.[kind]; return v != null && (WC.THEMES[v] || S.settings.themes?.[v]) ? v : fallback; };
 
 async function reload() {
   S = await api('GET', '/api/state');
+  WC.setThemes(S.settings?.themes);
   if (!snap) snap = S.live;
   renderAll();
   if (S.recovered && !IS_EDITOR && !$('#dlg').open) showRecovered(S.recovered);
@@ -68,11 +75,12 @@ function renderServices() {
     const li = document.createElement('li');
     li.className = (id === selId ? 'sel ' : '') + (snap?.live.itemId === id ? 'live' : '');
     li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>${it.noBroadcast ? '<span class="badge tv" title="유튜브 방송에는 나가지 않음">TV만</span>' : ''}
-      <span class="acts"><button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button><button class="icon" data-a="rm" title="순서에서 빼기">✕</button></span>`;
+      <span class="acts"><button class="icon" data-a="copy" title="복제 — 똑같은 것을 바로 아래에 하나 더 (⌘C · ⌘V 도 됨)">⧉</button><button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button><button class="icon" data-a="rm" title="순서에서 빼기">✕</button></span>`;
     li.onclick = e => {
       const a = e.target.dataset.a;
       if (!a) return select(id);
       e.stopPropagation();
+      if (a === 'copy') return copyItem(id, id);
       const ids = [...svc.itemIds];
       if (a === 'rm') {
         if (!KEEP.has(it.type) && !S.services.some(x => x.id !== svc.id && x.itemIds.includes(id)) && !confirm(`'${it.title}'을(를) 순서에서 빼면 지워집니다. 뺄까요?\n(찬양은 자료실에 남습니다)`)) return;
@@ -144,35 +152,97 @@ function renderLib() {
   }
 }
 
+// 전체 이어 보기: 운영 화면은 서버 설정(이어 넘기기와 함께), 웹 편집기는 이 브라우저에만 기억
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const allViewOn = () => IS_EDITOR ? lsGet('wc-all-view') === '1' : !!S?.settings?.continuous;
+const allFold = new Set(JSON.parse(lsGet('wc-all-fold') || '[]'));
+let allLiveKey = '';
+function slideCard(it, s, i, tag) {
+  const d = document.createElement('div');
+  const isLive = snap?.live.itemId === it.id && snap.live.index === i;
+  d.className = 'slide' + (isLive ? ' live' : '');
+  d.dataset.item = it.id; d.dataset.i = i;
+  d.innerHTML = `<span class="num">${i + 1}</span>${tag}<div class="wc-screen"></div>`;
+  WC.thumb(d.querySelector('.wc-screen'), s, S.style, it);
+  d.onclick = () => IS_EDITOR ? openItemEditor(it.id, it.slides.indexOf(s)) : goLive({ itemId: it.id, index: i });
+  // 오른쪽 클릭 = 빠른 수정 (오타 등)
+  if (!s.elements?.length && !s.html && !s.htmlFile) d.oncontextmenu = e => { e.preventDefault(); quickEdit(it, s); };
+  return d;
+}
+function groupTags(it) {   // 곡 구성 이름표 (1절·후렴…): 묶음이 바뀌는 첫 칸에만
+  const groupOf = new Map(); let g = '', prev = null;
+  for (const x of it.slides) { if (x.label) g = x.label; groupOf.set(x, g); }
+  return WC.seq(it).map(s => {
+    const grp = groupOf.get(s) || '';
+    const tag = grp && (grp !== prev || s.label) ? `<span class="glabel" style="--g:${groupColor(grp)}">${esc(grp)}</span>` : '';
+    prev = grp; return tag;
+  });
+}
+function renderAllView(grid) {
+  grid.className = 'allview';
+  const ids = service()?.itemIds || [];
+  for (const id of ids) {
+    const it = item(id); if (!it) continue;
+    const list = WC.seq(it), tags = groupTags(it), folded = allFold.has(id);
+    const sec = document.createElement('div');
+    sec.className = 'allsec' + (id === selId ? ' sel' : '') + (snap?.live.itemId === id ? ' livesec' : '');
+    sec.dataset.sec = id;
+    sec.innerHTML = `<div class="allhead"><button class="icon fold" title="접기·펴기">${folded ? '▸' : '▾'}</button><span class="badge">${TYPE[it.type] || ''}</span><b class="t">${esc(it.title)}</b><span class="muted small">${list.length}장</span></div>`;
+    sec.querySelector('.allhead').onclick = () => select(id);
+    sec.querySelector('.fold').onclick = e => {
+      e.stopPropagation();
+      allFold.has(id) ? allFold.delete(id) : allFold.add(id);
+      lsSet('wc-all-fold', JSON.stringify([...allFold])); renderSlides();
+    };
+    if (!folded) {
+      const g = document.createElement('div'); g.className = 'grid';
+      list.forEach((s, i) => g.appendChild(slideCard(it, s, i, tags[i])));
+      if (!list.length) g.innerHTML = '<p class="muted small">슬라이드가 없습니다</p>';
+      sec.appendChild(g);
+    }
+    grid.appendChild(sec);
+  }
+  if (!grid.children.length) grid.innerHTML = '<p class="muted">예배 순서가 비어 있습니다.</p>';
+}
+// 지금 나가는 슬라이드가 늘 보이게 (나가는 슬라이드가 바뀌었을 때만 따라감)
+function scrollToLive(grid, force) {
+  const L = snap?.live, key = L ? L.itemId + ':' + L.index : '';
+  if (!force && key === allLiveKey) return;
+  allLiveKey = key;
+  const el = grid.querySelector('.slide.live') || (force && grid.querySelector('.allsec.sel'));
+  el?.scrollIntoView({ block: 'nearest' });
+}
+// 이어 보기에서 나가는 슬라이드만 바뀌면 다시 그리지 않고 표시만 옮김 (슬라이드가 많아도 빠르게)
+function markAllLive() {
+  const grid = $('#slides'), L = snap?.live;
+  if (!grid.classList.contains('allview')) return renderSlides();
+  grid.querySelectorAll('.slide.live').forEach(x => x.classList.remove('live'));
+  grid.querySelectorAll('.allsec.livesec').forEach(x => x.classList.remove('livesec'));
+  if (L?.itemId) {
+    grid.querySelector(`.allsec[data-sec="${CSS.escape(L.itemId)}"]`)?.classList.add('livesec');
+    grid.querySelector(`.slide[data-item="${CSS.escape(L.itemId)}"][data-i="${+L.index}"]`)?.classList.add('live');
+  }
+  scrollToLive(grid);
+}
+
 function renderSlides() {
   const it = item(selId);
+  const allOn = allViewOn();
+  $('#allView').classList.toggle('on', allOn);
   $('#itemTitle').textContent = it ? it.title : '자료를 선택하세요';
   $('#editItem').disabled = !it;
   const mv = it?.motionVideo || '';
   $('#itemVid').classList.toggle('hidden', !mv);
   if (mv) $('#itemVid .t').textContent = '🎞 ' + decodeURIComponent(mv.split('/').pop());
   const grid = $('#slides');
-  grid.innerHTML = '';
+  const scroller = grid.closest('.center-main'), keepTop = scroller?.scrollTop || 0;
+  grid.innerHTML = ''; grid.className = 'grid';
+  if (allOn) { renderAllView(grid); if (scroller) scroller.scrollTop = keepTop; scrollToLive(grid); renderSecNav(); return; }
   if (!it) return;
   // 곡 구성 순서대로 (같은 후렴이 여러 번 나오면 여러 칸)
-  const list = WC.seq(it), groupOf = new Map();
-  let g = '';
-  for (const x of it.slides) { if (x.label) g = x.label; groupOf.set(x, g); }
-  let prevGroup = null;
-  list.forEach((s, i) => {
-    const d = document.createElement('div');
-    const isLive = snap?.live.itemId === it.id && snap.live.index === i;
-    d.className = 'slide' + (isLive ? ' live' : '');
-    const grp = groupOf.get(s) || '';
-    const tag = grp && (grp !== prevGroup || s.label) ? `<span class="glabel" style="--g:${groupColor(grp)}">${esc(grp)}</span>` : '';
-    prevGroup = grp;
-    d.innerHTML = `<span class="num">${i + 1}</span>${tag}<div class="wc-screen"></div>`;
-    WC.thumb(d.querySelector('.wc-screen'), s, S.style, it);
-    d.onclick = () => IS_EDITOR ? openItemEditor(it.id, it.slides.indexOf(s)) : goLive({ itemId: it.id, index: i });
-    // 오른쪽 클릭 = 빠른 수정 (오타 등)
-    if (!s.elements?.length && !s.html && !s.htmlFile) d.oncontextmenu = e => { e.preventDefault(); quickEdit(it, s); };
-    grid.appendChild(d);
-  });
+  const tags = groupTags(it);
+  WC.seq(it).forEach((s, i) => grid.appendChild(slideCard(it, s, i, tags[i])));
   if (!it.slides.length) grid.innerHTML = '<p class="muted">슬라이드가 없습니다. ✎ 편집에서 내용을 넣으세요.</p>';
   renderSecNav();
 }
@@ -294,7 +364,12 @@ function connectWS() {
       const changedItem = snap?.live.itemId !== m.live.itemId;
       snap = m;
       renderLive();
-      if (S) { renderSlides(); if (changedItem) { renderServices(); renderLib(); } }
+      if (S) {
+        if (allViewOn()) {   // 이어 보기: 나가는 자료를 따라 왼쪽 순서도 고름, 슬라이드는 표시만 옮김
+          if (changedItem && m.live.itemId && service()?.itemIds.includes(m.live.itemId)) { selId = m.live.itemId; renderServices(); renderLib(); $('#itemTitle').textContent = item(selId)?.title || ''; $('#editItem').disabled = false; $('#slides .allsec.sel')?.classList.remove('sel'); $(`#slides .allsec[data-sec="${CSS.escape(selId)}"]`)?.classList.add('sel'); }
+          markAllLive();
+        } else { renderSlides(); if (changedItem) { renderServices(); renderLib(); } }
+      }
     }
     if (m.type === 'data') reload().catch(() => {});
     if (m.type === 'focus') { window.focus(); toast('예배송출 운영 화면입니다'); }
@@ -310,6 +385,14 @@ function connectWS() {
 }
 
 // ── 예배 순서 ───────────────────────────────────
+// 예배 순서 복제·복사/붙여넣기: 새 자료(사본)를 만들어 after 바로 아래에 넣음
+let clipId = null;
+async function copyItem(srcId, after) {
+  try {
+    const it = await api('POST', `/api/items/${srcId}/copy`, { serviceId: S.currentServiceId, after });
+    await reload(); select(it.id); toast(`'${item(srcId)?.title || it.title}'을(를) 복제했습니다`);
+  } catch {}
+}
 async function saveService(ids) { await api('PUT', '/api/services/' + S.currentServiceId, { itemIds: ids }); }
 // ── 콘티: 예배 순서를 찬양팀과 나누기 (키·빠르기·메모 / 카톡용 복사 / 인쇄) ──
 // 가사는 넣지 않음 (저작권) — 곡 제목·키·흐름만
@@ -425,7 +508,7 @@ async function importSongs(files) {
     if (!s.lyrics) { empty++; continue; }
     if (have.has(s.title)) { same++; continue; }
     const slides = await api('POST', '/api/split', { text: s.lyrics, lines: 2 });
-    await api('POST', '/api/items', { type: 'song', title: s.title, slides, key: s.key || '' });
+    await api('POST', '/api/items', { type: 'song', title: s.title, slides, key: s.key || '', theme: defTheme('song') });
     have.add(s.title); added++;
   }
   toast([`찬양 ${added}곡을 자료실에 넣었습니다`, same && `같은 제목 ${same}곡은 건너뜀`, empty && `가사 없는 ${empty}곡은 건너뜀`].filter(Boolean).join(' · '));
@@ -480,7 +563,7 @@ function openHymn() {
       await addSongToService(have.id); selId = have.id;
     } else {
       const slides = await api('POST', '/api/split', { text: h.lyrics, lines: LINES() });
-      const it = await api('POST', '/api/items', { type: 'song', title: h.title, slides, arr: h.arr || [], place: true, after: afterId() });
+      const it = await api('POST', '/api/items', { type: 'song', title: h.title, slides, arr: h.arr || [], place: true, after: afterId(), theme: defTheme('song') });
       S.items.push(it);   // 곧바로 다시 넣어도 같은 곡이 둘 생기지 않게
       selId = it.id;
     }
@@ -548,7 +631,7 @@ function openReading() {
   linesSel.onchange = () => { try { localStorage.setItem('wc-read-lines', linesSel.value); } catch {} };
   async function add(n) {
     const r = await api('GET', `/api/readings/${n}?lines=${+linesSel.value || 2}`);
-    const it = await api('POST', '/api/items', { type: 'bible', title: `교독문 ${r.num} ${r.title}`, theme: 'word', slides: r.slides, after: afterId() });
+    const it = await api('POST', '/api/items', { type: 'bible', title: `교독문 ${r.num} ${r.title}`, theme: defTheme('reading', 'word'), slides: r.slides, after: afterId() });
     selId = it.id;
     toast(`교독문 ${r.num}번 '${r.title}'을(를) 넣었습니다`);
   }
@@ -651,7 +734,7 @@ const HTML_SAMPLES = {
 
 function openItemEditor(id, focusIndex, preset) {
   const src = id ? item(id) : null;
-  const it = src ? JSON.parse(JSON.stringify(src)) : (preset ? JSON.parse(JSON.stringify(preset)) : { type: 'song', title: '새 찬양', slides: [] });
+  const it = src ? JSON.parse(JSON.stringify(src)) : (preset ? JSON.parse(JSON.stringify(preset)) : { type: 'song', title: '새 찬양', slides: [], theme: defTheme('song') });
   const bcVal = it.noBroadcast ? 'none' : it.bcFull ? 'full' : 'caption';
   const body = openDlg(`
     <div class="dlg-head"><h3>${src ? '자료 편집' : '새 자료'}</h3><button class="icon" data-x>✕</button></div>
@@ -659,7 +742,7 @@ function openItemEditor(id, focusIndex, preset) {
       <label>제목</label><input id="eTitle" value="${esc(it.title)}">
       <label>종류</label><div class="row" style="margin:0"><select id="eType" style="width:auto">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === it.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <span class="muted small" id="eKeepNote"></span></div>
-      <label>모양 (테마)</label><select id="eTheme">${Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}" ${k === (it.theme || '') ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <label>모양 (테마)</label><select id="eTheme">${themeOpts(it.theme || '')}</select>
       <label>유튜브 방송(OBS)</label><select id="eBc">
         <option value="caption" ${bcVal === 'caption' ? 'selected' : ''}>자동 — 글자는 자막 바로, 그림은 화면 그대로</option>
         <option value="full" ${bcVal === 'full' ? 'selected' : ''}>예배당 화면 그대로 보내기 (배경·글꼴까지)</option>
@@ -902,7 +985,7 @@ async function openPhrases() {
   const body = openDlg(`
     <div class="dlg-head"><h3>문구·성찬 넣기</h3><button class="icon" data-x>✕</button></div>
     <div class="row"><span class="muted" style="white-space:nowrap">모양</span><select id="phTheme" style="width:auto"><option value="*">분류에 맞게 자동</option>
-      ${Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}">${esc(t.name)}</option>`).join('')}</select>
+      ${themeOpts('*')}</select>
       <span class="muted small">누르면 예배 순서에서 고른 자료 다음에 들어갑니다.</span></div>
     <div class="cat">성찬</div>
     <div class="cards"><div class="c" data-comm><div class="wc-screen"></div><div class="n">성찬 예식 (제정의 말씀·떡·잔·기도)</div></div></div>
@@ -989,7 +1072,7 @@ function openBible() {
       if (t2) text += '\n\n' + t2;
       slides.push({ text, ref: `${res.book} ${res.ch}:${r}` + (showV ? ` (${res.version}${t2 ? ' · ' + res2.version : ''})` : '') });
     }
-    const it = await api('POST', '/api/items', { type: 'bible', title: showV ? `${res.title} ${res.version}` : res.title, theme: 'word', slides, after: afterId() });
+    const it = await api('POST', '/api/items', { type: 'bible', title: showV ? `${res.title} ${res.version}` : res.title, theme: defTheme('bible', 'word'), slides, after: afterId() });
     selId = it.id; closeDlg(); toast('말씀 슬라이드를 만들고 예배 순서에 넣었습니다');
   };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -1013,7 +1096,7 @@ async function loadImageCanvas(file) {
 }
 // 한 페이지를 위→아래 n칸으로 자르기 (겹침 4%로 줄 끊김 방지)
 function sliceCanvas(c, n) {
-  if (n <= 1) return [c];
+  if (n <= 1 || c.width >= c.height) return [c];   // 가로 사진·그림(가로가 더 긴 것)은 나누지 않음 — 세로 악보만 위·아래로
   const out = [], h = c.height / n, ov = n > 1 ? c.height * 0.04 : 0;
   for (let i = 0; i < n; i++) {
     const y0 = Math.max(0, i * h - ov), y1 = Math.min(c.height, (i + 1) * h + ov);
@@ -1040,6 +1123,77 @@ function trimCanvas(c) {
   return o;
 }
 
+// PDF → 페이지마다 그림(canvas). 긴 변 약 2400px
+async function pdfCanvases(data, base, onPage) {
+  const lib = await loadPdfjs();
+  const pdf = await lib.getDocument({ data }).promise, out = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    onPage?.(p, pdf.numPages);
+    const page = await pdf.getPage(p);
+    const v1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(4, 2400 / Math.max(v1.width, v1.height)) });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    out.push({ canvas: c, name: `${base}_p${p}` });
+  }
+  return out;
+}
+
+// PPT 가져오기: 그림으로(원본 모양 그대로, 이 컴퓨터의 리브레오피스·키노트·파워포인트로 바꿈) 또는 글자로(고쳐 쓰기)
+function openPpt() {
+  let mode = 'image';
+  try { mode = localStorage.getItem('wc-ppt-mode') === 'text' ? 'text' : 'image'; } catch {}
+  const body = openDlg(`
+    <div class="dlg-head"><h3>PPT 가져오기</h3><button class="icon" data-x>✕</button></div>
+    <div class="form">
+      <label>파일</label><input type="file" id="pptIn" accept=".pptx,.ppt,.key">
+      <label>가져오는 방식</label>
+      <div class="ppt-modes">
+        <label class="ppt-mode"><input type="radio" name="pptMode" value="image" ${mode === 'image' ? 'checked' : ''}> <b>그림으로 — 원본 모양 그대로</b> <span class="muted small">(권장) 글자·도형·아이콘·배경이 PPT와 똑같이 나옵니다. 글자는 고칠 수 없습니다.</span></label>
+        <label class="ppt-mode"><input type="radio" name="pptMode" value="text" ${mode === 'text' ? 'checked' : ''}> <b>글자로 — 고쳐 쓸 수 있게</b> <span class="muted small">글자·표·그림만 뽑아 넣습니다. 도형·아이콘·디자인은 빠지거나 달라질 수 있습니다. (.pptx만)</span></label>
+      </div>
+    </div>
+    <p class="muted small">그림으로 가져올 때는 이 컴퓨터의 <b>리브레오피스</b>·<b>키노트</b>(맥) 또는 <b>파워포인트</b>(윈도우)로 바꿉니다. 처음 한 번 "키노트를 제어하도록 허용" 질문이 나오면 [허용]을 누르세요.
+    잘 안 되면 파워포인트·키노트에서 <b>PDF로 저장</b>한 뒤 [＋ PDF·악보]로 넣으면 똑같이 들어갑니다.</p>
+    <div id="pptProg" class="muted"></div>
+    <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="pptGo">가져오기</button></div>`);
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  body.querySelector('#pptGo').onclick = async () => {
+    const f = body.querySelector('#pptIn').files[0];
+    if (!f) return toast('파일을 고르세요');
+    const m = body.querySelector('[name=pptMode]:checked').value;
+    try { localStorage.setItem('wc-ppt-mode', m); } catch {}
+    const prog = body.querySelector('#pptProg'), go = body.querySelector('#pptGo'); go.disabled = true;
+    const base = f.name.replace(/\.[^.]+$/, '');
+    try {
+      if (m === 'text') {
+        if (!/\.pptx$/i.test(f.name)) throw new Error('글자로 가져오기는 .pptx 파일만 됩니다. 그림으로 가져오기를 고르세요');
+        const fd = new FormData(); fd.append('file', f); fd.append('after', afterId() || '');
+        prog.textContent = 'PPT 가져오는 중…';
+        const it = await api('POST', '/api/pptx', fd);
+        selId = it.id; closeDlg(); toast(`슬라이드 ${it.slides.length}장을 가져왔습니다`);
+        return;
+      }
+      prog.textContent = '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 1분쯤 걸릴 수 있습니다)';
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/api/pptx-pdf', { method: 'POST', body: fd });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || '그림으로 바꾸지 못했습니다'); }
+      const pages = await pdfCanvases(await r.arrayBuffer(), base, (p, n) => (prog.textContent = `그림 만드는 중… ${p}/${n}`));
+      if (!pages.length) throw new Error('슬라이드가 없습니다');
+      const slides = [];
+      for (let i = 0; i < pages.length; i += 10) {   // 10장씩 올림
+        const fd2 = new FormData();
+        for (const pg of pages.slice(i, i + 10)) fd2.append('files', await canvasBlob(pg.canvas), `ppt_${pg.name}.jpg`);
+        prog.textContent = `올리는 중… ${Math.min(i + 10, pages.length)}/${pages.length}`;
+        (await api('POST', '/api/media', fd2)).forEach(u => slides.push({ text: '', bg: u.url, fit: 'contain', bgColor: '#000000' }));
+      }
+      const it = await api('POST', '/api/items', { type: 'ppt', title: base, slides, place: true, after: afterId() });
+      selId = it.id; closeDlg(); toast(`슬라이드 ${slides.length}장을 원본 모양 그대로 가져왔습니다`);
+    } catch (e) { console.error(e); prog.textContent = '가져오기 실패: ' + e.message; go.disabled = false; }
+  };
+}
+
 function openScore() {
   const body = openDlg(`
     <div class="dlg-head"><h3>PDF·악보 가져오기</h3><button class="icon" data-x>✕</button></div>
@@ -1050,7 +1204,7 @@ function openScore() {
       <label>흰 여백 잘라내기</label><input type="checkbox" id="scTrim" checked>
       <label>배경색</label><div class="row"><select id="scBg" style="width:auto"><option value="#ffffff">흰색 (악보)</option><option value="#000000">검정</option></select></div>
     </div>
-    <p class="muted small">PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 악보는 화면 비율(16:9)에 맞게 위·아래로 나누면 TV에서 훨씬 크게 보입니다.
+    <p class="muted small">PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 세로로 긴 악보는 화면 비율(16:9)에 맞게 위·아래로 나누면 TV에서 훨씬 크게 보입니다. 가로 사진·그림은 나누지 않고 한 장 그대로 들어갑니다.
     악보·그림 슬라이드는 유튜브(OBS)에도 화면 그대로 나갑니다. 예배당에만 보내려면 ✎ 편집 → 유튜브 방송 → '보내지 않기'.</p>
     <div id="scProg" class="muted"></div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="scGo">가져오기</button></div>`);
@@ -1065,18 +1219,7 @@ function openScore() {
       for (const f of files) {
         const base = f.name.replace(/\.[^.]+$/, '');
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
-          const lib = await loadPdfjs();
-          const pdf = await lib.getDocument({ data: await f.arrayBuffer() }).promise;
-          for (let p = 1; p <= pdf.numPages; p++) {
-            prog.textContent = `${f.name}: ${p}/${pdf.numPages} 페이지 변환 중…`;
-            const page = await pdf.getPage(p);
-            const v1 = page.getViewport({ scale: 1 });
-            const vp = page.getViewport({ scale: Math.min(4, 2400 / Math.max(v1.width, v1.height)) }); // 긴 변 약 2400px
-            const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-            const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-            pages.push({ canvas: c, name: `${base}_p${p}` });
-          }
+          pages.push(...await pdfCanvases(await f.arrayBuffer(), base, (p, n) => (prog.textContent = `${f.name}: ${p}/${n} 페이지 변환 중…`)));
         } else pages.push({ canvas: await loadImageCanvas(f), name: base });
       }
       const slides = [];
@@ -1253,6 +1396,59 @@ function openOBS() {
 }
 
 // 설정
+// 🎨 내 모양 만들기·고치기: 시작할 모양을 고른 뒤 글꼴·색·배경을 바꿔 이름 붙여 저장
+function openThemeEditor(key, draft) {
+  const mainSt = S.style.main || {};
+  const fromBase = base => {
+    const t = { ...mainSt, ...(WC.THEMES[base] || {}) };
+    return { base, font: t.font || WC.FONTS[0][0], size: +t.size || 6.2, color: t.color || '#ffffff', bg: t.bg || '#000000', bgImg: '',
+      motion: t.motion && t.motion !== 'video' ? t.motion : 'none', headline: !!t.headline, headColor: t.headColor || '#ffd76a',
+      refColor: t.refColor || '#ffe9a8', lineHeight: +t.lineHeight || 1.45, bold: t.bold !== false, shadow: t.shadow !== false };
+  };
+  const d = draft || (key ? { ...fromBase(S.settings.themes[key].base || ''), ...S.settings.themes[key] } : { name: '', ...fromBase('word') });
+  const k = key || 'my_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
+  const motions = Object.entries(WC.MOTIONS).filter(([m]) => m !== 'video');
+  const body = openDlg(`
+    <div class="dlg-head"><h3>🎨 ${key ? '모양 고치기' : '새 모양 만들기'}</h3><button class="icon" data-x>✕</button></div>
+    <div class="two"><div class="form narrow" style="grid-template-columns:96px 1fr">
+      <label>이름</label><input id="tmName" maxlength="30" placeholder="예: 우리교회 말씀" value="${esc(d.name || '')}">
+      <label>시작할 모양</label><select id="tmBase">${Object.entries(WC.THEMES).map(([b, t]) => `<option value="${b}" ${b === (d.base || '') ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <label>글꼴</label><select id="tmFont">${WC.FONTS.map(([f, n]) => `<option value="${esc(f)}" ${f === d.font ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <label>글자 크기</label><input type="range" id="tmSize" min="3" max="12" step="0.1" value="${d.size}">
+      <label>줄 간격</label><input type="range" id="tmLh" min="1" max="2.2" step="0.05" value="${d.lineHeight}">
+      <label>글자 색</label><div class="row" style="margin:0"><input type="color" id="tmColor" style="width:56px;flex:none" value="${d.color}"><label class="small" style="white-space:nowrap"><input type="checkbox" id="tmBold" ${d.bold ? 'checked' : ''}> 굵게</label><label class="small" style="white-space:nowrap"><input type="checkbox" id="tmShadow" ${d.shadow ? 'checked' : ''}> 그림자</label></div>
+      <label>첫 줄 제목</label><div class="row" style="margin:0"><label class="small" style="white-space:nowrap"><input type="checkbox" id="tmHead" ${d.headline ? 'checked' : ''}> 크게·다른 색으로</label><input type="color" id="tmHeadColor" style="width:56px;flex:none" value="${d.headColor}"></div>
+      <label>성경 장절 색</label><input type="color" id="tmRef" style="width:56px;flex:none" value="${d.refColor}">
+      <label>배경 색</label><input type="color" id="tmBg" style="width:56px;flex:none" value="${d.bg}">
+      <label>움직이는 배경</label><select id="tmMotion">${motions.map(([m, n]) => `<option value="${m}" ${m === d.motion ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <label>배경 사진·영상</label><div class="row" style="margin:0"><span class="small grow">${d.bgImg ? esc(decodeURIComponent(d.bgImg.split('/').pop())) : '<span class="muted">없음</span>'}</span>
+        <button class="btn sm" id="tmImg">미디어에서 고르기</button>${d.bgImg ? '<button class="btn sm" id="tmImgDel">빼기</button>' : ''}</div>
+    </div><div><div class="wc-screen pv" id="tmPv"></div><div class="wc-screen pv" id="tmPv2" style="margin-top:8px"></div>
+      <p class="muted small">배경 사진·영상을 고르면 움직이는 배경 대신 깔립니다. 슬라이드에 따로 넣은 배경이 있으면 그것이 먼저입니다.</p></div></div>
+    <div class="dlg-foot"><button class="btn" data-x>닫기</button><button class="btn primary" id="tmSave">저장</button></div>`);
+  const $b = sel => body.querySelector(sel);
+  const read = () => Object.assign(d, { name: $b('#tmName').value.trim(), font: $b('#tmFont').value, size: +$b('#tmSize').value, lineHeight: +$b('#tmLh').value,
+    color: $b('#tmColor').value, bold: $b('#tmBold').checked, shadow: $b('#tmShadow').checked, headline: $b('#tmHead').checked, headColor: $b('#tmHeadColor').value,
+    refColor: $b('#tmRef').value, bg: $b('#tmBg').value, motion: $b('#tmMotion').value });
+  const draw = () => {
+    read();
+    const prev = S.settings.themes || {};
+    WC.setThemes({ ...prev, [k]: { ...d } });
+    WC.thumb($b('#tmPv'), { text: '여호와는 나의 목자시니\n내게 부족함이 없으리로다', ref: '시편 23:1' }, S.style, { theme: k });
+    WC.thumb($b('#tmPv2'), { text: '교회 소식\n이번 주 수요예배는 저녁 7시 30분입니다' }, S.style, { theme: k });
+    WC.setThemes(prev);
+  };
+  body.querySelectorAll('input,select').forEach(x => (x.oninput = x.onchange = draw));
+  $b('#tmBase').onchange = () => { const name = $b('#tmName').value; openThemeEditor(key, { ...fromBase($b('#tmBase').value), name, bgImg: d.bgImg }); };
+  $b('#tmImg').onclick = () => { read(); openMediaPicker(url => openThemeEditor(key, { ...d, bgImg: url }), () => openThemeEditor(key, d)); };
+  $b('#tmImgDel')?.addEventListener('click', () => { read(); openThemeEditor(key, { ...d, bgImg: '' }); });
+  $b('#tmSave').onclick = async () => {
+    read();
+    if (!d.name) { $b('#tmName').focus(); return toast('모양 이름을 적어 주세요'); }
+    try { await api('PUT', '/api/themes/' + k, d); await reload(); toast(`'${d.name}' 모양을 저장했습니다`); openSettings(); } catch {}
+  };
+  draw();
+}
 function openSettings() {
   const ls = { ...(S.settings.logoStyle || {}) };
   const POSN = { c: '가운데', tl: '왼쪽 위', tc: '위 가운데', tr: '오른쪽 위', bl: '왼쪽 아래', bc: '아래 가운데', br: '오른쪽 아래' };
@@ -1299,16 +1495,25 @@ function openSettings() {
       ${S.host ? `<div class="muted" style="margin-top:6px">아이폰 — 공유기가 다시 켜져도 그대로</div><div class="copy row"><input readonly value="http://${esc(S.host)}:${S.port}/remote"><button class="btn sm" data-copy="http://${esc(S.host)}:${S.port}/remote">복사</button></div>` : ''}
       <div class="muted" style="margin-top:6px">안 열리면: 같은 와이파이인지, 허용이 켜져 있는지 보세요. 공유기가 다시 켜지면 숫자 주소가 바뀌니 여기서 새 주소를 확인하세요.</div>
     </div>
+    <h4 style="margin:18px 0 8px">🎨 모양 (테마)</h4>
+    <p class="muted small" style="margin-top:0">교회에 맞는 모양(글꼴·색·배경)을 만들어 두면 자료마다 ✎ 편집 → 모양에서 고를 수 있습니다. 새로 넣을 때 처음부터 쓸 모양도 정해 두세요.</p>
+    <div class="form narrow" id="stThemeDefs" style="grid-template-columns:90px 1fr">
+      ${[['bible', '성경', 'word'], ['reading', '교독문', 'word'], ['notice', '광고', 'notice'], ['song', '새 찬양', '']].map(([k, n, fb]) => `<label>${n}</label><select data-def="${k}">${themeOpts(defTheme(k, fb))}</select>`).join('')}
+    </div>
+    <div class="cards" id="stMyThemes" style="margin:8px 0">${myThemes().map(([k, t]) => `<div class="c" data-te="${k}" title="눌러서 고치기"><div class="wc-screen"></div>
+      <div class="row" style="margin:0"><div class="n grow">${esc(t.name)}</div><button class="icon" data-tdel="${k}" title="이 모양 지우기">🗑</button></div></div>`).join('')}</div>
+    <button class="btn sm" id="stThemeNew">＋ 새 모양 만들기</button>
     <h4 style="margin:18px 0 8px">💾 백업·복원</h4>
     <div class="row wrap"><a class="btn" href="/api/backup" download>자료 전체 백업 받기 (zip)</a>
       <label class="btn">백업 파일로 되살리기<input type="file" id="stRestore" accept=".zip,application/zip" hidden></label></div>
     <p class="muted small">찬양·예배 순서·모양·설정·사진·영상을 파일 하나로 내려받습니다. 컴퓨터를 바꿀 때나 고장에 대비해 가끔 USB에 받아 두세요. 되살리면 지금 자료가 백업 내용으로 바뀝니다(바뀌기 전 자료도 data 폴더에 한 벌 남깁니다).</p>
     <h4 style="margin:18px 0 8px">🎵 찬송가</h4>
     <div class="row wrap"><span>${S.hymnCount ? `가져온 찬송가 ${S.hymnCount}곡` : '<span class="muted">아직 가져온 찬송가가 없습니다</span>'}</span>
-      <label class="btn sm">찬송가 가사 파일 가져오기<input type="file" id="stHymn" accept=".txt,.json,text/plain,application/json" hidden></label>
+      <label class="btn sm" title="여러 파일을 한꺼번에 골라도 됩니다 (⌘A / Ctrl+A)">찬송가 가사 파일 가져오기<input type="file" id="stHymn" accept=".txt,.json,text/plain,application/json" multiple hidden></label>
+      <label class="btn sm" title="한 곡이 파일 하나씩인 찬송가 모음 폴더 (파일 이름에 장 번호: 305장.txt)">📁 폴더째 가져오기<input type="file" id="stHymnDir" webkitdirectory hidden></label>
       ${S.hymnCount ? '<button class="btn sm" id="stHymnDel">모두 지우기</button>' : ''}</div>
     <p class="muted small">찬송가 가사는 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 찬송가 가사 파일(.txt)을 한 번 가져오면 ＋ 찬송가에서 번호만 쳐서 바로 넣습니다.</p>
-    <p class="muted small">형식: 곡마다 "305장 제목" 줄로 시작하고, 절은 "1." "2.", 후렴은 "후렴" 줄로 나눕니다. UTF-8 또는 EUC-KR.</p>
+    <p class="muted small">형식: 곡마다 "305장" 또는 "305장 제목" 줄로 시작하고(제목은 없어도 됩니다), 절은 "1." "2.", 후렴은 "후렴" 줄로 나눕니다. 한 곡이 파일 하나씩이면 파일 이름에 장 번호만 있으면 됩니다(305장.txt · 305.txt). UTF-8 또는 EUC-KR.</p>
     <h4 style="margin:18px 0 8px">📖 교독문</h4>
     <div class="row wrap"><span>${S.readingCount ? `가져온 교독문 ${S.readingCount}편` : '<span class="muted">아직 가져온 교독문이 없습니다</span>'}</span>
       <label class="btn sm">교독문 파일 가져오기<input type="file" id="stReading" accept=".txt,.json,text/plain,application/json" hidden></label>
@@ -1354,17 +1559,42 @@ function openSettings() {
     catch (err) { toast(err.message); }
   };
   body.querySelector('#stLang').onchange = async e => { await api('PUT', '/api/settings', { lang: e.target.value }); location.reload(); };
-  body.querySelector('#stHymn').onchange = async e => {
-    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-    const fd = new FormData(); fd.append('file', f);
-    try { const r = await api('POST', '/api/hymns/upload', fd); toast(`찬송가 ${r.count}곡을 가져왔습니다 (모두 ${r.total}곡)`); await reload(); openSettings(); } catch {}
+  const hymnUp = async e => {
+    const list = [...e.target.files].filter(f => /\.(txt|json)$/i.test(f.name)); e.target.value = '';
+    if (!list.length) return toast('찬송가 파일(.txt · .json)이 없습니다');
+    const fd = new FormData(); list.forEach(f => fd.append('file', f, f.webkitRelativePath || f.name));
+    toast('가져오는 중…');
+    try {
+      const r = await api('POST', '/api/hymns/upload', fd);
+      toast(`찬송가 ${r.count}곡을 가져왔습니다 (모두 ${r.total}곡)` + (r.failed?.length ? ` · 못 읽은 파일 ${r.failed.length}개: ${r.failed.slice(0, 3).join(', ')}${r.failed.length > 3 ? ' …' : ''}` : ''));
+      await reload(); openSettings();
+    } catch {}
   };
+  body.querySelector('#stHymn').onchange = hymnUp;
+  body.querySelector('#stHymnDir').onchange = hymnUp;
   body.querySelector('#stReading').onchange = async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     const fd = new FormData(); fd.append('file', f);
     try { const r = await api('POST', '/api/readings/upload', fd); toast(`교독문 ${r.count}편을 가져왔습니다 (모두 ${r.total}편)`); await reload(); openSettings(); } catch {}
   };
   body.querySelector('#stReadingDel')?.addEventListener('click', async () => { if (!confirm('가져온 교독문을 모두 지울까요?\n(예배 순서에 이미 넣은 교독문은 남습니다)')) return; await api('DELETE', '/api/readings'); await reload(); openSettings(); });
+  // 🎨 모양: 기본 모양 정하기 · 내 모양 고치기/지우기/새로
+  body.querySelectorAll('#stThemeDefs select').forEach(sel => sel.onchange = async () => {
+    const d = {}; body.querySelectorAll('#stThemeDefs select').forEach(x => (d[x.dataset.def] = x.value));
+    await api('PUT', '/api/settings', { themeDefaults: d }); await reload(); toast('새로 넣을 때 쓸 모양을 바꿨습니다');
+  });
+  body.querySelectorAll('#stMyThemes [data-te]').forEach(c => {
+    WC.thumb(c.querySelector('.wc-screen'), { text: '여호와는 나의 목자시니\n내게 부족함이 없으리로다', ref: '시편 23:1' }, S.style, { theme: c.dataset.te });
+    c.onclick = async e => {
+      const del = e.target.dataset.tdel;
+      if (!del) return openThemeEditor(c.dataset.te);
+      e.stopPropagation();
+      const t = S.settings.themes[del];
+      if (!confirm(`'${t.name}' 모양을 지울까요?\n이 모양을 쓰던 자료는 기본 모양으로 바뀝니다.`)) return;
+      await api('DELETE', '/api/themes/' + del); await reload(); openSettings();
+    };
+  });
+  body.querySelector('#stThemeNew').onclick = () => openThemeEditor(null);
   body.querySelector('#stHymnDel')?.addEventListener('click', async () => { if (!confirm('가져온 찬송가 가사를 모두 지울까요?\n(자료실에 이미 넣은 찬송가는 남습니다)')) return; await api('DELETE', '/api/hymns'); await reload(); openSettings(); });
   body.querySelector('#stUpd').onchange = async e => { await api('PUT', '/api/settings', { updateCheck: e.target.checked }); checkUpdate(); };
   body.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다'); });
@@ -1662,11 +1892,11 @@ function renderTools() {
   const y = L.yt;
   $('#ytCtl').classList.toggle('hidden', !y);
   if (y) {
-    $('#ytTitle').textContent = y.title || ('YouTube ' + y.id);
+    $('#ytTitle').textContent = (y.file ? '📁 ' : '') + (y.title || ('YouTube ' + y.id));
     $('#ytPlay').textContent = y.playing ? '⏸ 일시정지' : '▶ 재생';
     $('#ytPlay').classList.toggle('primary', !y.playing);
     $('#ytTv').checked = !!y.tv; $('#ytObs').checked = !!y.obs; $('#ytStage').checked = !!y.stage; $('#ytSound').value = y.sound || 'tv';
-    if (y.title) ytRemember(y.id, y.title);
+    if (y.title && !y.file) ytRemember(y.id, y.title);
   }
   tickTools();
 }
@@ -1683,6 +1913,15 @@ function drawYtRecent() {
   const list = ytRecent();
   box.innerHTML = list.length ? '<span class="small muted">최근</span>' + list.map((r, i) => `<button class="btn sm" data-ytr="${i}" title="${esc(r.title)}" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</button>`).join('') : '';
   box.querySelectorAll('[data-ytr]').forEach(b => (b.onclick = () => goLive({ yt: { open: list[+b.dataset.ytr].id } })));
+}
+// 내 영상 목록 (🖼 미디어의 영상 파일)
+async function drawYtFiles() {
+  const sel = $('#ytFile'); if (!sel) return;
+  const keep = sel.value;
+  const list = (await api('GET', '/api/media').catch(() => [])).filter(f => /\.(mp4|mov|m4v|webm)$/i.test(f.url));
+  sel.innerHTML = `<option value="">📁 내 영상 고르기… ${list.length ? `(${list.length}개)` : '(＋ 로 올리기)'}</option>` +
+    list.map(f => `<option value="${esc(f.url)}">${esc(f.name)}</option>`).join('');
+  if (list.some(f => f.url === keep)) sel.value = keep;
 }
 const ytNow = () => {
   const y = snap?.live?.yt; if (!y) return 0;
@@ -1749,6 +1988,24 @@ function initTools() {
     }).catch(() => {});
   };
   $('#ytOpen').onclick = ytOpen;
+  // 내 영상: 🖼 미디어에 올린 영상 파일 (인터넷 없이)
+  const fileOpen = () => {
+    const f = $('#ytFile').value; if (!f) return toast('틀 영상을 고르세요 (없으면 ＋ 로 올리기)');
+    goLive({ yt: { file: f } }).then(() => { if (snap?.live?.yt?.file === f) toast('내 영상을 띄웠습니다'); else toast('영상을 틀지 못했습니다'); }).catch(() => {});
+  };
+  $('#ytFileOpen').onclick = fileOpen;
+  $('#ytFile').ondblclick = fileOpen;
+  $('#ytFileUp').onchange = async e => {
+    const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+    const fd = new FormData(); files.forEach(f => fd.append('files', f));
+    toast('올리는 중… (영상이 크면 시간이 걸립니다)');
+    const up = await api('POST', '/api/media', fd).catch(() => null); if (!up) return;
+    await loadMediaBin().catch(() => {}); await drawYtFiles();
+    const v = up.find(x => /\.(mp4|mov|m4v|webm)$/i.test(x.url)); if (v) $('#ytFile').value = v.url;
+    toast('올렸습니다. ▶ 틀기를 누르세요');
+  };
+  $('#ytBox').addEventListener('toggle', () => { if ($('#ytBox').open) drawYtFiles(); });
+  drawYtFiles();
   $('#ytUrl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ytOpen(); } });
   $('#ytPlay').onclick = () => goLive({ yt: { playing: !snap?.live?.yt?.playing } });
   $('#ytBack').onclick = () => goLive({ yt: { step: -10 } });
@@ -1901,22 +2158,22 @@ function bind() {
   };
   $('#svcDel').onclick = async () => { const s = service(); if (s && confirm(`'${s.name}' 순서를 삭제할까요?\n(찬양은 자료실에 남고, 말씀·광고·문구는 함께 지워집니다)`)) await api('DELETE', '/api/services/' + s.id); };
   $('#newSong').onclick = () => openItemEditor(null);
-  $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: 'notice', slides: [{ text: '교회 소식\n내용을 적으세요' }] });
+  $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: defTheme('notice', 'notice'), slides: [{ text: '교회 소식\n내용을 적으세요' }] });
   $('#newHtml').onclick = openHtmlChoice;
   $('#newPhrase').onclick = openPhrases;
   $('#newBible').onclick = openBible;
   $('#newHymn').onclick = openHymn;
   $('#newReading').onclick = openReading;
   $('#newScore').onclick = openScore;
-  $('#pptFile').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    const fd = new FormData(); fd.append('file', f); fd.append('after', afterId() || '');
-    toast('PPT 가져오는 중…');
-    const it = await api('POST', '/api/pptx', fd);
-    e.target.value = ''; selId = it.id;
-    toast(`슬라이드 ${it.slides.length}장을 가져왔습니다`);
-  };
+  $('#newPpt').onclick = openPpt;
   $('#editItem').onclick = () => selId && openItemEditor(selId);
+  $('#allView').onclick = async () => {
+    const on = !allViewOn();
+    if (IS_EDITOR) lsSet('wc-all-view', on ? '1' : '0');
+    else { S.settings.continuous = on; await api('PUT', '/api/settings', { continuous: on }); }
+    renderSlides(); if (on) scrollToLive($('#slides'), true);
+    toast(on ? '전체 이어 보기 — 자료 끝에서 → 를 누르면 다음 자료로 이어집니다' : '이 자료만 보기');
+  };
   // 찬양마다 배경 영상: 아래 자료실의 영상을 슬라이드 칸에 끌어다 놓으면 이 자료에 저장
   const slidesBox = $('#slides');
   const isMediaDrag = e => [...(e.dataTransfer?.types || [])].includes('application/x-wc-media');
@@ -1978,6 +2235,13 @@ function bind() {
     if (inactive) return;
     if (dlg.open || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     const k = e.key;
+    if ((e.metaKey || e.ctrlKey) && /^[a-z]$/i.test(k)) {   // ⌘C · ⌘V: 예배 순서 항목 복사·붙여넣기 (⌘ 를 누른 채로는 B·C·L 같은 한 글자 단축키가 눌리지 않게)
+      if (String(window.getSelection?.() || '')) return;   // 글자를 고른 채면 보통 복사
+      const inSvc = id => !!service()?.itemIds.includes(id);
+      if ((k === 'c' || k === 'C') && selId && inSvc(selId)) { e.preventDefault(); clipId = selId; toast(`'${item(selId)?.title}' 복사 — ⌘V(Ctrl+V)로 붙여넣기`); }
+      else if ((k === 'v' || k === 'V') && clipId && item(clipId)) { e.preventDefault(); copyItem(clipId, inSvc(selId) ? selId : ''); }
+      return;
+    }
     if (['ArrowRight', ' ', 'PageDown', 'ArrowDown'].includes(k)) { e.preventDefault(); goLive({ step: 1 }); }
     else if (['ArrowLeft', 'PageUp', 'ArrowUp'].includes(k)) { e.preventDefault(); goLive({ step: -1 }); }
     else if (k === 'b' || k === 'B') $('#black').click();

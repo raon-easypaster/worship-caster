@@ -30,9 +30,30 @@ async function api(method, url, body, extra = {}) {
   return extra.allowFail ? { status: r.status, ...j } : j;
 }
 
+// 시험용 PDF (가로 16:9, n쪽) — 'PPT 그림으로 가져오기'의 변환 결과 대신 씀
+function makePdf(n = 2) {
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', ''];
+  const kids = [];
+  for (let i = 0; i < n; i++) {
+    const pg = 3 + i * 2, ct = pg + 1, body = `0.2 0.3 0.5 rg 0 0 960 540 re f 1 1 1 rg 100 100 ${200 + i * 100} 200 re f`;
+    kids.push(`${pg} 0 R`);
+    objs[pg - 1] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Contents ${ct} 0 R >>`;
+    objs[ct - 1] = `<< /Length ${body.length} >>\nstream\n${body}\nendstream`;
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${n} >>`;
+  let out = '%PDF-1.4\n'; const offs = [];
+  objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const x = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+const TEST_PDF = path.join(DATA, '..', path.basename(DATA) + '-ppt.pdf');
+
 async function main() {
   console.log(`\n예배송출 자동 점검 — 시험 서버 ${BASE}, 시험 자료 ${DATA}\n`);
-  srv = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), WC_DATA_DIR: DATA, NO_OPEN: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  fs.writeFileSync(TEST_PDF, makePdf(2));   // 실제 리브레오피스·키노트·파워포인트는 켜지 않음
+  srv = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), WC_DATA_DIR: DATA, NO_OPEN: '1', WC_TEST_PPT_PDF: TEST_PDF }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; srv.stdout.on('data', d => (log += d)); srv.stderr.on('data', d => (log += d));
   for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/api/me'); break; } catch { await sleep(200); } }
 
@@ -83,6 +104,38 @@ async function main() {
       ok(fs.existsSync(out), '애플스크립트 문법 오류');
     }
   });
+  await check('PPT 그림으로 가져오기(서버): PDF로 바꿔 돌려줌 · 이상한 파일은 막음 · 폴더 항목 든 .pptx 다시 묶기 · 맥은 리브레오피스→키노트, 윈도우는 파워포인트→리브레오피스 · 없으면 PDF로 넣으라는 안내', async () => {
+    const JSZip = require(path.join(ROOT, 'node_modules', 'jszip'));
+    const z = new JSZip(); z.folder('ppt'); z.file('ppt/presentation.xml', '<p/>'); z.file('[Content_Types].xml', '<Types/>');
+    const pptx = await z.generateAsync({ type: 'nodebuffer' });
+    const fd = new FormData(); fd.append('file', new Blob([pptx]), '강의.pptx');
+    const r = await fetch(BASE + '/api/pptx-pdf', { method: 'POST', headers: { Origin: BASE }, body: fd });
+    const buf = Buffer.from(await r.arrayBuffer());
+    ok(r.ok && buf.slice(0, 5).toString() === '%PDF-', 'PDF가 오지 않음: ' + r.status + ' ' + buf.slice(0, 80));
+    const fd2 = new FormData(); fd2.append('file', new Blob(['x']), 'a.exe');
+    const r2 = await fetch(BASE + '/api/pptx-pdf', { method: 'POST', headers: { Origin: BASE }, body: fd2 });
+    ok(r2.status === 400, '.exe 를 막지 않음: ' + r2.status);
+    const conv = require(path.join(ROOT, 'lib', 'ppt-convert'));
+    const tmp = path.join(DATA, 'repack.pptx'); fs.writeFileSync(tmp, pptx);
+    ok(await conv.repackPptx(tmp), '폴더 항목이 있는데 다시 묶지 않음');
+    const z2 = await JSZip.loadAsync(fs.readFileSync(tmp)), names = Object.keys(z2.files);
+    ok(!names.some(n => z2.files[n].dir) && names[0] === '[Content_Types].xml' && names.includes('ppt/presentation.xml'), '다시 묶은 순서·내용: ' + names.join(','));
+    const has = list => p => list.some(x => p.includes(x));
+    ok(conv.converters('darwin', has(['LibreOffice.app', 'Keynote.app'])).map(c => c.name).join() === '리브레오피스,키노트', '맥 순서');
+    ok(conv.converters('darwin', has(['Keynote.app'])).map(c => c.name).join() === '키노트', '맥 키노트만');
+    ok(conv.converters('darwin', () => false).length === 0, '맥에 아무것도 없을 때');
+    ok(conv.converters('win32', has(['LibreOffice'])).map(c => c.name).join() === '파워포인트,리브레오피스', '윈도우 순서');
+    ok(/front document/.test(conv.KEYNOTE_SCRIPT) && !/set d to open/.test(conv.KEYNOTE_SCRIPT), "키노트 14는 'set d to open' 문서를 내보내면 죽음 → 맨 앞 문서로");
+    ok(/SaveAs\(\$out, 32\)/.test(conv.POWERPOINT_PS1) && /Presentations\.Open\(\$in, -1, 0, 0\)/.test(conv.POWERPOINT_PS1), '파워포인트: 창 없이 읽기 전용으로 열어 PDF(32)로');
+    if (process.platform === 'darwin') {
+      const out = path.join(DATA, 'kn.scpt');
+      require('child_process').execFileSync('osacompile', ['-o', out, '-e', conv.KEYNOTE_SCRIPT]);   // 문법만 확인 (실행하지 않음)
+    }
+    const save = process.env.WC_TEST_PPT_PDF; process.env.WC_TEST_PPT_PDF = '';
+    try { await conv.pptToPdf(tmp, '.pptx'); ok(false, '변환 프로그램이 없는데 성공함'); }
+    catch (e) { ok(e.code === 'NO_CONVERTER' && /PDF·악보/.test(e.message), '안내 문구: ' + e.message); }
+    finally { if (save === undefined) delete process.env.WC_TEST_PPT_PDF; else process.env.WC_TEST_PPT_PDF = save; }
+  });
   await check('다른 사이트에서 온 요청은 막힘', async () => {
     const r = await fetch(BASE + '/api/live', { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
     ok(r.status === 403, '막히지 않음: ' + r.status);
@@ -104,6 +157,28 @@ async function main() {
     s = await api('POST', '/api/live', { reset: true }); ok(s.live.clear && !s.live.black && !s.live.mediaBg, '모두 끄기 상태가 다름');
     s = await api('POST', '/api/live', { black: true }); ok(s.live.black, '검은 화면이 안 됨');
     await api('POST', '/api/live', { black: false });
+  });
+  await check('📜 전체 이어 보기: 켜면 자료 끝에서 다음 자료로(빈 자료는 건너뜀)·처음에서 앞 자료 끝으로·다음 미리보기, 끄면 지금처럼 자료 안에서 멈춤', async () => {
+    const before = (await api('GET', '/api/state')).currentServiceId;
+    await api('POST', '/api/services', { name: '이어 보기 점검' });
+    const mk = (title, texts) => api('POST', '/api/items', { type: 'text', title, slides: texts.map(text => ({ text })), place: true });
+    const A = await mk('이어A', ['A1', 'A2']), E = await mk('이어빈', []), B = await mk('이어B', ['B1']);
+    try {
+      let s = await api('POST', '/api/live', { itemId: A.id, index: 1 });
+      ok(s.next === null, '꺼져 있을 때 마지막 장의 다음이 있음: ' + JSON.stringify(s.next));
+      s = await api('POST', '/api/live', { step: 1 }); ok(s.live.itemId === A.id && s.live.index === 1, '꺼져 있는데 다음 자료로 넘어감');
+      await api('PUT', '/api/settings', { continuous: true });
+      s = await api('POST', '/api/live', { itemId: A.id, index: 1 }); ok(s.next?.text === 'B1', '다음 미리보기가 다음 자료 첫 장이 아님: ' + JSON.stringify(s.next));
+      s = await api('POST', '/api/live', { step: 1 }); ok(s.live.itemId === B.id && s.live.index === 0 && s.slide?.text === 'B1', '다음 자료로 안 넘어감(빈 자료를 건너뛰어야 함): ' + JSON.stringify(s.live));
+      s = await api('POST', '/api/live', { step: 1 }); ok(s.live.itemId === B.id && s.live.index === 0, '마지막 자료 끝에서 더 넘어감');
+      s = await api('POST', '/api/live', { step: -1 }); ok(s.live.itemId === A.id && s.live.index === 1, '앞 자료 마지막 장으로 안 돌아감: ' + JSON.stringify(s.live));
+      s = await api('POST', '/api/live', { step: -1 }); ok(s.live.itemId === A.id && s.live.index === 0, '자료 안에서 이전이 안 됨');
+    } finally {
+      await api('PUT', '/api/settings', { continuous: false });
+      await api('PUT', '/api/current-service', { id: before });
+      await api('POST', '/api/live', { reset: true });
+    }
+    ok(E.id, '빈 자료가 안 만들어짐');
   });
   await check('로고: 검은 바탕 / 배경 위에 로고만', async () => {
     const media = await api('GET', '/api/media');
@@ -148,6 +223,57 @@ async function main() {
     const post = num => fetch(R + '/api/hymns/learn', { method: 'POST', headers: { Origin: R, Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ num, title: '덮어쓰기', lyrics: '가' }) });
     ok((await post(555)).status === 403, '이미 있는 555장을 덮어씀');
     ok((await post(556)).status === 200, '새 번호는 기억해야 함');
+  });
+  await check('찬송가: 제목 없는 "N장" 줄 · 한 곡 한 파일(파일 이름 번호) · 여러 파일 한꺼번에 · EUC-KR · 못 읽은 파일 알림', async () => {
+    const fd = new FormData();
+    fd.append('file', new Blob(['990장\n1. 제목 없는 곡\n둘째 줄\n']), 'many.txt');                       // 제목 없이 'N장'만
+    fd.append('file', new Blob(['1. 파일 이름 번호 곡\n둘째 줄\n\n후렴\n아멘\n']), '991장.txt');            // 안에 번호 없음 → 파일 이름
+    fd.append('file', new Blob(['제992장 (통405) 옛 번호 붙은 곡\n1. 가사\n']), 'x.txt');                    // '제N장' · (통N) 빼기
+    fd.append('file', new Blob([Buffer.from([0x31, 0x2e, 0x20, 0xc7, 0xd1, 0xb1, 0xdb, 0x0a])]), '993.txt');   // EUC-KR '1. 한글'
+    fd.append('file', new Blob(['번호가 어디에도 없는 글\n']), '주보.txt');
+    const r = await api('POST', '/api/hymns/upload', fd);
+    ok(r.count === 4 && r.failed?.length === 1 && r.failed[0] === '주보.txt', JSON.stringify(r));
+    const h = n => api('GET', '/api/hymns/' + n);
+    ok((await h(990)).title === '찬송가 990장 제목 없는 곡', '제목 없는 곡: ' + (await h(990)).title);
+    const h991 = await h(991); ok(h991.title === '찬송가 991장 파일 이름 번호 곡' && h991.arr.join(',') === '1절,후렴', JSON.stringify(h991));
+    ok((await h(992)).title === '찬송가 992장 옛 번호 붙은 곡', '제N장: ' + (await h(992)).title);
+    ok((await h(993)).lyrics.includes('한글'), 'EUC-KR: ' + (await h(993)).lyrics);
+    const bad = new FormData(); bad.append('file', new Blob(['아무 번호 없음']), '가사.txt');
+    ok((await api('POST', '/api/hymns/upload', bad, { allowFail: true })).status === 400, '못 읽는 파일을 받아들임');
+  });
+  await check('예배 순서 복제: 바로 아래에 따로 떨어진 사본 (고쳐도 원본 그대로)', async () => {
+    const svc = await api('POST', '/api/services', { name: '복제 점검 예배' });
+    const a = await api('POST', '/api/items', { type: 'notice', title: '복제 원본', theme: 'notice', slides: [{ text: '원본 글' }, { text: '둘째' }], place: true });
+    const b = await api('POST', '/api/items', { type: 'notice', title: '다음 순서', slides: [{ text: '다음' }], place: true });
+    await api('PUT', '/api/services/' + svc.id, { itemIds: [a.id, b.id] });
+    const cp = await api('POST', `/api/items/${a.id}/copy`, { serviceId: svc.id });
+    ok(cp.id !== a.id && cp.title === '복제 원본 (복사)' && cp.theme === 'notice' && cp.slides.length === 2 && cp.slides[0].id !== a.slides[0].id, JSON.stringify(cp));
+    let st = await api('GET', '/api/state');
+    ok(st.services.find(x => x.id === svc.id).itemIds.join() === [a.id, cp.id, b.id].join(), '바로 아래에 들어가지 않음');
+    await api('PUT', '/api/items/' + cp.id, { slides: [{ text: '사본만 고침' }] });
+    st = await api('GET', '/api/state');
+    ok(st.items.find(i => i.id === a.id).slides[0].text === '원본 글', '사본을 고쳤더니 원본도 바뀜');
+    ok((await api('POST', '/api/items/nope/copy', {}, { allowFail: true })).status === 404, '없는 자료를 복제함');
+    await api('DELETE', '/api/services/' + svc.id).catch(() => {});
+  });
+  await check('🎨 내 모양: 저장(이상한 값 걸러짐) · 새로 넣을 때 기본 모양 · 지우면 그 모양을 쓰던 자료는 기본으로 · 백업에 들어감', async () => {
+    const r = await api('PUT', '/api/themes/my_testa', { name: '우리 말씀', base: 'word', bg: '#3a1f0f', color: 'red;}', font: "x</style>", size: 99, bgImg: 'http://evil/x.png', motion: 'water', bold: false, evil: 1 });
+    ok(r.theme.bg === '#3a1f0f' && !r.theme.color && !r.theme.font && r.theme.size === 30 && !r.theme.bgImg && r.theme.motion === 'water' && r.theme.bold === false && !('evil' in r.theme), JSON.stringify(r.theme));
+    ok((await api('PUT', '/api/themes/word', { name: 'x' }, { allowFail: true })).status === 400, '기본 모양 이름표로 저장됨');
+    await api('PUT', '/api/settings', { themeDefaults: { bible: 'my_testa', notice: 'my_nothere', song: '' } });
+    let st = await api('GET', '/api/state');
+    ok(st.settings.themes.my_testa?.name === '우리 말씀' && st.settings.themeDefaults.bible === 'my_testa' && !('notice' in st.settings.themeDefaults), JSON.stringify(st.settings.themeDefaults));
+    ok(st.live.themes?.my_testa, '송출 화면에 내 모양이 안 감');
+    const it = await api('POST', '/api/items', { type: 'bible', title: '모양 점검', theme: 'my_testa', slides: [{ text: '말씀' }] });
+    ok(it.theme === 'my_testa', '자료에 내 모양이 안 붙음');
+    // 백업 → 지우기 → 되살리기 하면 내 모양이 돌아옴
+    const zip = await (await fetch(BASE + '/api/backup')).arrayBuffer();
+    await api('DELETE', '/api/themes/my_testa');
+    st = await api('GET', '/api/state');
+    ok(!st.settings.themes.my_testa && st.items.find(i => i.id === it.id).theme === '' && !st.settings.themeDefaults.bible, '지운 모양이 남음');
+    const fd = new FormData(); fd.append('file', new Blob([zip]), 'b.zip'); await api('POST', '/api/restore', fd);
+    st = await api('GET', '/api/state');
+    ok(st.settings.themes.my_testa?.bg === '#3a1f0f' && st.settings.themeDefaults.bible === 'my_testa', '백업에서 내 모양이 안 돌아옴');
   });
   await check('백업 받기 → 되살리기 (이상한 값은 걸러짐)', async () => {
     const r = await fetch(BASE + '/api/backup'); ok(r.ok, '백업 실패'); const zip = await r.arrayBuffer();
@@ -359,6 +485,55 @@ async function main() {
     noErr();
     await api('DELETE', '/api/services/' + svc.id).catch(() => {});
   });
+  await check('예배 순서 ⧉ 복제 단추 · ⌘C/⌘V 붙여넣기 (⌘C 가 모두 끄기(C)를 누르지 않음)', async () => {
+    const svc = await api('POST', '/api/services', { name: '복사 점검 예배' });
+    const mk = t => api('POST', '/api/items', { title: t, type: 'phrase', slides: [{ text: t }] });
+    const a = await mk('복사 가'), b = await mk('복사 나');
+    await api('PUT', '/api/services/' + svc.id, { itemIds: [a.id, b.id] });
+    await api('POST', '/api/live', { itemId: b.id, index: 0 });
+    await openControl(); c.errors.splice(0);
+    const order = async () => { const st = await api('GET', '/api/state'); return st.services.find(x => x.id === svc.id).itemIds.map(id => st.items.find(i => i.id === id)?.title).join('|'); };
+    await c.eval(`(document.querySelector('#serviceList li [data-a=copy]').click(), 1)`); await sleep(800);
+    ok(await order() === '복사 가|복사 가 (복사)|복사 나', '⧉ 단추: ' + await order());
+    // ⌘C 로 '복사 나' 를 복사하고 맨 위 '복사 가' 를 고른 뒤 ⌘V → 그 아래에
+    await c.eval(`(document.activeElement.blur(), select(${JSON.stringify(b.id)}), dispatchEvent(new KeyboardEvent('keydown', { key: 'c', metaKey: true, bubbles: true })), 1)`); await sleep(300);
+    ok(!(await api('GET', '/api/state')).live.live.clear, '⌘C 가 글자 지우기(C)를 눌렀음');
+    await c.eval(`(select(${JSON.stringify(a.id)}), dispatchEvent(new KeyboardEvent('keydown', { key: 'v', metaKey: true, bubbles: true })), 1)`); await sleep(900);
+    ok(await order() === '복사 가|복사 나 (복사)|복사 가 (복사)|복사 나', '⌘V: ' + await order());
+    noErr();
+    await api('POST', '/api/live', { reset: true });
+    await api('DELETE', '/api/services/' + svc.id).catch(() => {});
+  });
+  await check('🎨 내 모양: 설정 창에서 만들기 · 예배당 화면에 글꼴·배경 색·배경 사진 · OBS 는 자막 바 그대로', async () => {
+    await openControl(); c.errors.splice(0);
+    await c.eval(`(openSettings(), document.querySelector('#stThemeNew').click(), 1)`); await sleep(400);
+    await c.eval(`(() => { const b = document.querySelector('#dlgBody'); b.querySelector('#tmName').value = '화면 점검 모양'; b.querySelector('#tmBg').value = '#3a1f0f';
+      b.querySelector('#tmFont').value = "'Nanum Myeongjo', serif"; b.querySelector('#tmBg').dispatchEvent(new Event('input')); b.querySelector('#tmSave').click(); return 1; })()`); await sleep(900);
+    const st = await api('GET', '/api/state');
+    const [key] = Object.entries(st.settings.themes).find(([, t]) => t.name === '화면 점검 모양') || [];
+    ok(key, '새 모양이 저장되지 않음');
+    ok(await c.eval(`!!document.querySelector('#stMyThemes [data-te=${key}] .wc-screen *')`), '설정 창에 내 모양 미리보기가 없음');
+    ok(await c.eval(`[...document.querySelectorAll('#eTheme option, #stThemeDefs option')].some(o => o.value === ${JSON.stringify(key)})`), '모양 목록에 내 모양이 없음');
+    noErr(); await c.eval(`(closeDlg(), 1)`);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const fd = new FormData(); fd.append('files', new Blob([png]), 'theme_bg.png');
+    const [m] = await api('POST', '/api/media', fd);
+    const it = await api('POST', '/api/items', { type: 'bible', title: '모양 화면 점검', theme: key, slides: [{ text: '여호와는 나의 목자시니', ref: '시 23:1' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0 });
+    await c.go(BASE + '/output?nohint', 2000);
+    const look = () => c.eval(`(() => { const L = [...document.querySelectorAll('#screen > .wc-layer')].pop(), t = L?.querySelector('.wc-text-main');
+      return { bg: L && getComputedStyle(L).backgroundColor, font: t && getComputedStyle(t).fontFamily, img: L?.querySelector('.wc-bg')?.style.backgroundImage || '' }; })()`);
+    let v = await look();
+    ok(v.bg === 'rgb(58, 31, 15)' && /Nanum Myeongjo/.test(v.font), JSON.stringify(v));
+    await api('PUT', '/api/themes/' + key, { ...st.settings.themes[key], bgImg: m.url }); await sleep(1000);
+    v = await look(); ok(v.img.includes(m.url), '배경 사진이 안 깔림: ' + JSON.stringify(v));
+    noErr();
+    await c.go(BASE + '/overlay', 1500);
+    ok(await c.eval(`!document.querySelector('.wc-bg') && (document.querySelector('.wc-ov-text')?.innerText || '').includes('목자')`), 'OBS 자막이 바뀜');
+    noErr();
+    await api('POST', '/api/live', { reset: true });
+    await openControl(); c.errors.splice(0);   // 다음 점검은 운영 화면에서
+  });
   // 맨 위·왼쪽 단추를 실제로 눌러 창이 열리는지 (v0.4.0~0.11.0 자막 스타일 단추 버그 같은 것 방지)
   for (const [sel, name] of [['#styleBtn', '🎨 자막 스타일'], ['#settingsBtn', '⚙︎ 설정'], ['#obsBtn', '🎥 OBS 자막 주소'], ['#mediaBtn', '🖼 미디어'],
     ['#newSong', '＋ 찬양'], ['#newBible', '＋ 성경'], ['#newHymn', '＋ 찬송가'], ['#newReading', '＋ 교독문'], ['#newPhrase', '＋ 문구·성찬'], ['#newNotice', '＋ 광고'],
@@ -506,6 +681,29 @@ async function main() {
     ok(await c.eval(`snap.live.itemId === ${JSON.stringify(it.id)} && snap.live.index === 3`), '두 번째 후렴으로 안 넘어감');
     ok(await c.eval(`document.querySelectorAll('#secNav .secbtn')[3].classList.contains('on')`), '지금 부분 표시가 안 됨'); noErr();
   });
+  await check('📜 전체 이어 보기 단추: 예배 순서 전체가 자료마다 제목 줄로 · 슬라이드 누르면 송출 · → 로 다음 자료 · 접기 · 끄면 한 자료만', async () => {
+    await openControl();
+    const n = await c.eval(`service().itemIds.filter(id => item(id)).length`);
+    await c.eval(`(document.querySelector('#allView').click(), 1)`); await sleep(700);
+    ok(await c.eval(`document.querySelector('#allView').classList.contains('on') && S.settings.continuous === true`), '단추가 켜지지 않음');
+    const secs = await c.eval(`document.querySelectorAll('#slides .allsec').length`);
+    ok(secs === n, `제목 줄 ${secs}개, 예배 순서 ${n}개`);
+    const ids = await c.eval(`service().itemIds.filter(id => item(id) && WC.seq(item(id)).length)`);
+    const a = ids[ids.length - 2], b = ids[ids.length - 1];
+    const lastA = await c.eval(`WC.seq(item(${JSON.stringify(a)})).length - 1`);
+    await c.eval(`(document.querySelector('#slides .slide[data-item=${JSON.stringify(a)}][data-i="${lastA}"]').click(), 1)`); await sleep(600);
+    ok(await c.eval(`snap.live.itemId === ${JSON.stringify(a)} && snap.live.index === ${lastA}`), '슬라이드를 눌러도 안 나감');
+    ok(await c.eval(`!!document.querySelector('#slides .slide.live[data-item=${JSON.stringify(a)}]')`), '나가는 슬라이드 표시가 없음');
+    await c.eval(`(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })), 1)`); await sleep(600);
+    ok(await c.eval(`snap.live.itemId === ${JSON.stringify(b)} && snap.live.index === 0`), '→ 로 다음 자료로 안 넘어감');
+    ok(await c.eval(`selId === ${JSON.stringify(b)} && !!document.querySelector('#slides .slide.live[data-item=${JSON.stringify(b)}]')`), '왼쪽 순서·표시가 따라오지 않음');
+    await c.eval(`(document.querySelector('#slides .allsec .fold').click(), 1)`); await sleep(400);
+    ok(await c.eval(`!document.querySelector('#slides .allsec').querySelector('.grid')`), '접기가 안 됨');
+    await c.eval(`(document.querySelector('#slides .allsec .fold').click(), 1)`); await sleep(400);
+    await c.eval(`(document.querySelector('#allView').click(), 1)`); await sleep(700);
+    ok(await c.eval(`!document.querySelector('#slides .allsec') && document.querySelector('#slides').classList.contains('grid') && S.settings.continuous === false`), '끄면 한 자료 보기로 안 돌아감');
+    await c.eval(`(goLive({ reset: true }), 1)`); await sleep(300); noErr();
+  });
   await check('타이머: 0이 되면 예배당 화면에서 사라짐', async () => {
     await api('POST', '/api/live', { timer: { min: 0.05, label: '시작까지', tv: 'big' } });
     await c.go(BASE + '/output?nohint', 1200);
@@ -621,6 +819,79 @@ async function main() {
     st = await api('GET', '/api/state'); ok(st.live.live.yt === null, '⏹ 끄기 안 됨');
     ok(await c.eval(`document.querySelector('#ytCtl').classList.contains('hidden')`), '끈 뒤에도 조작판이 보임');
   });
+  await check('PDF·악보 나누기: 세로 악보는 위·아래로 나누고, 가로 사진·그림(가로가 더 긴 것)은 나누지 않음', async () => {
+    await openControl();
+    const r = await c.eval(`(() => { const mk = (w, h) => { const x = document.createElement('canvas'); x.width = w; x.height = h; return x; };
+      return [sliceCanvas(mk(1600, 900), 2).length, sliceCanvas(mk(1000, 1000), 3).length, sliceCanvas(mk(900, 1600), 2).length, sliceCanvas(mk(900, 1600), 1).length].join(','); })()`);
+    ok(r === '1,1,2,1', '나눈 장 수(가로·정사각·세로2칸·안 나눔) 기대 1,1,2,1 실제 ' + r);
+  });
+  await check('＋ PPT 그림으로 가져오기(화면): 방식 고르는 창 · 원본 모양 그대로 장마다 그림 슬라이드(PPT 자료) · 방송에는 그림으로 · 글자로 가져오기도 남아 있음', async () => {
+    await openControl();
+    const before = (await api('GET', '/api/state')).items.length;
+    await c.eval(`(document.querySelector('#newPpt').click(), 1)`); await sleep(300);
+    ok(await c.eval(`!!document.querySelector('#pptIn') && document.querySelectorAll('[name=pptMode]').length === 2 && document.querySelector('[name=pptMode][value=image]').checked`), '방식 고르는 창이 없거나 기본이 그림이 아님');
+    await c.eval(`(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([80,75,3,4])], '강의자료.pptx')); const i = document.querySelector('#pptIn'); i.files = dt.files; document.querySelector('#pptGo').click(); return 1; })()`);
+    let it = null;
+    for (let i = 0; i < 40 && !it; i++) { await sleep(300); const st = await api('GET', '/api/state'); if (st.items.length > before) it = st.items.find(x => x.title === '강의자료'); }
+    ok(it, '자료가 만들어지지 않음: ' + await c.eval(`document.querySelector('#pptProg')?.textContent || ''`));
+    ok(it.type === 'ppt' && it.slides.length === 2, '종류·장 수: ' + it.type + ' ' + it.slides.length);
+    ok(it.slides.every(s => /^\/media\/ppt_.+\.jpg$/.test(s.bg) && !s.text && s.fit === 'contain'), '그림 슬라이드가 아님: ' + JSON.stringify(it.slides[0]));
+    const media = await api('GET', '/api/media');
+    ok(!media.some(m => m.url.startsWith('/media/ppt_')), 'PPT 그림이 미디어 자료실에 섞여 나옴');
+    const svc = (await api('GET', '/api/state')).services.find(s => s.itemIds.includes(it.id));
+    ok(svc, '예배 순서에 들어가지 않음');
+    await api('POST', '/api/live', { itemId: it.id, index: 0 }); await sleep(400);
+    await c.go(BASE + '/output?nohint', 1200);
+    ok(await c.eval(`!!document.querySelector('#screen img, #screen .wc-bg, #screen [style*="ppt_"]')`), '예배당 화면에 그림이 안 나옴');
+    await api('POST', '/api/live', { reset: true }).catch(() => {});
+    await openControl();
+    await c.eval(`(document.querySelector('#newPpt').click(), document.querySelector('[name=pptMode][value=text]').click(), 1)`); await sleep(200);
+    ok(await c.eval(`document.querySelector('[name=pptMode][value=text]').checked`), '글자로 가져오기를 고를 수 없음');
+    await c.eval(`(document.querySelector('[name=pptMode][value=image]').click(), document.querySelector('#dlg [data-x]').click(), 1)`);
+    try { await c.eval(`localStorage.removeItem('wc-ppt-mode')`); } catch {}
+    noErr();
+  });
+  await check('📁 내 영상 틀기: 영상 파일을 인터넷 없이 예배당에서 재생·멈춤·이동, 끝나면 빠짐, 이상한 주소는 막음', async () => {
+    const vid = (await api('GET', '/api/media')).find(m => /\.mp4$/i.test(m.url));
+    ok(vid, '시험할 영상이 없음');
+    // 미디어 밖 파일·없는 파일·영상이 아닌 파일은 받지 않음
+    for (const bad of ['/media/../db.json', '/media/없는영상.mp4', 'https://evil.example/a.mp4', '/media/a.jpg']) {
+      const r = await api('POST', '/api/live', { yt: { file: bad } });
+      ok(!r.live.yt, '이상한 주소를 받아들임: ' + bad);
+    }
+    // 운영 화면에서 골라 틀기
+    await openControl(); c.errors.splice(0);
+    await c.eval(`(document.querySelector('#ytBox').open = true, 1)`); await sleep(800);
+    ok(await c.eval(`[...document.querySelector('#ytFile').options].some(o => o.value === ${JSON.stringify(vid.url)})`), '내 영상 목록에 파일이 없음');
+    await c.eval(`(document.querySelector('#ytFile').value = ${JSON.stringify(vid.url)}, document.querySelector('#ytFileOpen').click(), 1)`); await sleep(1000);
+    let y = (await api('GET', '/api/state')).live.live.yt;
+    ok(y?.file === vid.url && y.playing && y.tv, '틀기 안 됨: ' + JSON.stringify(y));
+    ok((await c.eval(`document.querySelector('#ytTitle').textContent`)).startsWith('📁'), '조작판에 내 영상 표시가 없음');
+    noErr();
+    // 예배당 화면: <video> 로 재생, 소리는 예배당
+    await c.go(BASE + '/output?nohint', 1500);
+    let v = null;
+    for (let i = 0; i < 20; i++) { v = await c.eval(`(() => { const v = document.querySelector('#screen > .wc-yt video.wc-yt-v'); return v && { paused: v.paused, t: v.currentTime, src: decodeURIComponent(v.src) }; })()`); if (v && !v.paused && v.t > 0.3) break; await sleep(250); }
+    ok(v && v.src.endsWith(decodeURIComponent(vid.url)) && !v.paused, '예배당 화면에서 재생 안 됨: ' + JSON.stringify(v));
+    // 길이를 서버에 알림 → 멈춤·이동이 화면에 맞춰짐
+    for (let i = 0; i < 10 && !((await api('GET', '/api/state')).live.live.yt.dur > 0); i++) await sleep(300);
+    ok((await api('GET', '/api/state')).live.live.yt.dur > 0, '영상 길이를 모름');
+    await api('POST', '/api/live', { yt: { playing: false } }); await api('POST', '/api/live', { yt: { seek: 2 } }); await sleep(1200);
+    v = await c.eval(`(() => { const v = document.querySelector('#screen > .wc-yt video.wc-yt-v'); return { paused: v.paused, t: v.currentTime }; })()`);
+    ok(v.paused && Math.abs(v.t - 2) < 0.6, '멈춤·이동이 화면에 안 맞음: ' + JSON.stringify(v));
+    // 방송(OBS) 끄면 방송 화면엔 안 나옴 (녹화본에 넣지 않기)
+    await api('POST', '/api/live', { yt: { obs: false } });
+    await c.go(BASE + '/overlay', 1200);
+    ok(!(await c.eval(`!!document.querySelector('#screen > .wc-yt')`)), '방송을 껐는데 방송 화면에 나옴');
+    // 끝까지 가면 저절로 빠짐
+    await c.go(BASE + '/output?nohint', 1500);
+    const dur = (await api('GET', '/api/state')).live.live.yt.dur;
+    await api('POST', '/api/live', { yt: { seek: Math.max(0, dur - 1.5) } }); await api('POST', '/api/live', { yt: { playing: true } });
+    for (let i = 0; i < 20 && !(await api('GET', '/api/state')).live.live.yt?.ended; i++) await sleep(300);
+    ok((await api('GET', '/api/state')).live.live.yt?.ended, '끝났는데 빠지지 않음');
+    await api('POST', '/api/live', { yt: null });
+    noErr();
+  });
   await check('휴대폰 리모컨: 허용·PIN 화면', async () => {
     await api('PUT', '/api/settings', { remote: true });
     await c.go(BASE + '/remote', 1500);
@@ -725,7 +996,7 @@ async function main() {
 main().catch(e => { results.push([false, '점검 도중 멈춤', e.stack]); console.log(e); }).finally(async () => {
   chrome?.close(); srv?.kill();
   await sleep(300);
-  try { fs.rmSync(DATA, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(DATA, { recursive: true, force: true }); fs.rmSync(TEST_PDF, { force: true }); } catch {}
   const bad = results.filter(r => !r[0]);
   console.log(`\n${bad.length ? '✗' : '✓'} ${results.length - bad.length}/${results.length} 통과${bad.length ? ' — 실패: ' + bad.map(r => r[1]).join(', ') : ''}\n`);
   process.exit(bad.length ? 1 : 0);

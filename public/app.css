@@ -116,7 +116,7 @@ dialog::backdrop { background: rgba(10,14,22,.5); }
 
 .sizes { display: grid; grid-template-columns: auto auto 3.2em auto; gap: 4px 6px; align-items: center; margin-top: 6px; font-size: 13px; }
 .sizes b { text-align: center; font-variant-numeric: tabular-nums; }
-.btn.toggle.on#motionOn, .btn.toggle.on#pip { background: var(--accent); border-color: var(--accent); }
+.btn.toggle.on#motionOn, .btn.toggle.on#pip, .btn.toggle.on#allView { background: var(--accent); border-color: var(--accent); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .cards .c { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--panel); }
 .cards .c:hover { outline: 2px solid var(--accent); }
@@ -263,3 +263,21 @@ table.conti input { width: 100%; padding: 4px 6px; }
 #serviceList li.dragging { opacity: .4; }
 #serviceList li.drop-before { box-shadow: inset 0 3px 0 #2f6df6; }
 #serviceList li.drop-after { box-shadow: inset 0 -3px 0 #2f6df6; }
+/* 전체 이어 보기: 예배 순서 전체 슬라이드를 자료마다 제목을 달아 옆으로 이어서 (한 장짜리 자료는 나란히) */
+.allview { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-start; }
+.allsec { flex: 0 1 auto; max-width: 100%; min-width: 0; border-radius: 10px; padding: 0 4px 6px; }
+.allsec > .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.allsec > .grid > .slide { width: 220px; flex: 0 0 220px; }
+.allhead { display: flex; align-items: center; gap: 6px; padding: 4px 2px 6px; width: 0; min-width: 100%; box-sizing: border-box; cursor: pointer; }
+.allhead .t { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.allhead .fold { width: 20px; flex: none; }
+.allhead .badge, .allhead .small { flex: none; }
+.allsec.sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.allsec.sel > .allhead .t { color: var(--accent); }
+.allsec.livesec > .allhead .badge { background: var(--live); color: #fff; }
+/* PPT 가져오기: 방식 고르기 */
+.ppt-modes { display:flex; flex-direction:column; gap:8px; }
+.ppt-mode { display:block; padding:8px 10px; border:1px solid var(--line, #d0d5dd); border-radius:8px; cursor:pointer; line-height:1.45; }
+.ppt-mode:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ppt-mode .small { display:block; margin-left:22px; }
+.ppt-mode input { width:auto; margin:0 4px 0 0; }

@@ -25,6 +25,7 @@ const bible = require('./lib/bible');
 const hymns = require('./lib/hymns');
 const readings = require('./lib/readings');
 const { importPptx } = require('./lib/pptx');
+const { pptToPdf } = require('./lib/ppt-convert');
 const templates = require('./lib/templates');
 
 const PORT = +process.env.PORT || 5300;
@@ -85,7 +86,40 @@ function placeInService(id, after) {
   const at = after ? svc.itemIds.indexOf(after) : -1;
   if (at >= 0) svc.itemIds.splice(at + 1, 0, id); else svc.itemIds.push(id);
 }
-const THEME_RE = /^[a-z_]{0,30}$/;
+const THEME_RE = /^[a-z0-9_]{0,30}$/;
+// 교회가 만든 '내 모양' (⚙︎ 설정 → 🎨 모양): 기본 모양 위에 글꼴·색·배경을 바꿔 이름 붙여 저장
+const MY_THEME_RE = /^my_[a-z0-9]{4,20}$/;
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+const THEME_MOTIONS = ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers'];
+function cleanTheme(t) {
+  t = t && typeof t === 'object' ? t : {};
+  const out = { name: String(t.name ?? '').trim().slice(0, 30) || '내 모양' };
+  const hex = k => { if (HEX_RE.test(String(t[k] ?? ''))) out[k] = String(t[k]).toLowerCase(); };
+  const n = (k, lo, hi) => { const v = +t[k]; if (t[k] !== '' && t[k] != null && Number.isFinite(v)) out[k] = Math.min(hi, Math.max(lo, v)); };
+  if (THEME_RE.test(String(t.base ?? '')) && !MY_THEME_RE.test(String(t.base ?? ''))) out.base = String(t.base ?? '');
+  if (/^[\w\s',\-가-힣]{1,120}$/.test(String(t.font ?? ''))) out.font = String(t.font);
+  ['color', 'bg', 'headColor', 'refColor'].forEach(hex);
+  n('size', 1, 30); n('lineHeight', 0.8, 3);
+  if (THEME_MOTIONS.includes(t.motion)) out.motion = t.motion;
+  if (LOGO_RE.test(String(t.bgImg ?? ''))) out.bgImg = String(t.bgImg);   // 배경 사진·영상 (미디어)
+  for (const k of ['headline', 'bold', 'shadow']) if (t[k] !== undefined && t[k] !== null && t[k] !== '') out[k] = !!t[k];
+  return out;
+}
+function cleanThemes(o) {
+  const out = {};
+  if (o && typeof o === 'object') for (const [k, v] of Object.entries(o).slice(0, 60)) if (MY_THEME_RE.test(k)) out[k] = cleanTheme(v);
+  return out;
+}
+// 새로 넣을 때 처음부터 쓸 모양: 성경·교독문·광고·새 찬양
+const THEME_DEF_KINDS = ['bible', 'reading', 'notice', 'song'];
+function cleanThemeDefaults(o, themes) {
+  const out = {};
+  if (o && typeof o === 'object') for (const k of THEME_DEF_KINDS) {
+    const v = String(o[k] ?? '');
+    if (o[k] != null && THEME_RE.test(v) && (!MY_THEME_RE.test(v) || themes[v])) out[k] = v;
+  }
+  return out;
+}
 const MV_RE = /^\/media\/[^\"'<>()\\\s]+\.(mp4|mov|m4v|webm)$/i;
 function itemFields(b, it = {}) {
   return {
@@ -155,15 +189,26 @@ function lanAddresses() {
   return out;
 }
 
+// 전체 이어 보기: 예배 순서에서 이 자료의 앞·뒤 자료 (슬라이드가 없는 자료는 건너뜀)
+function neighborItem(id, dir) {
+  const svc = [db.services.find(s => s.id === db.currentServiceId), ...db.services].find(s => s && s.itemIds.includes(id));
+  if (!svc) return null;
+  for (let k = svc.itemIds.indexOf(id) + dir; k >= 0 && k < svc.itemIds.length; k += dir) {
+    const it = db.items.find(i => i.id === svc.itemIds[k]);
+    if (it && store.seq(it).length) return it;
+  }
+  return null;
+}
 function snapshot() {
   const item = db.items.find(i => i.id === live.itemId);
   const sl = item ? store.seq(item) : [];
   const slide = sl[live.index] || null;
-  const next = sl[live.index + 1] || null;
+  let next = sl[live.index + 1] || null;
+  if (!next && item && db.settings.continuous) { const n = neighborItem(item.id, 1); if (n) next = store.seq(n)[0] || null; }   // 이어 보기: 다음 자료 첫 장
   const prop = live.prop ? db.props.find(p => p.id === live.prop) || null : null;
   return {
     type: 'live', live: { ...live }, style: db.style, now: Date.now(), prop,
-    logo: { url: db.settings.logo, ...db.settings.logoStyle }, obs: db.settings.obsScenes,
+    logo: { url: db.settings.logo, ...db.settings.logoStyle }, obs: db.settings.obsScenes, themes: db.settings.themes || {},
     item: item ? { id: item.id, title: item.title, type: item.type, count: sl.length, noBroadcast: !!item.noBroadcast, bcFull: !!item.bcFull, theme: item.theme || '', motionVideo: item.motionVideo || '' } : null,
     slide, next,
   };
@@ -290,7 +335,7 @@ app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
-    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '' },
+    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '', themes: db.settings.themes || {}, themeDefaults: db.settings.themeDefaults || {} },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), readingCount: readings.count(), port: PORT, live: snapshot(),
     recovered: isLocal(req) ? store.recoveredInfo() : null,   // 자료 파일이 깨져 보관본으로 되살렸으면 알림
   });
@@ -307,6 +352,22 @@ app.put('/api/items/:id', needAuth, (req, res) => {
   Object.assign(it, itemFields(req.body || {}, it), { updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
   if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, store.seq(it).length - 1)); pushLive(); }
+  changed(); res.json(it);
+});
+// 복제: 가사·슬라이드·모양·배경 영상까지 그대로 담은 새 자료를 예배 순서에 하나 더 (따로 떨어진 사본)
+app.post('/api/items/:id/copy', needAuth, (req, res) => {
+  const src = db.items.find(i => i.id === req.params.id);
+  if (!src) return res.status(404).json({ error: '복제할 자료가 없습니다' });
+  const svc = db.services.find(s => s.id === (req.body?.serviceId || db.currentServiceId));
+  if (!svc) return res.status(404).json({ error: '예배 순서가 없습니다' });
+  const it = JSON.parse(JSON.stringify(src));
+  it.id = store.uid(); it.updatedAt = Date.now();
+  it.title = (String(src.title || '').replace(/\s*\(복사(?: \d+)?\)$/, '') + ' (복사)').slice(0, 200);
+  (it.slides || []).forEach(s => (s.id = store.uid()));
+  db.items.push(it);
+  const after = req.body?.after ?? src.id;
+  const at = svc.itemIds.indexOf(after);
+  if (at >= 0) svc.itemIds.splice(at + 1, 0, it.id); else svc.itemIds.push(it.id);
   changed(); res.json(it);
 });
 app.delete('/api/items/:id', needAuth, (req, res) => {
@@ -467,18 +528,41 @@ app.put('/api/settings', needLocal, (req, res) => {
   // 운영 화면 맨 위 '예배송출' 앞에 붙는 교회 로고 (비우면 ✝)
   if (req.body.titleLogo != null) db.settings.titleLogo = TITLE_LOGO_RE.test(req.body.titleLogo) ? req.body.titleLogo : '';
   if (req.body.remote !== undefined) db.settings.remote = !!req.body.remote;   // 휴대폰 리모컨 허용
+  if (req.body.continuous !== undefined) { db.settings.continuous = !!req.body.continuous; pushLive(); }   // 전체 이어 보기 (자료 끝에서 다음 자료로 이어 넘김)
   if (req.body.updateCheck !== undefined) db.settings.updateCheck = !!req.body.updateCheck;   // 새 버전 알림
   if (req.body.bibleNoVer !== undefined) db.settings.bibleNoVer = !!req.body.bibleNoVer;   // 성경 구절 아래에 번역본 이름(개역개정 등) 안 보이기
   if (req.body.lang !== undefined) {   // 메뉴 언어 — 바뀌면 열린 화면·리모컨도 새로고침
     const l = req.body.lang === 'en' ? 'en' : 'ko';
     if (l !== (db.settings.lang || 'ko')) { db.settings.lang = l; setTimeout(() => broadcast({ type: 'lang', lang: l }), 300); }
   }
+  if (req.body.themeDefaults !== undefined) db.settings.themeDefaults = cleanThemeDefaults(req.body.themeDefaults, db.settings.themes || {});
   if (req.body.obsScenes) {
     const o = req.body.obsScenes, t = v => String(v ?? '').slice(0, 100);
     db.settings.obsScenes = { base: t(o.base), pip: t(o.pip), circle: t(o.circle) };
   }
   if (req.body.pin != null) sessions.clear();
   changed(); pushLive(); res.json({ ok: true });
+});
+
+// 내 모양 저장·지우기
+app.put('/api/themes/:key', needLocal, (req, res) => {
+  const key = req.params.key;
+  if (!MY_THEME_RE.test(key)) return res.status(400).json({ error: '모양 이름표가 맞지 않습니다' });
+  const themes = db.settings.themes ||= {};
+  if (!themes[key] && Object.keys(themes).length >= 60) return res.status(400).json({ error: '내 모양은 60개까지 만들 수 있습니다' });
+  themes[key] = cleanTheme(req.body);
+  changed(); pushLive(); res.json({ key, theme: themes[key] });
+});
+app.delete('/api/themes/:key', needLocal, (req, res) => {
+  const key = req.params.key, themes = db.settings.themes || {};
+  if (!themes[key]) return res.status(404).json({ error: '없는 모양' });
+  delete themes[key];
+  // 이 모양을 쓰던 자료는 바탕 모양으로, 기본 모양으로 정해 둔 곳은 비움
+  const was = db.items.filter(i => i.theme === key).length;
+  db.items.forEach(i => { if (i.theme === key) i.theme = ''; });
+  const d = db.settings.themeDefaults || {};
+  for (const k of Object.keys(d)) if (d[k] === key) delete d[k];
+  changed(); pushLive(); res.json({ ok: true, items: was });
 });
 
 // ── 새 버전 알림·자동 설치: GitHub 배포에서 최신 버전 번호와 설명만 확인 (6시간에 한 번, 이쪽 정보는 보내지 않음) ──
@@ -592,13 +676,15 @@ app.post('/api/hymns/learn', needAuth, (req, res) => {
   if (!isLocal(req) && hymns.has(req.body?.num)) return res.status(403).json({ error: `찬송가 ${+req.body.num}장은 이미 있습니다. 바꾸려면 운영 컴퓨터에서 하세요` });
   try { res.json(hymns.learn(req.body?.num, req.body?.title, req.body?.lyrics)); } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.post('/api/hymns/upload', needLocal, upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: '파일 없음' });
+// 한 파일에 여러 곡이든, 한 곡에 파일 하나씩(폴더째)이든 한꺼번에
+app.post('/api/hymns/upload', needLocal, upload.array('file', 2000), (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: '파일 없음' });
   try {
-    const r = hymns.importFile(fs.readFileSync(req.file.path), fname(req.file));
-    if (!r.count) return res.status(400).json({ error: '찬송가를 하나도 읽지 못했습니다. "305장 제목" 줄로 곡이 시작되는지 확인하세요.' });
+    const r = hymns.importFiles(files.map(f => ({ buf: fs.readFileSync(f.path), name: fname(f) })));
+    if (!r.count) return res.status(400).json({ error: '찬송가를 하나도 읽지 못했습니다. 파일 안에 "305장" 줄이 있거나, 파일 이름에 장 번호(예: 305장.txt)가 있어야 합니다.' });
     res.json(r);
-  } finally { fs.rm(req.file.path, { force: true }, () => {}); }
+  } finally { for (const f of files) fs.rm(f.path, { force: true }, () => {}); }
 });
 app.delete('/api/hymns', needLocal, (req, res) => { hymns.clear(); res.json({ ok: true }); });
 
@@ -667,6 +753,7 @@ app.delete('/api/media/:name', needAuth, (req, res) => {
   const p = path.join(MEDIA_DIR, path.basename(req.params.name));
   if (live.mediaBg === '/media/' + path.basename(req.params.name)) { live.mediaBg = null; pushLive(); }
   if (live.mediaTop === '/media/' + path.basename(req.params.name)) { live.mediaTop = null; pushLive(); }
+  if (live.yt?.file && path.basename(decodeURIComponent(live.yt.file)) === path.basename(req.params.name)) { live.yt = null; pushLive(); }   // 틀던 내 영상을 지움
   fs.rm(p, { force: true }, () => res.json({ ok: true }));
 });
 
@@ -725,6 +812,8 @@ function cleanRestore(src) {
       logoStyle: cleanLogoStyle(S0.logoStyle, store.DEFAULT_LOGO),
       obsScenes: { base: t(S0.obsScenes?.base, 100), pip: t(S0.obsScenes?.pip, 100), circle: t(S0.obsScenes?.circle, 100) },
       bibleFolders: folders,
+      themes: cleanThemes(S0.themes),
+      themeDefaults: cleanThemeDefaults(S0.themeDefaults, cleanThemes(S0.themes)),
     },
   };
 }
@@ -786,6 +875,25 @@ app.post('/api/pptx', needAuth, upload.single('file'), async (req, res) => {
   } finally { if (req.file) fs.unlink(req.file.path, () => {}); }
 });
 
+// PPT를 원본 모양 그대로: 이 컴퓨터의 리브레오피스·키노트(맥)·파워포인트(윈도우)로 PDF로 바꿔 돌려줌 → 운영 화면이 페이지마다 그림으로
+app.post('/api/pptx-pdf', needAuth, upload.single('file'), async (req, res) => {
+  let dir = null;
+  try {
+    if (!req.file) throw new Error('파일 없음');
+    const ext = path.extname(fname(req.file)).toLowerCase();
+    if (!/^\.(pptx|ppt|key|odp)$/.test(ext)) throw new Error('.pptx · .ppt · .key 파일만 됩니다');
+    const r = await pptToPdf(req.file.path, ext);
+    dir = r.dir;
+    res.set('X-Converted-By', encodeURIComponent(r.by));
+    res.type('application/pdf').send(fs.readFileSync(r.pdf));
+  } catch (e) {
+    res.status(400).json({ error: e.message, code: e.code || null });
+  } finally {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    if (dir) fs.rm(dir, { recursive: true, force: true }, () => {});
+  }
+});
+
 // 송출 제어 (운영 맥 전용)
 // 프로그램 종료 (운영 맥에서만)
 // 아이콘을 다시 눌렀을 때 (두 번째 실행이 이 주소를 부름)
@@ -808,6 +916,7 @@ app.post('/api/quit', needLocal, (req, res) => {
 
 // ── 유튜브 영상: 예배당 화면·방송(OBS)·프롬프터에서 같은 영상을 같은 자리로 ──
 // live.yt = { id, title, pos(초), at(그 pos를 잰 시각), playing, dur, ended, tv, obs, stage, sound: tv|obs|both|none }
+// 내 영상(🖼 미디어에 올린 영상 파일)도 같은 조작판으로: file = '/media/…', id = file (인터넷 없이)
 function parseYt(v) {
   v = String(v || '').trim().slice(0, 500);
   let id = null, start = 0;
@@ -843,6 +952,16 @@ function ytCommand(c) {
       tv: old.tv ?? true, obs: old.obs ?? false, stage: old.stage ?? true, sound: old.sound || 'tv' };
     live.black = false;
     ytTitle(p.id);
+  } else if (c.file !== undefined) {
+    // 내 영상: 미디어 폴더에 있는 영상 파일만
+    const f = String(c.file || '');
+    const m = f.match(/^\/media\/([^/\\"'<>()\s]+\.(mp4|mov|m4v|webm))$/i);
+    if (!m || !fs.existsSync(path.join(MEDIA_DIR, path.basename(decodeURIComponent(m[1]))))) return;
+    const old = live.yt || {};
+    let name = m[1]; try { name = decodeURIComponent(name); } catch {}
+    live.yt = { id: f, file: f, title: name.replace(/_[0-9a-f]{4}(\.\w+)$/i, '$1'), pos: 0, at: Date.now(), playing: c.playing !== false, dur: 0, ended: false,
+      tv: old.tv ?? true, obs: old.obs ?? false, stage: old.stage ?? true, sound: old.sound || 'tv' };
+    live.black = false;
   }
   const y = live.yt;
   if (!y) return;
@@ -868,7 +987,14 @@ app.post('/api/live', needControl, (req, res) => {
   if (b.index !== undefined) { live.index = Math.max(0, +b.index); live.clear = false; live.black = false; live.logo = false; }
   if (b.step) {
     const it = db.items.find(i => i.id === live.itemId);
-    if (it) live.index = Math.min(Math.max(0, live.index + b.step), store.seq(it).length - 1);
+    if (it) {
+      const ni = live.index + Math.sign(b.step), n = store.seq(it).length;
+      const nb = db.settings.continuous && (ni >= n || ni < 0) ? neighborItem(it.id, Math.sign(b.step)) : null;
+      if (nb) {   // 전체 이어 보기: 끝에서 다음 자료 첫 장으로, 처음에서 앞 자료 마지막 장으로
+        if (b.auto === undefined) setAuto(null);
+        live.itemId = nb.id; live.index = b.step > 0 ? 0 : store.seq(nb).length - 1;
+      } else live.index = Math.min(Math.max(0, live.index + b.step), n - 1);
+    }
     live.clear = false; live.black = false; live.logo = false;
   }
   for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'tvNoImg', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];

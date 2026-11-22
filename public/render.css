@@ -153,3 +153,6 @@
 .wc-msg { position: absolute; left: 0; right: 0; top: 0; background: #ffd400; color: #111; font: 800 6.5cqh 'Noto Sans KR', sans-serif; text-align: center;
   padding: 2cqh 3cqw; word-break: keep-all; animation: wc-msg-blink 1.2s ease-in-out 3; }
 @keyframes wc-msg-blink { 50% { background: #ff8a00; } }
+/* 내 영상(파일) — 유튜브 영상과 같은 자리 */
+.wc-yt-v { object-fit: contain; background: #000; }
+.wc-yt-thumb span.mine { background: rgba(47,109,246,.92); }
