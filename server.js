@@ -370,6 +370,15 @@ app.post('/api/items/:id/copy', needAuth, (req, res) => {
   if (at >= 0) svc.itemIds.splice(at + 1, 0, it.id); else svc.itemIds.push(it.id);
   changed(); res.json(it);
 });
+// 찬양 자료실에서 여러 개를 골라 한 번에 지우기
+app.post('/api/items/delete', needAuth, (req, res) => {
+  const ids = new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String));
+  if (!ids.size) return res.status(400).json({ error: '지울 자료를 고르세요' });
+  const n = db.items.length;
+  db.items = db.items.filter(i => !ids.has(i.id));
+  db.services.forEach(s => (s.itemIds = s.itemIds.filter(x => !ids.has(x))));
+  changed(); res.json({ ok: true, deleted: n - db.items.length });
+});
 app.delete('/api/items/:id', needAuth, (req, res) => {
   db.items = db.items.filter(i => i.id !== req.params.id);
   db.services.forEach(s => (s.itemIds = s.itemIds.filter(x => x !== req.params.id)));

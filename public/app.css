@@ -281,3 +281,9 @@ table.conti input { width: 100%; padding: 4px 6px; }
 .ppt-mode:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .ppt-mode .small { display:block; margin-left:22px; }
 .ppt-mode input { width:auto; margin:0 4px 0 0; }
+/* 찬양 자료실: 여러 곡 골라 지우기 */
+.libbar { display:flex; align-items:center; gap:6px; padding:6px 8px; margin-top:6px; border-radius:8px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.libbar-all { display:flex; align-items:center; gap:4px; font-size:13px; cursor:pointer; white-space:nowrap; }
+.libbar input[type=checkbox], .list li.pick input[type=checkbox] { width:auto; margin:0; }
+.list li.pick.picked { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.btn.toggle.on#libPick, #libPick.on { background: var(--accent); color:#fff; border-color: var(--accent); }

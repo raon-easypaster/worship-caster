@@ -104,7 +104,7 @@ async function main() {
       ok(fs.existsSync(out), '애플스크립트 문법 오류');
     }
   });
-  await check('PPT 그림으로 가져오기(서버): PDF로 바꿔 돌려줌 · 이상한 파일은 막음 · 폴더 항목 든 .pptx 다시 묶기 · 맥은 리브레오피스→키노트, 윈도우는 파워포인트→리브레오피스 · 없으면 PDF로 넣으라는 안내', async () => {
+  await check('PPT 그림으로 가져오기(서버): PDF로 바꿔 돌려줌 · 이상한 파일·이름만 PPT인 파일은 막음 · 매크로는 실행 안 함 · 폴더 항목 든 .pptx 다시 묶기 · 맥은 리브레오피스→키노트, 윈도우는 파워포인트→리브레오피스 · 없으면 PDF로 넣으라는 안내', async () => {
     const JSZip = require(path.join(ROOT, 'node_modules', 'jszip'));
     const z = new JSZip(); z.folder('ppt'); z.file('ppt/presentation.xml', '<p/>'); z.file('[Content_Types].xml', '<Types/>');
     const pptx = await z.generateAsync({ type: 'nodebuffer' });
@@ -115,6 +115,9 @@ async function main() {
     const fd2 = new FormData(); fd2.append('file', new Blob(['x']), 'a.exe');
     const r2 = await fetch(BASE + '/api/pptx-pdf', { method: 'POST', headers: { Origin: BASE }, body: fd2 });
     ok(r2.status === 400, '.exe 를 막지 않음: ' + r2.status);
+    const fd3 = new FormData(); fd3.append('file', new Blob(['<html>not ppt</html>']), '가짜.pptx');
+    const r3 = await fetch(BASE + '/api/pptx-pdf', { method: 'POST', headers: { Origin: BASE }, body: fd3 });
+    ok(r3.status === 400, '이름만 .pptx 인 가짜 파일을 막지 않음: ' + r3.status);
     const conv = require(path.join(ROOT, 'lib', 'ppt-convert'));
     const tmp = path.join(DATA, 'repack.pptx'); fs.writeFileSync(tmp, pptx);
     ok(await conv.repackPptx(tmp), '폴더 항목이 있는데 다시 묶지 않음');
@@ -127,6 +130,7 @@ async function main() {
     ok(conv.converters('win32', has(['LibreOffice'])).map(c => c.name).join() === '파워포인트,리브레오피스', '윈도우 순서');
     ok(/front document/.test(conv.KEYNOTE_SCRIPT) && !/set d to open/.test(conv.KEYNOTE_SCRIPT), "키노트 14는 'set d to open' 문서를 내보내면 죽음 → 맨 앞 문서로");
     ok(/SaveAs\(\$out, 32\)/.test(conv.POWERPOINT_PS1) && /Presentations\.Open\(\$in, -1, 0, 0\)/.test(conv.POWERPOINT_PS1), '파워포인트: 창 없이 읽기 전용으로 열어 PDF(32)로');
+    ok(/AutomationSecurity = 3/.test(conv.POWERPOINT_PS1), '파워포인트에서 매크로를 막지 않음');
     if (process.platform === 'darwin') {
       const out = path.join(DATA, 'kn.scpt');
       require('child_process').execFileSync('osacompile', ['-o', out, '-e', conv.KEYNOTE_SCRIPT]);   // 문법만 확인 (실행하지 않음)
@@ -135,6 +139,13 @@ async function main() {
     try { await conv.pptToPdf(tmp, '.pptx'); ok(false, '변환 프로그램이 없는데 성공함'); }
     catch (e) { ok(e.code === 'NO_CONVERTER' && /PDF·악보/.test(e.message), '안내 문구: ' + e.message); }
     finally { if (save === undefined) delete process.env.WC_TEST_PPT_PDF; else process.env.WC_TEST_PPT_PDF = save; }
+  });
+  await check("PPT 방송: 글자로 가져온 PPT 슬라이드도 방송(OBS)에는 자막 글자가 아니라 PPT 화면 그대로 (그림 보내기 '사람 원'·'화면 일부'가 적용됨)", async () => {
+    const it = await api('POST', '/api/items', { type: 'ppt', title: '방송점검 PPT', slides: [{ text: '제목 글자', ppt: true, elements: [{ id: 'e1', type: 'text', x: 5, y: 5, w: 90, h: 20, text: '제목 글자', size: 40 }] }] });
+    const r = fs.readFileSync(path.join(ROOT, 'public', 'render.js'), 'utf8');
+    ok(/const isVisual = s => [^\n]*s\.ppt/.test(r), "PPT 슬라이드(s.ppt)를 그림으로 보지 않음");
+    ok((await api('GET', '/api/state')).items.find(i => i.id === it.id).slides[0].ppt === true, "PPT 표시(ppt)가 저장되지 않음");
+    await api('DELETE', '/api/items/' + it.id);
   });
   await check('다른 사이트에서 온 요청은 막힘', async () => {
     const r = await fetch(BASE + '/api/live', { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
@@ -556,6 +567,50 @@ async function main() {
     ok(st.items.some(i => i.title === '제목 점검곡'), '저장된 제목: ' + st.items.map(i => i.title).filter(t => /찬양|점검/.test(t)).join(', '));
     noErr();
   });
+  await check('같은 자료 안내: 자료실에 똑같은 제목(띄어쓰기 무시)의 찬양을 새로 만들면 묻고 [취소]면 안 넣음 · 곡 파일 가져오기는 어떤 곡을 건너뛰었는지 알림', async () => {
+    const n0 = (await api('GET', '/api/state')).items.filter(i => i.title.replace(/\s/g, '') === '제목점검곡').length;
+    await c.eval(`(window.__asked = [], window.confirm = m => (window.__asked.push(m), false), window.alert = m => window.__asked.push(m), 1)`);
+    await c.eval(`(closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
+    await c.eval(`(document.querySelector('#eTitle').value = '제목  점검곡', document.querySelector('#ePaste').value = '가\\n나', document.querySelector('#eSplit').click(), 1)`); await sleep(600);
+    await c.eval(`(document.querySelector('#eSave').click(), 1)`); await sleep(800);
+    let asked = await c.eval(`window.__asked.join(' | ')`);
+    ok(/똑같은 자료/.test(asked), '묻지 않음: ' + asked);
+    ok(await c.eval(`document.querySelector('#dlg').open`), '[취소]했는데 창이 닫힘');
+    let n1 = (await api('GET', '/api/state')).items.filter(i => i.title.replace(/\s/g, '') === '제목점검곡').length;
+    ok(n1 === n0, '[취소]했는데 들어감');
+    await c.eval(`(window.confirm = m => (window.__asked.push(m), true), document.querySelector('#eSave').click(), 1)`); await sleep(800);
+    n1 = (await api('GET', '/api/state')).items.filter(i => i.title.replace(/\s/g, '') === '제목점검곡').length;
+    ok(n1 === n0 + 1, '[확인]했는데 안 들어감');
+    await c.eval(`(window.__asked = [], 1)`);
+    await c.eval(`(importSongs([new File(['가\\n나'], '제목 점검곡.txt'), new File(['다\\n라'], '새로운 점검곡.txt')]), 1)`); await sleep(1500);
+    asked = await c.eval(`window.__asked.join(' | ')`);
+    ok(/제목 점검곡/.test(asked) && /똑같은 자료/.test(asked) && !/새로운 점검곡/.test(asked.split('넣지 않은 곡')[1] || ''), '건너뛴 곡 안내: ' + asked);
+    ok((await api('GET', '/api/state')).items.some(i => i.title === '새로운 점검곡'), '새 곡은 들어가야 함');
+    await c.eval(`(delete window.confirm, delete window.alert, 1)`);
+    noErr();
+  });
+  await check('☑ 찬양 자료실 여러 곡 골라 한 번에 지우기: 검색 → 모두 → 지우기 (검색 안 된 곡과 예배 순서의 다른 자료는 그대로)', async () => {
+    const mk = t => api('POST', '/api/items', { type: 'song', title: t, slides: [{ text: t }] });
+    const a = await mk('지움점검 하나'), b = await mk('지움점검 둘'), keep = await mk('남김점검 셋');
+    await openControl();
+    await c.eval(`(document.querySelector('#libPick').click(), 1)`); await sleep(200);
+    ok(await c.eval(`!document.querySelector('#libBar').classList.contains('hidden') && !!document.querySelector('#libList li.pick input[type=checkbox]')`), '고르기 칸이 안 나옴');
+    await c.eval(`(() => { const s = document.querySelector('#search'); s.value = '지움점검'; s.dispatchEvent(new Event('input')); return 1; })()`); await sleep(200);
+    ok(await c.eval(`document.querySelectorAll('#libList li.pick').length`) === 2, '검색 결과가 2곡이 아님');
+    await c.eval(`(document.querySelector('#libAll').click(), 1)`); await sleep(200);
+    const cnt = await c.eval(`document.querySelector('#libCnt').textContent`);
+    ok(cnt === '2/2곡', '고른 수: ' + cnt);
+    await c.eval(`(window.confirm = () => true, document.querySelector('#libDel').click(), 1)`); await sleep(900);
+    const st = await api('GET', '/api/state');
+    ok(!st.items.some(i => i.id === a.id || i.id === b.id), '고른 곡이 안 지워짐');
+    ok(st.items.some(i => i.id === keep.id), '검색 안 된 곡까지 지워짐');
+    ok(await c.eval(`document.querySelector('#libBar').classList.contains('hidden')`), '지운 뒤 고르기가 안 끝남');
+    const r = await api('POST', '/api/items/delete', { ids: [] }, { allowFail: true });
+    ok(r.status === 400, '빈 목록을 막지 않음');
+    await c.eval(`(delete window.confirm, (() => { const s = document.querySelector('#search'); s.value = ''; s.dispatchEvent(new Event('input')); })(), 1)`);
+    await api('DELETE', '/api/items/' + keep.id);
+    noErr();
+  });
   await check('＋ 찬송가: 번호 Enter면 바로, 제목으로 찾으면 목록', async () => {
     await c.eval(`(closeDlg(), document.querySelector('#newHymn').click(), 1)`); await sleep(500);
     await c.eval(`(() => { const i = document.querySelector('#hNum'); i.value = '555'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`); await sleep(1500);
@@ -744,6 +799,22 @@ async function main() {
     const back = await c.eval(`!document.querySelector('#screen .wc-circ') && !!document.querySelector('#screen .wc-layer .wc-bg, #screen .wc-layer img')`);
     ok(back, '화면 가득으로 돌아오지 않음'); noErr();
   });
+  await check('화면 칸이 없을 때 1초 타이머(WC.tick)가 오류를 내지 않음 (운영 화면이 열리는 순간 가끔 나던 오류)', async () => {
+    await openControl();
+    const r = await c.eval(`(() => { try { WC.tick(null, { live: {} }, 'main'); return 'ok'; } catch (e) { return String(e); } })()`);
+    ok(r === 'ok', r);
+  });
+  await check("⭕ PPT(글자로 가져온 것)도 '사람 원'이면 방송에 PPT 화면 + 동그란 카메라 자리 (자막 글자로 나가지 않음)", async () => {
+    const it = await api('POST', '/api/items', { type: 'ppt', title: 'PPT 원 점검', place: true, slides: [{ text: '슬라이드 제목', ppt: true, ptH: 540, elements: [{ id: 'e1', type: 'text', x: 5, y: 5, w: 90, h: 20, text: '슬라이드 제목', size: 40, color: '#ffffff' }] }] });
+    await api('PUT', '/api/style', { overlay: { imgMode: 'circle' } });
+    await api('POST', '/api/live', { itemId: it.id, index: 0, camOnly: false });
+    await c.go(BASE + '/overlay', 1500);
+    const r = await c.eval(`({ circ: !!document.querySelector('#screen .wc-circ'), bar: !!document.querySelector('#screen .wc-ov-bar, #screen .wc-bar') })`);
+    await api('PUT', '/api/style', { overlay: { imgMode: 'full' } });
+    await api('POST', '/api/live', { reset: true });
+    ok(r.circ, 'PPT가 사람 원으로 나가지 않음: ' + JSON.stringify(r));
+    noErr();
+  });
   await check('🖼 TV 그림 끄기(I): 예배당 화면에서 그림만 빠짐', async () => {
     const media = await api('GET', '/api/media');
     const it = await api('POST', '/api/items', { type: 'score', title: 'TV 그림 점검', slides: [{ bg: media[0].url, fit: 'contain' }, { text: '글자', img: media[1].url }], place: true });
@@ -819,11 +890,25 @@ async function main() {
     st = await api('GET', '/api/state'); ok(st.live.live.yt === null, '⏹ 끄기 안 됨');
     ok(await c.eval(`document.querySelector('#ytCtl').classList.contains('hidden')`), '끈 뒤에도 조작판이 보임');
   });
-  await check('PDF·악보 나누기: 세로 악보는 위·아래로 나누고, 가로 사진·그림(가로가 더 긴 것)은 나누지 않음', async () => {
+  await check('PDF·악보 나누기: 세로 악보는 위·아래로 나누고, 가로 사진·그림(가로가 더 긴 것)은 나누지 않음 · 사진(세로 포스터 포함)은 언제나 한 장 그대로 · 고른 나누기 방식을 기억', async () => {
     await openControl();
     const r = await c.eval(`(() => { const mk = (w, h) => { const x = document.createElement('canvas'); x.width = w; x.height = h; return x; };
       return [sliceCanvas(mk(1600, 900), 2).length, sliceCanvas(mk(1000, 1000), 3).length, sliceCanvas(mk(900, 1600), 2).length, sliceCanvas(mk(900, 1600), 1).length].join(','); })()`);
     ok(r === '1,1,2,1', '나눈 장 수(가로·정사각·세로2칸·안 나눔) 기대 1,1,2,1 실제 ' + r);
+    await c.eval(`(document.querySelector('#newScore').click(), 1)`); await sleep(300);
+    await c.eval(`(() => { const s = document.querySelector('#scSplit'); s.value = '1'; s.dispatchEvent(new Event('change')); closeDlg(); document.querySelector('#newScore').click(); return 1; })()`); await sleep(300);
+    const kept = await c.eval(`document.querySelector('#scSplit').value`);
+    await c.eval(`(localStorage.removeItem('wc-score-split'), closeDlg(), 1)`);
+    ok(kept === '1', "'나누지 않음'을 고른 것을 다음에 기억하지 않음: " + kept);
+    // 세로로 긴 사진(포스터)은 '위·아래 2칸'이 골라져 있어도 한 장 그대로 (사용자 요청)
+    await c.eval(`(async () => { closeDlg(); document.querySelector('#newScore').click(); await new Promise(r => setTimeout(r, 200));
+      const cv = document.createElement('canvas'); cv.width = 600; cv.height = 1400; const g = cv.getContext('2d'); g.fillStyle = '#246'; g.fillRect(0, 0, 600, 1400);
+      const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+      const dt = new DataTransfer(); dt.items.add(new File([blob], '세로포스터.png', { type: 'image/png' }));
+      document.querySelector('#scFiles').files = dt.files; document.querySelector('#scSplit').value = '2'; document.querySelector('#scGo').click(); })(), 1`);
+    let poster = null;
+    for (let i = 0; i < 30 && !poster; i++) { await sleep(300); poster = (await api('GET', '/api/state')).items.find(x => x.title === '세로포스터'); }
+    ok(poster && poster.slides.length === 1, '세로 사진이 나뉨: ' + (poster ? poster.slides.length + '장' : '안 들어감'));
   });
   await check('＋ PPT 그림으로 가져오기(화면): 방식 고르는 창 · 원본 모양 그대로 장마다 그림 슬라이드(PPT 자료) · 방송에는 그림으로 · 글자로 가져오기도 남아 있음', async () => {
     await openControl();

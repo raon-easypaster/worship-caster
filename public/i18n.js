@@ -46,6 +46,9 @@
     '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 1분쯤 걸릴 수 있습니다)': 'Converting exactly like the original… (many slides can take about a minute)',
     'PPT 가져오는 중…': 'Importing PPT…', '그림으로 바꾸지 못했습니다': 'Could not convert to pictures',
     '글자로 가져오기는 .pptx 파일만 됩니다. 그림으로 가져오기를 고르세요': 'Text import works only with .pptx files. Choose picture import',
+    '☑ 고르기': '☑ Select', '여러 곡을 골라 한 번에 지우기 (검색한 뒤 [모두]로 검색된 곡 전체를 고를 수 있습니다)': 'Pick several songs and delete them at once (search first, then [All] picks every song found)',
+    '모두': 'All', '🗑 지우기': '🗑 Delete', '그만': 'Done', '지울 곡을 고르세요': 'Choose songs to delete', '지울 자료를 고르세요': 'Choose items to delete',
+    'PDF 한 페이지 나누기': 'Split a PDF page',
     '＋ PPT': '＋ PPT', '＋ PDF·악보': '＋ PDF · Score', '＋ HTML': '＋ HTML',
     "'지금은 기도로 예배를 준비하는 시간입니다' 같은 문구, 성찬 예식": "Phrases like 'Let us prepare for worship in prayer', and Communion",
     '웹 페이지(HTML)를 화면에 띄우기': 'Show a web page (HTML) on screen',
@@ -264,8 +267,8 @@
     '비우면 파일 이름': 'Empty = file name', '한국어': '한국어',
     '가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다. 묶음 첫 줄에 #1절 · #후렴 · #브리지 처럼 쓰면 곡 구성 이름이 붙습니다.':
       'Paste lyrics. A blank line always starts a new slide.\nStart a group with #Verse1 · #Chorus · #Bridge to name it.',
-    'PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 세로로 긴 악보는 화면 비율(16:9)에 맞게 위·아래로 나누면 TV에서 훨씬 크게 보입니다. 가로 사진·그림은 나누지 않고 한 장 그대로 들어갑니다. 악보·그림 슬라이드는 유튜브(OBS)에도 화면 그대로 나갑니다. 예배당에만 보내려면 ✎ 편집 → 유튜브 방송 → \'보내지 않기\'.':
-      "Each PDF page or photo (jpg, png) becomes a slide. Splitting a tall score into top/bottom halves makes it much bigger on a 16:9 TV. Landscape photos and pictures are never split. Score and picture slides also go to YouTube (OBS) as they are; to keep one on the main screen only, use ✎ Edit → YouTube stream → \"Don't send\".",
+    'PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 사진은 나누지 않고 한 장 그대로 들어갑니다(화면 비율이 달라도 화면 안에 맞춰 보임). \'한 페이지 나누기\'는 PDF에만 쓰입니다. 세로로 긴 PDF 악보는 위·아래로 나누면 TV에서 훨씬 크게 보입니다(고른 것은 다음에도 기억합니다). 악보·그림 슬라이드는 유튜브(OBS)에도 화면 그대로 나갑니다. 예배당에만 보내려면 ✎ 편집 → 유튜브 방송 → \'보내지 않기\'.':
+      "Each PDF page or photo (jpg, png) becomes a slide. Photos are never split and go in whole (fitted to the screen even if not 16:9). 'Split a page' applies to PDFs only; splitting a tall PDF score into top/bottom halves makes it much bigger on the TV (your choice is remembered). Score and picture slides also go to YouTube (OBS) as they are; to keep one on the main screen only, use ✎ Edit → YouTube stream → \"Don't send\".",
     // ── 찬송가 ──
     '＋ 찬송가': '＋ Hymn', '찬송가 넣기': 'Add hymn', '장 번호 (예: 305)': 'Hymn number (e.g. 305)', '찾지 못했습니다': 'Not found',
     '찬송가 번호만 치면 바로 넣기 (찬송가 가사 파일을 ⚙︎ 설정에서 한 번 가져와야 함)': 'Type a hymn number to add it (import a hymnal lyrics file once in ⚙︎ Settings)',
@@ -400,7 +403,7 @@
     [/^글자 크기 ([\d.]+) \(기본 ([\d.]+)\)$/, 'Text size $1 (default $2)'], [/^보내는 중: ([\s\S]+)$/, 'Showing: $1'], [/^⏩ 자동 넘김 중 \((\d+)초\)$/, '⏩ Auto advancing ($1 s)'],
     [/^● 배경: (.+)$/, '● Background: $1'], [/^(.+) — 누르면 예배당 화면 배경으로$/, '$1 — click to use as the main-screen background'],
     [/^(.+)을 띄울 모니터$/, 'Monitor for $1'], [/^(.+)을 (\d+)번 모니터에 열었습니다$/, 'Opened $1 on monitor $2'],
-    [/^올리는 중… (\d+)\/(\d+)$/, 'Uploading… $1/$2'], [/^그림 만드는 중… (\d+)\/(\d+)$/, 'Making pictures… $1/$2'], [/^슬라이드 (\d+)장을 원본 모양 그대로 가져왔습니다$/, 'Imported $1 slides exactly like the original'], [/^(.+): (\d+)\/(\d+) 페이지 변환 중…$/, '$1: converting page $2/$3…'],
+    [/^올리는 중… (\d+)\/(\d+)$/, 'Uploading… $1/$2'], [/^(\d+)\/(\d+)곡$/, '$1/$2'], [/^검색된 (\d+)곡 가운데 (\d+)곡을 골랐습니다$/, '$2 of $1 found songs selected'], [/^(\d+)곡을 골랐습니다$/, '$1 songs selected'], [/^(\d+)곡을 지웠습니다$/, 'Deleted $1 songs'], [/^그림 만드는 중… (\d+)\/(\d+)$/, 'Making pictures… $1/$2'], [/^슬라이드 (\d+)장을 원본 모양 그대로 가져왔습니다$/, 'Imported $1 slides exactly like the original'], [/^(.+): (\d+)\/(\d+) 페이지 변환 중…$/, '$1: converting page $2/$3…'],
     [/^(.+): 곡 파일 모양이 아닙니다$/, '$1: not a song file'], [/^'(.+)' 가져오는 중…$/, "Importing '$1'…"],
     [/^잠시 후 다시 시도하세요 \((\d+)초\)$/, 'Try again in a moment ($1 s)'], [/^다음: ([\s\S]*)$/, 'Next: $1'], [/^모니터 (\d+)$/, 'Monitor $1'],
     [/^HTML 파일 (\d+)번째 장 · 아래 글은 프롬프터\(설교자 화면\)에만 보입니다$/, 'HTML file page $1 · the text below shows only on the prompter'],

@@ -204,7 +204,8 @@
     if (m === 'video') { const u = mediaUrl(main.motionVideo); return u ? 'video:' + u : ''; }
     return m;
   }
-  const isVisual = s => !!(s && (s.html || s.htmlFile || mediaUrl(s.img) || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
+  // 방송에 '화면 그대로' 보낼 슬라이드: 그림·HTML·PPT (PPT는 글자로 가져온 것도 칸 배치가 있어 자막 바로 만들지 않음)
+  const isVisual = s => !!(s && (s.html || s.htmlFile || s.ppt || mediaUrl(s.img) || (s.elements || []).some(e => e.type === 'image') || (s.bg && !String(s.text || '').trim())));
   const isHtmlFile = s => /^\/slides\/[a-f0-9]{12}\.html$/.test(String(s?.htmlFile || ''));
 
   // HTML 파일(여러 장짜리 발표 자료): 1920×1080 으로 그린 뒤 화면 크기에 맞춰 줄임. 몇 번째 장인지는 #wc=번호
@@ -612,7 +613,7 @@
   }
 
   function tick(container, snap, mode) {
-    if (!snap) return;
+    if (!snap || !container) return;   // 화면 칸이 아직(또는 더 이상) 없으면 건너뜀 (운영 화면이 열리거나 닫히는 순간)
     const ytEl = container.querySelector(':scope > .wc-yt');
     if (ytEl?._ready && snap.live?.yt) { ytEl._snap = snap; ytApply(ytEl); }
     if (snap.live?.timer?.tv === 'over' && mode !== 'stage') render(container, snap, mode, { fade: true });   // 0이 되는 순간 슬라이드로 돌아옴

@@ -124,6 +124,45 @@ function moveIdx(list, from, to) {
   return ids;
 }
 
+// 같은 자료 알아보기: 찬양 자료실(찬양·악보)에서 제목이 같은 것 (띄어쓰기·대소문자 무시)
+const normTitle = t => String(t || '').normalize('NFC').replace(/\s+/g, '').toLowerCase();
+const sameInLib = (title, exceptId) => S.items.filter(i => KEEP.has(i.type) && i.id !== exceptId && normTitle(i.title) && normTitle(i.title) === normTitle(title));
+function askDup(title, exceptId) {
+  const d = sameInLib(title, exceptId);
+  if (!d.length) return true;
+  return confirm(`찬양 자료실에 똑같은 자료 '${d[0].title}'이(가) 이미 있습니다${d.length > 1 ? ` (${d.length}개)` : ''}.\n\n그래도 하나 더 넣을까요?\n[확인] 하나 더 넣기 · [취소] 넣지 않기 (자료실에서 찾아 ＋로 예배 순서에 넣으세요)`);
+}
+
+// 찬양 자료실: 여러 곡 골라 한 번에 지우기
+let libPicking = false;
+const libPicked = new Set();
+let libShown = [];
+function libBar() {
+  const shown = libShown.filter(i => libPicked.has(i.id)).length;
+  $('#libBar').classList.toggle('hidden', !libPicking);
+  $('#libPick').classList.toggle('on', libPicking);
+  $('#libCnt').textContent = search.trim() ? `${shown}/${libShown.length}곡` : `${libPicked.size}곡`;
+  $('#libCnt').title = search.trim() ? `검색된 ${libShown.length}곡 가운데 ${shown}곡을 골랐습니다` : `${libPicked.size}곡을 골랐습니다`;
+  $('#libAll').checked = libShown.length > 0 && shown === libShown.length;
+  $('#libDel').disabled = !libPicked.size;
+}
+function initLibPick() {
+  $('#libPick').onclick = () => { libPicking = !libPicking; libPicked.clear(); renderLib(); };
+  $('#libDone').onclick = () => { libPicking = false; libPicked.clear(); renderLib(); };
+  $('#libAll').onchange = e => { libShown.forEach(i => (e.target.checked ? libPicked.add(i.id) : libPicked.delete(i.id))); renderLib(); };
+  $('#libDel').onclick = async () => {
+    const ids = [...libPicked].filter(id => S.items.some(i => i.id === id));
+    if (!ids.length) return toast('지울 곡을 고르세요');
+    const inSvc = ids.filter(id => S.services.some(s => s.itemIds.includes(id))).length;
+    const names = ids.slice(0, 8).map(id => '· ' + S.items.find(i => i.id === id).title).join('\n') + (ids.length > 8 ? `\n… 외 ${ids.length - 8}곡` : '');
+    if (!confirm(`골라 둔 ${ids.length}곡을 자료실에서 지울까요?\n\n${names}${inSvc ? `\n\n이 가운데 ${inSvc}곡은 예배 순서에 들어 있어 순서에서도 빠집니다.` : ''}`)) return;
+    const r = await api('POST', '/api/items/delete', { ids });
+    if (ids.includes(selId)) selId = null;
+    libPicking = false; libPicked.clear();
+    toast(`${r.deleted}곡을 지웠습니다`);
+  };
+}
+
 function renderLib() {
   const ul = $('#libList');
   ul.innerHTML = '';
@@ -131,8 +170,17 @@ function renderLib() {
   const abc = $('#libSort')?.value === 'abc';
   const list = S.items.filter(i => KEEP.has(i.type)).filter(i => !q || i.title.toLowerCase().includes(q) || i.slides.some(s => (s.text || '').toLowerCase().includes(q)))
     .sort(abc ? (a, b) => a.title.localeCompare(b.title, 'ko') : (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  libShown = list;
+  ul.classList.toggle('picking', libPicking);
   for (const it of list) {
     const li = document.createElement('li');
+    if (libPicking) {
+      li.className = 'pick' + (libPicked.has(it.id) ? ' picked' : '');
+      li.innerHTML = `<input type="checkbox" ${libPicked.has(it.id) ? 'checked' : ''} tabindex="-1"><span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>`;
+      li.onclick = e => { e.preventDefault(); libPicked.has(it.id) ? libPicked.delete(it.id) : libPicked.add(it.id); renderLib(); };
+      ul.appendChild(li);
+      continue;
+    }
     li.className = (it.id === selId ? 'sel ' : '') + (snap?.live.itemId === it.id ? 'live' : '');
     li.innerHTML = `<span class="badge">${TYPE[it.type] || ''}</span><span class="t">${esc(it.title)}</span>${it.noBroadcast ? '<span class="badge tv" title="유튜브 방송에는 나가지 않음">TV만</span>' : ''}
       <span class="acts"><button class="icon" data-a="add" title="예배 순서에 추가">＋</button><button class="icon" data-a="del" title="삭제">🗑</button></span>`;
@@ -150,6 +198,7 @@ function renderLib() {
     };
     ul.appendChild(li);
   }
+  if ($('#libBar')) libBar();
 }
 
 // 전체 이어 보기: 운영 화면은 서버 설정(이어 넘기기와 함께), 웹 편집기는 이 브라우저에만 기억
@@ -501,17 +550,21 @@ async function importSongs(files) {
       try { songs.push(...songsFromJson(JSON.parse(t))); } catch { toast(`${f.name}: 곡 파일 모양이 아닙니다`); }
     } else songs.push({ title: f.name.replace(/\.[^.]+$/, ''), lyrics: t.trim() });
   }
-  const have = new Set(S.items.filter(i => KEEP.has(i.type)).map(i => i.title.trim()));
-  let added = 0, same = 0, empty = 0;
+  const have = new Set(S.items.filter(i => KEEP.has(i.type)).map(i => normTitle(i.title)));
+  let added = 0, empty = 0;
+  const same = [];
   for (const s of songs) {
     if (!s.title) continue;
     if (!s.lyrics) { empty++; continue; }
-    if (have.has(s.title)) { same++; continue; }
+    if (have.has(normTitle(s.title))) { same.push(s.title); continue; }
     const slides = await api('POST', '/api/split', { text: s.lyrics, lines: 2 });
     await api('POST', '/api/items', { type: 'song', title: s.title, slides, key: s.key || '', theme: defTheme('song') });
-    have.add(s.title); added++;
+    have.add(normTitle(s.title)); added++;
   }
-  toast([`찬양 ${added}곡을 자료실에 넣었습니다`, same && `같은 제목 ${same}곡은 건너뜀`, empty && `가사 없는 ${empty}곡은 건너뜀`].filter(Boolean).join(' · '));
+  const msg = [`찬양 ${added}곡을 자료실에 넣었습니다`, same.length && `똑같은 자료가 있어 ${same.length}곡은 건너뜀`, empty && `가사 없는 ${empty}곡은 건너뜀`].filter(Boolean).join(' · ');
+  toast(msg);
+  // 똑같은 자료(같은 제목)가 자료실에 이미 있으면 어떤 곡인지 알려 줌
+  if (same.length) alert(`${msg}\n\n찬양 자료실에 똑같은 자료가 이미 있어 넣지 않은 곡:\n${same.slice(0, 15).map(t => '· ' + t).join('\n')}${same.length > 15 ? `\n… 외 ${same.length - 15}곡` : ''}\n\n새 것으로 바꾸려면 자료실에서 옛 곡을 지운 뒤 다시 가져오세요.`);
 }
 
 // 미얀마어 옛 글자 방식(자우기 Zawgyi) 알아보기 — 표준(유니코드) 글꼴에서는 글자가 뒤섞여 보임
@@ -561,6 +614,8 @@ function openHymn() {
         }
       }
       await addSongToService(have.id); selId = have.id;
+      toast(`'${h.title}'은(는) 찬양 자료실에 이미 있어 그 곡을 넣었습니다 (새로 만들지 않음)`);
+      return;
     } else {
       const slides = await api('POST', '/api/split', { text: h.lyrics, lines: LINES() });
       const it = await api('POST', '/api/items', { type: 'song', title: h.title, slides, arr: h.arr || [], place: true, after: afterId(), theme: defTheme('song') });
@@ -969,6 +1024,7 @@ function openItemEditor(id, focusIndex, preset) {
   });
   body.querySelector('#eSave').onclick = async () => {
     it.title = body.querySelector('#eTitle').value.trim() || it.title;   // 저장할 때 제목 칸을 다시 읽음 (칸만 바뀌고 값이 안 바뀐 경우까지)
+    if (!src && KEEP.has(it.type) && !askDup(it.title)) return;   // 자료실에 똑같은 찬양이 있으면 먼저 알림
     const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', { ...it, place: true, after: afterId() });
     selId = saved.id; closeDlg(); toast('저장했습니다');
     zawgyiCheck(it.slides.map(s => s.text || '').join('\n'));
@@ -1200,18 +1256,23 @@ function openScore() {
     <div class="form">
       <label>파일</label><input type="file" id="scFiles" multiple accept="application/pdf,image/*">
       <label>제목</label><input id="scTitle" placeholder="비우면 파일 이름">
-      <label>한 페이지 나누기</label><select id="scSplit"><option value="1">나누지 않음 (PDF 문서·주보)</option><option value="2" selected>위·아래 2칸 (악보 권장)</option><option value="3">3칸</option><option value="4">4칸</option></select>
+      <label>PDF 한 페이지 나누기</label><select id="scSplit"><option value="1">나누지 않음 (PDF 문서·주보)</option><option value="2" selected>위·아래 2칸 (악보 권장)</option><option value="3">3칸</option><option value="4">4칸</option></select>
       <label>흰 여백 잘라내기</label><input type="checkbox" id="scTrim" checked>
       <label>배경색</label><div class="row"><select id="scBg" style="width:auto"><option value="#ffffff">흰색 (악보)</option><option value="#000000">검정</option></select></div>
     </div>
-    <p class="muted small">PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 세로로 긴 악보는 화면 비율(16:9)에 맞게 위·아래로 나누면 TV에서 훨씬 크게 보입니다. 가로 사진·그림은 나누지 않고 한 장 그대로 들어갑니다.
+    <p class="muted small">PDF는 페이지마다, 사진(jpg·png)은 장마다 슬라이드가 됩니다. 사진은 나누지 않고 한 장 그대로 들어갑니다(화면 비율이 달라도 화면 안에 맞춰 보임). '한 페이지 나누기'는 PDF에만 쓰입니다. 세로로 긴 PDF 악보는 위·아래로 나누면 TV에서 훨씬 크게 보입니다(고른 것은 다음에도 기억합니다).
     악보·그림 슬라이드는 유튜브(OBS)에도 화면 그대로 나갑니다. 예배당에만 보내려면 ✎ 편집 → 유튜브 방송 → '보내지 않기'.</p>
     <div id="scProg" class="muted"></div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="scGo">가져오기</button></div>`);
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  // 한 페이지 나누기는 지난번 고른 것을 기억 (포스터·사진을 넣는 교회는 '나누지 않음'으로 한 번만 바꾸면 됨)
+  const scSplit = body.querySelector('#scSplit');
+  try { const v = localStorage.getItem('wc-score-split'); if (v && scSplit.querySelector(`option[value="${v}"]`)) scSplit.value = v; } catch {}
+  scSplit.onchange = () => { try { localStorage.setItem('wc-score-split', scSplit.value); } catch {} };
   body.querySelector('#scGo').onclick = async () => {
     const files = [...body.querySelector('#scFiles').files];
     if (!files.length) return toast('파일을 고르세요');
+    if (!askDup(body.querySelector('#scTitle').value || files[0].name.replace(/\.[^.]+$/, ''))) return;   // 자료실에 똑같은 악보가 있으면 먼저 알림
     const n = +body.querySelector('#scSplit').value, trim = body.querySelector('#scTrim').checked, bgColor = body.querySelector('#scBg').value;
     const prog = body.querySelector('#scProg'), go = body.querySelector('#scGo'); go.disabled = true;
     const pages = []; // { canvas, name }
@@ -1220,12 +1281,12 @@ function openScore() {
         const base = f.name.replace(/\.[^.]+$/, '');
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
           pages.push(...await pdfCanvases(await f.arrayBuffer(), base, (p, n) => (prog.textContent = `${f.name}: ${p}/${n} 페이지 변환 중…`)));
-        } else pages.push({ canvas: await loadImageCanvas(f), name: base });
+        } else pages.push({ canvas: await loadImageCanvas(f), name: base, photo: true });   // 사진은 나누지 않고 한 장 그대로
       }
       const slides = [];
       let k = 0;
       for (const pg of pages) {
-        const parts = sliceCanvas(trim ? trimCanvas(pg.canvas) : pg.canvas, n).map(c => trim ? trimCanvas(c) : c);
+        const parts = sliceCanvas(trim ? trimCanvas(pg.canvas) : pg.canvas, pg.photo ? 1 : n).map(c => trim ? trimCanvas(c) : c);
         const fd = new FormData();
         for (let i = 0; i < parts.length; i++) fd.append('files', await canvasBlob(parts[i]), `${pg.name}${parts.length > 1 ? '_' + (i + 1) : ''}.jpg`);
         prog.textContent = `올리는 중… ${++k}/${pages.length}`;
@@ -2145,6 +2206,7 @@ function initWinMemory() {
 function bind() {
   $('#search').oninput = e => { search = e.target.value; renderLib(); };
   try { $('#libSort').value = localStorage.getItem('wc-libSort') || 'recent'; } catch {}
+  initLibPick();
   $('#libSort').onchange = e => { try { localStorage.setItem('wc-libSort', e.target.value); } catch {} renderLib(); };
   $('#serviceSel').onchange = async e => { await api('PUT', '/api/current-service', { id: e.target.value }); };
   $('#svcNew').onclick = newService;
