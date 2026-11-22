@@ -608,7 +608,8 @@
       }
     } else {
       if (st === 1 || st === 3) p.pauseVideo();
-      if (Math.abs(cur - want) > 0.7) p.seekTo(want, true);
+      // 멈출 때 늦게 실행된 재생 요청 때문에 0.5초쯤 더 가 있을 수 있음 → 멈춰 있을 땐 조금만 어긋나도 제자리로
+      if (Math.abs(cur - want) > 0.3) p.seekTo(want, true);
     }
   }
 
