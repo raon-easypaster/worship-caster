@@ -53,13 +53,15 @@
         <button class="btn sm" id="newReading" title="교독문 번호·제목으로 찾아 바로 넣기 (교독문 파일을 ⚙︎ 설정에서 한 번 가져와야 함)">＋ 교독문</button>
         <button class="btn sm" id="newBible">＋ 성경</button>
         <button class="btn sm" id="newPhrase" title="'지금은 기도로 예배를 준비하는 시간입니다' 같은 문구, 성찬 예식">＋ 문구·성찬</button>
+        <button class="btn sm" id="newBlankText" title="빈 편집 창 열기 — 제목과 내용을 직접 적어 예배 순서에 넣기">＋ 빈 문구</button>
         <button class="btn sm" id="newNotice">＋ 광고</button>
         <button class="btn sm" id="newPpt" title="파워포인트·키노트 발표 자료 가져오기 (원본 모양 그대로 그림으로, 또는 글자로)">＋ PPT</button>
         <button class="btn sm" id="newScore">＋ PDF·악보</button>
         <button class="btn sm" id="newHtml" title="웹 페이지(HTML)를 화면에 띄우기">＋ HTML</button>
       </div>
       <p class="muted small" style="margin:0">새 자료는 순서에서 고른 자료 다음에 들어갑니다.</p>
-      <div class="row" style="margin:6px 0 0"><b class="grow">찬양 자료실</b>
+      <div class="row wrap" style="margin:6px 0 0"><b class="grow" style="white-space:nowrap">찬양 자료실</b>
+        <button class="btn sm" id="libNewSong" title="빈 편집 창 열기 — 제목과 가사를 직접 적어 찬양 자료실에만 넣기 (예배 순서에는 안 들어감)">＋ 새 곡</button>
         <label class="btn sm" title="세라핌·동역 콘티에서 받은 곡 파일(.json)이나 가사 글 파일(.txt)을 자료실에 넣기">가져오기<input type="file" id="songImport" accept=".json,.txt,application/json,text/plain" multiple hidden></label>
         <button class="btn sm" id="libPick" title="여러 곡을 골라 한 번에 지우기 (검색한 뒤 [모두]로 검색된 곡 전체를 고를 수 있습니다)">☑ 고르기</button>
         <select id="libSort" style="width:auto;padding:3px 6px;font-size:12px"><option value="recent">최근순</option><option value="abc">가나다순</option></select></div>

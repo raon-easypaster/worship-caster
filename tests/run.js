@@ -728,6 +728,25 @@ async function main() {
     ok(await c.eval(`!mbPick && !document.querySelector('#mbGrid .mb-item[data-url*="mpick_"]')`), '지운 뒤 화면에 남음');
     noErr();
   });
+  await check('＋ 빈 문구(예배 순서에 들어감) · ＋ 새 곡(찬양 자료실에만): 고르기 창 없이 빈 편집 창이 바로 열림', async () => {
+    c.errors.splice(0);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#newBlankText').click(), 1)`); await sleep(600);
+    ok(await c.eval(`document.querySelector('#eType').value === 'text' && document.querySelectorAll('#eSlides .slide-edit').length === 1 && document.querySelector('#eSlides [data-text]').value === ''`), '빈 문구 편집 창이 아님');
+    await c.eval(`(() => { document.querySelector('#eTitle').value = '빈문구 점검'; const t = document.querySelector('#eSlides [data-text]'); t.value = '직접 쓴 문구'; t.dispatchEvent(new Event('input')); document.querySelector('#eSave').click(); return 1; })()`); await sleep(900);
+    let st = await api('GET', '/api/state');
+    const a = st.items.find(i => i.title === '빈문구 점검');
+    ok(a && a.type === 'text' && a.slides[0].text === '직접 쓴 문구', '빈 문구가 저장되지 않음: ' + JSON.stringify(a));
+    ok(st.services.find(x => x.id === st.currentServiceId)?.itemIds.includes(a.id), '빈 문구가 예배 순서에 안 들어감');
+    await c.eval(`(document.querySelector('#libNewSong').click(), 1)`); await sleep(600);
+    ok(await c.eval(`document.querySelector('#eType').value === 'song' && document.querySelectorAll('#eSlides .slide-edit').length === 1`), '새 곡 편집 창이 아님');
+    await c.eval(`(() => { document.querySelector('#eTitle').value = '자료실 새곡 점검'; const t = document.querySelector('#eSlides [data-text]'); t.value = '첫 줄 가사'; t.dispatchEvent(new Event('input')); document.querySelector('#eSave').click(); return 1; })()`); await sleep(900);
+    st = await api('GET', '/api/state');
+    const b = st.items.find(i => i.title === '자료실 새곡 점검');
+    ok(b && b.type === 'song' && b.slides[0].text === '첫 줄 가사' && !('_lib' in b), '새 곡이 저장되지 않음: ' + JSON.stringify(b));
+    ok(!st.services.some(x => x.itemIds.includes(b.id)), '새 곡이 예배 순서에 들어감 (자료실에만 들어가야 함)');
+    await api('DELETE', '/api/items/' + a.id); await api('DELETE', '/api/items/' + b.id);
+    noErr();
+  });
   await check('새 찬양: 제목 칸에 보이는 이름으로 저장 (\'새 찬양\'으로 저장되지 않음)', async () => {
     await c.eval(`(closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
     // 가사 찾기에서 곡을 고를 때처럼 제목 칸만 바꿈 (입력 이벤트 없이)

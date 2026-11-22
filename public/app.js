@@ -1053,8 +1053,9 @@ function openItemEditor(id, focusIndex, preset) {
   body.querySelector('#eSave').onclick = async () => {
     it.title = body.querySelector('#eTitle').value.trim() || it.title;   // 저장할 때 제목 칸을 다시 읽음 (칸만 바뀌고 값이 안 바뀐 경우까지)
     if (!src && KEEP.has(it.type) && !askDup(it.title)) return;   // 자료실에 똑같은 찬양이 있으면 먼저 알림
-    const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', { ...it, place: true, after: afterId() });
-    selId = saved.id; closeDlg(); toast('저장했습니다');
+    const libOnly = !!it._lib; delete it._lib;   // ＋ 새 곡: 찬양 자료실에만 (예배 순서에는 안 넣음)
+    const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', libOnly ? it : { ...it, place: true, after: afterId() });
+    selId = saved.id; closeDlg(); toast(libOnly ? '찬양 자료실에 넣었습니다' : '저장했습니다');
     zawgyiCheck(it.slides.map(s => s.text || '').join('\n'));
   };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -2358,6 +2359,9 @@ function bind() {
   $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: defTheme('notice', 'notice'), slides: [{ text: '교회 소식\n내용을 적으세요' }] });
   $('#newHtml').onclick = openHtmlChoice;
   $('#newPhrase').onclick = openPhrases;
+  // 빈 편집 창: 고르기 창 없이 바로 직접 적기
+  $('#newBlankText').onclick = () => openItemEditor(null, null, { type: 'text', title: '새 문구', theme: '', slides: [{ text: '' }] });
+  $('#libNewSong').onclick = () => openItemEditor(null, null, { type: 'song', title: '새 찬양', theme: defTheme('song'), slides: [{ text: '' }], _lib: true });
   $('#newBible').onclick = openBible;
   $('#newHymn').onclick = openHymn;
   $('#newReading').onclick = openReading;
