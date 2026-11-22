@@ -349,7 +349,7 @@ async function main() {
     ok(r.st.items?.length > 0 && r.st.recovered && !r.st.recovered.from, '예시 자료·알림이 없음');
     ok(r.files.some(f => /^db\.broken-\d+\.json$/.test(f)), '깨진 파일을 남기지 않음(보관본 없음)');
   });
-  await check("가사 찾기: 사이트가 막거나 느리면 '인터넷 끊김'이라고 하지 않음, 정말 끊겼을 때만 인터넷 안내", async () => {
+  await check("가사 찾기: 사이트가 막거나 느리면 '인터넷 끊김'이라고 하지 않음, 정말 끊겼을 때만 인터넷 안내 · 벅스가 막으면 [벅스에서 찾기] 안내", async () => {
     const http = require('http');
     // 가짜 가사 사이트: LRCLIB 는 처음 한 번 500 뒤 결과, 벅스는 늘 429 (자동 검색 막음)
     let lrcHits = 0, mode = 'retry-ok';
@@ -373,23 +373,25 @@ async function main() {
       try {
         for (let i = 0; i < 50; i++) { try { await fetch(B + '/api/me'); break; } catch { await sleep(200); } }
         const r = await fetch(B + '/api/lyrics?q=' + encodeURIComponent('점검'), { headers: { Origin: B } });
-        return await fn(r.status, await r.json());
+        return await fn(r.status, await r.json(), r.headers);
       } finally { s2.kill(); await sleep(300); fs.rmSync(D, { recursive: true, force: true }); }
     };
     try {
       // 1) LRCLIB 가 한 번 실패해도 다시 물어 찾음, 벅스가 막혀도 결과는 나옴
-      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j) => {
+      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j, h) => {
         ok(st === 200 && Array.isArray(j) && j[0]?.title === '점검 찬양', `다시 묻기가 안 됨: ${st} ${JSON.stringify(j).slice(0, 120)}`);
+        ok(h.get('x-wc-bugs') === 'blocked', '벅스가 막혔다는 표시가 화면에 안 감');
         ok(lrcHits === 2, 'LRCLIB 에 다시 묻지 않음: ' + lrcHits);
       });
       // 2) 둘 다 사이트 문제(500·429) → 인터넷이 아니라 '사이트가 대답하지 않음'
       mode = 'down';
       await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j) => {
-        ok(st === 502 && j.code === 'busy' && !/인터넷에 연결/.test(j.error), `사이트 문제를 인터넷 끊김으로 알림: ${JSON.stringify(j)}`);
+        ok(st === 502 && j.code === 'busy' && !/인터넷에 연결/.test(j.error) && /벅스/.test(j.error), `사이트 문제를 인터넷 끊김으로 알림(또는 벅스 안내 없음): ${JSON.stringify(j)}`);
       });
       // 3) 정말 연결이 안 되면 인터넷 안내
-      await run({ WC_LYRICS_LRCLIB: dead, WC_LYRICS_BUGS: dead }, (st, j) => {
+      await run({ WC_LYRICS_LRCLIB: dead, WC_LYRICS_BUGS: dead }, (st, j, h) => {
         ok(st === 502 && j.code === 'offline' && /인터넷/.test(j.error), `연결 불가인데 인터넷 안내가 없음: ${JSON.stringify(j)}`);
+        ok(!h.get('x-wc-bugs'), '인터넷이 끊겼는데 벅스가 막았다고 함');
       });
     } finally { mock.close(); }
   });
@@ -397,6 +399,22 @@ async function main() {
     await api('PUT', '/api/style', { main: { aspect: '4:3', size: 7 } });
     const st = await api('GET', '/api/state'); ok(st.style.main.aspect === '4:3' && st.style.main.size === 7, '스타일 저장 안 됨');
     await api('PUT', '/api/style', { main: { aspect: '16:9' } });
+  });
+
+  await check('🎨 자막 스타일 종류별(서버): 광고만 따로 저장 · 이상한 값·화면 비율은 걸러짐 · 전체 글자 크기를 바꿔도 종류별 값은 남음 · 백업에 들어감', async () => {
+    const r = await api('PUT', '/api/style', { main: {}, overlay: {}, byType: { notice: { main: { bg: '#123456', color: 'red;}', aspect: '4:3', size: 99 }, overlay: { box: '#aa0000', position: 'top' } }, ppt: { main: { bg: '#ffffff' } }, song: { main: {}, overlay: {} } } });
+    ok(r.byType?.notice?.main?.bg === '#123456' && !r.byType.notice.main.color && !('aspect' in r.byType.notice.main) && r.byType.notice.main.size === 30, JSON.stringify(r.byType));
+    ok(r.byType.notice.overlay.position === 'top' && !r.byType.ppt && !r.byType.song, '빈 종류·없는 종류가 남음: ' + JSON.stringify(r.byType));
+    await api('PUT', '/api/style', { main: { size: 6.4 } });   // 운영 화면 글자 －＋ 처럼 byType 없이 보냄
+    let st = await api('GET', '/api/state');
+    ok(st.style.byType?.notice?.overlay?.box === '#aa0000' && st.style.main.size === 6.4, '전체를 바꾸면 종류별 값이 사라짐');
+    const zip = await (await fetch(BASE + '/api/backup')).arrayBuffer();
+    await api('PUT', '/api/style', { byType: {} });
+    ok(!(await api('GET', '/api/state')).style.byType, '되돌리기(빈 값)가 안 됨');
+    const fd = new FormData(); fd.append('file', new Blob([zip]), 'b.zip'); await api('POST', '/api/restore', fd);
+    st = await api('GET', '/api/state');
+    ok(st.style.byType?.notice?.main?.bg === '#123456', '백업에서 종류별 스타일이 안 돌아옴');
+    await api('PUT', '/api/style', { byType: {} });
   });
 
   // ── 화면 (헤드리스 크롬) ──
@@ -538,11 +556,11 @@ async function main() {
     await api('POST', '/api/live', { itemId: it.id, index: 0 });
     await c.go(BASE + '/output?nohint', 2000);
     const look = () => c.eval(`(() => { const L = [...document.querySelectorAll('#screen > .wc-layer')].pop(), t = L?.querySelector('.wc-text-main');
-      return { bg: L && getComputedStyle(L).backgroundColor, font: t && getComputedStyle(t).fontFamily, img: L?.querySelector('.wc-bg')?.style.backgroundImage || '' }; })()`);
+      return { bg: L && getComputedStyle(L).backgroundColor, font: t && getComputedStyle(t).fontFamily, img: (document.querySelector('#screen > .wc-sbg .wc-bg') || L?.querySelector('.wc-bg'))?.style.backgroundImage || '', under: !!document.querySelector('#screen > .wc-sbg + .wc-layer, #screen > .wc-sbg ~ .wc-layer') }; })()`);
     let v = await look();
     ok(v.bg === 'rgb(58, 31, 15)' && /Nanum Myeongjo/.test(v.font), JSON.stringify(v));
     await api('PUT', '/api/themes/' + key, { ...st.settings.themes[key], bgImg: m.url }); await sleep(1000);
-    v = await look(); ok(v.img.includes(m.url), '배경 사진이 안 깔림: ' + JSON.stringify(v));
+    v = await look(); ok(v.img.includes(m.url) && v.under && /Nanum Myeongjo/.test(v.font), '배경 사진이 글자 뒤에 안 깔림: ' + JSON.stringify(v));
     noErr();
     await c.go(BASE + '/overlay', 1500);
     ok(await c.eval(`!document.querySelector('.wc-bg') && (document.querySelector('.wc-ov-text')?.innerText || '').includes('목자')`), 'OBS 자막이 바뀜');
@@ -563,6 +581,108 @@ async function main() {
       await c.eval(`(closeDlg(), 1)`); await sleep(150);
     });
   }
+  await check('🎨 자막 스타일 종류별(화면): 광고 탭에서 바꾸면 광고만 바뀜(모양(테마)보다 먼저) · 찬양·전체는 그대로 · 탭에 • 표시 · 되돌리기', async () => {
+    c.errors.splice(0);
+    const html = await c.eval(`(() => {
+      const style = { main: { ...S.style.main, bg: '#000000' }, overlay: { ...S.style.overlay, box: '#0b1d3a', position: 'bottom' },
+        byType: { notice: { main: { bg: '#123456', font: 'serif' }, overlay: { box: '#aa0000', position: 'top' } } } };
+      const out = {};
+      for (const [k, type, theme] of [['n', 'notice', 'notice'], ['s', 'song', '']]) {
+        const m = document.createElement('div'), o = document.createElement('div'); m.className = o.className = 'wc-screen'; document.body.append(m, o);
+        const snap = { slide: { text: '교회 소식\\n내용' }, style, live: {}, item: { type, theme } };
+        WC.render(m, snap, 'main', { fade: false, still: true }); WC.render(o, snap, 'overlay', { fade: false, still: true });
+        out[k] = { main: m.innerHTML, ov: o.innerHTML }; m.remove(); o.remove();
+      }
+      return JSON.stringify(out);
+    })()`);
+    const h = JSON.parse(html);
+    ok(/#123456|rgb\(18, 52, 86\)/i.test(h.n.main) && /serif/.test(h.n.main), '광고 예배당 화면에 광고 값이 안 들어감(모양보다 먼저여야 함)');
+    ok(/170,0,0/.test(h.n.ov.replace(/\s/g, '')) && /top:4cqh/.test(h.n.ov), '광고 방송 자막에 광고 값이 안 들어감: ' + h.n.ov.slice(0, 200));
+    ok(!/#123456/i.test(h.s.main) && !/170,0,0/.test(h.s.ov.replace(/\s/g, '')) && /bottom:5cqh/.test(h.s.ov), '찬양까지 광고 값으로 바뀜');
+    // 창: 광고 탭 → 배경색 바꾸기 → 탭에 • → 적용하면 광고에만 저장
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#styleBtn').click(), 1)`); await sleep(600);
+    await c.eval(`(document.querySelector('[data-tab="notice"]').click(), 1)`); await sleep(300);
+    ok(await c.eval(`document.querySelector('[data-tab="notice"]').classList.contains('primary') && document.querySelector('#m_aspect').disabled`), '광고 탭이 안 골라짐(또는 화면 비율이 잠기지 않음)');
+    await c.eval(`(() => { const e = document.querySelector('#m_bg'); e.value = '#224466'; e.dispatchEvent(new Event('input')); return 1; })()`);
+    await c.eval(`(document.querySelector('[data-tab=""]').click(), 1)`); await sleep(300);
+    ok(await c.eval(`document.querySelector('[data-tab="notice"]').innerText.includes('•') && document.querySelector('#m_bg').value !== '#224466'`), '전체 탭에 광고 값이 보이거나 • 표시가 없음');
+    await c.eval(`(document.querySelector('#sSave').click(), 1)`); await sleep(600);
+    let st = await api('GET', '/api/state');
+    ok(st.style.byType?.notice?.main?.bg === '#224466' && st.style.main.bg !== '#224466', '광고만 저장되지 않음: ' + JSON.stringify(st.style.byType));
+    await c.eval(`(document.querySelector('#styleBtn').click(), 1)`); await sleep(600);
+    await c.eval(`(document.querySelector('[data-tab="notice"]').click(), 1)`); await sleep(300);
+    await c.eval(`(document.querySelector('#sTypeReset').click(), 1)`); await sleep(300);
+    await c.eval(`(document.querySelector('#sSave').click(), 1)`); await sleep(600);
+    st = await api('GET', '/api/state');
+    ok(!st.style.byType, '되돌리기가 안 됨: ' + JSON.stringify(st.style.byType));
+    noErr();
+  });
+  await check('＋ 빈 슬라이드: 운영 화면은 지금 나가는 슬라이드 바로 뒤에(안 나가면 맨 끝에) · 편집 창은 슬라이드마다 그 뒤에', async () => {
+    c.errors.splice(0);
+    const it = await api('POST', '/api/items', { type: 'song', title: '빈칸 점검곡', slides: [{ text: '가' }, { text: '나' }, { text: '다' }] });
+    await sleep(500);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), select(${JSON.stringify(it.id)}), 1)`); await sleep(400);
+    ok(await c.eval(`!document.querySelector('#addBlank').disabled`), '자료를 골랐는데 단추가 꺼져 있음');
+    await api('POST', '/api/live', { itemId: it.id, index: 0 }); await sleep(500);
+    await c.eval(`(document.querySelector('#addBlank').click(), 1)`); await sleep(700);
+    let sl = (await api('GET', '/api/state')).items.find(i => i.id === it.id).slides.map(x => x.text);
+    ok(JSON.stringify(sl) === JSON.stringify(['가', '', '나', '다']), '지금 슬라이드 뒤에 안 들어감: ' + JSON.stringify(sl));
+    await api('POST', '/api/live', { reset: true }); await sleep(500);
+    await c.eval(`(document.querySelector('#addBlank').click(), 1)`); await sleep(700);
+    sl = (await api('GET', '/api/state')).items.find(i => i.id === it.id).slides.map(x => x.text);
+    ok(JSON.stringify(sl) === JSON.stringify(['가', '', '나', '다', '']), '맨 끝에 안 들어감: ' + JSON.stringify(sl));
+    // 편집 창: '다'(4번째) 뒤에 ＋
+    await c.eval(`(openItemEditor(${JSON.stringify(it.id)}), 1)`); await sleep(600);
+    await c.eval(`(document.querySelectorAll('#eSlides .slide-edit')[3].querySelector('[data-a="blank"]').click(), 1)`); await sleep(300);
+    ok((await c.eval(`document.querySelectorAll('#eSlides .slide-edit').length`)) === 6, '편집 창에 빈 슬라이드가 안 생김');
+    await c.eval(`(document.querySelector('#eSave').click(), 1)`); await sleep(800);
+    sl = (await api('GET', '/api/state')).items.find(i => i.id === it.id).slides.map(x => x.text);
+    ok(JSON.stringify(sl) === JSON.stringify(['가', '', '나', '다', '', '']), '편집 창에서 넣은 자리가 다름: ' + JSON.stringify(sl));
+    await api('DELETE', '/api/items/' + it.id);
+    noErr();
+  });
+  await check('넘길 때: 잔상 없음(옛 글자는 바로 숨김) · 같은 슬라이드 배경(영상)은 다시 시작하지 않고 이어짐 · 미디어 배경보다 위 · 다른 배경이면 바뀜', async () => {
+    c.errors.splice(0);
+    const r = JSON.parse(await c.eval(`(async () => {
+      const box = document.createElement('div'); box.className = 'wc-screen'; document.body.append(box);
+      const snap = (text, bg, extra = {}) => ({ slide: { text, bg }, style: S.style, live: { ...extra }, item: { type: 'song', theme: '' } });
+      WC.render(box, snap('첫째', '/media/bgA.mp4'), 'main', { fade: true });
+      const v1 = box.querySelector('.wc-sbg video');
+      WC.render(box, snap('둘째', '/media/bgA.mp4'), 'main', { fade: true });
+      const v2 = box.querySelector('.wc-sbg video');
+      const layers = [...box.querySelectorAll(':scope > .wc-layer')];
+      const oldText = layers[0].querySelector('.wc-textwrap');
+      const out = { same: !!v1 && v1 === v2, oldHidden: layers.length === 2 && oldText && oldText.style.visibility === 'hidden',
+        newText: (layers[layers.length - 1].innerText || '').includes('둘째'), bgInLayer: !!layers[layers.length - 1].querySelector('.wc-bg') };
+      WC.render(box, snap('셋째', '/media/bgB.jpg', { mediaBg: '/media/m.jpg' }), 'main', { fade: false });
+      const kids = [...box.children].map(k => k.className);
+      out.changed = !box.querySelector(':scope > .wc-sbg video') && /bgB/.test(box.querySelector(':scope > .wc-sbg')?.innerHTML || '');
+      out.order = kids.indexOf('wc-mlayer') < kids.indexOf('wc-sbg') && kids.indexOf('wc-sbg') < kids.lastIndexOf('wc-layer');
+      out.kids = kids.join(',');
+      WC.render(box, { slide: null, style: S.style, live: { black: true }, item: null }, 'main', { fade: false });
+      out.blackOff = !box.querySelector(':scope > .wc-sbg');
+      box.remove(); return JSON.stringify(out);
+    })()`));
+    ok(r.same, '같은 배경 영상인데 슬라이드를 넘기면 새로 만들어짐(처음부터 다시 시작)');
+    ok(r.oldHidden && r.newText, '옛 슬라이드 글자가 남아 잔상이 생김');
+    ok(!r.bgInLayer, '배경이 슬라이드 층 안에 그대로 있음');
+    ok(r.changed, '다른 배경으로 안 바뀜');
+    ok(r.order, '층 순서가 다름(미디어 배경 < 슬라이드 배경 < 글자): ' + r.kids);
+    ok(r.blackOff, '검은 화면인데 슬라이드 배경이 남음');
+    noErr();
+  });
+  await check('가사 찾기: [벅스]·[멜론]·[구글]·[네이버] 단추가 그 사이트 검색 화면을 곡 제목으로 엶', async () => {
+    c.errors.splice(0);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
+    const urls = JSON.parse(await c.eval(`(() => { const got = [], o = window.open; window.open = u => { got.push(u); return null; };
+      document.querySelector('#eLyQ').value = '주의 은혜';
+      ['#eFindB', '#eFindM', '#eFindG', '#eFindN'].forEach(s => document.querySelector(s).click());
+      window.open = o; return JSON.stringify(got); })()`));
+    const t = encodeURIComponent('주의 은혜');
+    ok(urls[0] === 'https://music.bugs.co.kr/search/track?q=' + t && urls[1] === 'https://www.melon.com/search/song/index.htm?q=' + t, '벅스·멜론 주소가 다름: ' + JSON.stringify(urls));
+    ok(/google\.com/.test(urls[2]) && /naver\.com/.test(urls[3]) && urls[3].includes(encodeURIComponent('주의 은혜 가사')), '구글·네이버가 안 됨: ' + JSON.stringify(urls));
+    await c.eval(`(closeDlg(), 1)`); noErr();
+  });
   await check('새 찬양: 제목 칸에 보이는 이름으로 저장 (\'새 찬양\'으로 저장되지 않음)', async () => {
     await c.eval(`(closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
     // 가사 찾기에서 곡을 고를 때처럼 제목 칸만 바꿈 (입력 이벤트 없이)

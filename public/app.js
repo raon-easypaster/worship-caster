@@ -281,6 +281,7 @@ function renderSlides() {
   $('#allView').classList.toggle('on', allOn);
   $('#itemTitle').textContent = it ? it.title : '자료를 선택하세요';
   $('#editItem').disabled = !it;
+  $('#addBlank').disabled = !it;
   const mv = it?.motionVideo || '';
   $('#itemVid').classList.toggle('hidden', !mv);
   if (mv) $('#itemVid .t').textContent = '🎞 ' + decodeURIComponent(mv.split('/').pop());
@@ -338,6 +339,16 @@ function quickEdit(it, s) {
   ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save(); });
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
   setTimeout(() => { ta.focus(); ta.select(); }, 50);
+}
+// ＋ 빈 슬라이드 (운영 화면): 지금 나가는 슬라이드 바로 뒤에, 이 자료가 나가고 있지 않으면 맨 끝에 빈 화면을 넣고 저장
+async function addBlankSlide() {
+  const it = item(selId); if (!it) return;
+  const L = snap?.live, cur = L && L.itemId === it.id && !L.clear && !L.black ? WC.seq(it)[L.index] : null;
+  const at = cur ? it.slides.indexOf(cur) + 1 : it.slides.length;
+  const blank = it.type === 'html' ? { text: '', html: '' } : { text: '' };
+  const slides = [...it.slides.slice(0, at), blank, ...it.slides.slice(at)];
+  await api('PUT', '/api/items/' + it.id, { slides });
+  toast(cur ? `지금 슬라이드 뒤(${at + 1}번째)에 빈 슬라이드를 넣었습니다` : '맨 끝에 빈 슬라이드를 넣었습니다');
 }
 // 새 자료를 넣을 자리: 예배 순서에서 고른 자료 다음
 const afterId = () => (service()?.itemIds.includes(selId) ? selId : null);
@@ -805,7 +816,7 @@ function openItemEditor(id, focusIndex, preset) {
       <label class="song-only">가사 찾기</label><div class="song-only"><div class="row" style="margin:0">
         <input id="eLyQ" style="flex:1;min-width:160px" placeholder="곡 제목 (가수를 함께 쓰면 더 잘 찾습니다)"><button class="btn sm" id="eLyGo">🔎 가사 찾아 넣기</button></div>
       <div id="eLyRes" class="lyres"></div>
-      <div class="row wrap" style="margin:4px 0 0"><span class="muted small">못 찾으면</span><button class="btn sm" id="eFindG">구글</button><button class="btn sm" id="eFindN">네이버</button>
+      <div class="row wrap" style="margin:4px 0 0"><span class="muted small">못 찾으면</span><button class="btn sm" id="eFindB" title="벅스 검색 화면을 브라우저로 엽니다">벅스</button><button class="btn sm" id="eFindM" title="멜론 검색 화면을 브라우저로 엽니다">멜론</button><button class="btn sm" id="eFindG">구글</button><button class="btn sm" id="eFindN">네이버</button>
         <button class="btn sm" id="eClip" title="인터넷에서 복사한 가사를 붙여넣고, 코드·[후렴] 표시·작사/작곡 줄을 지웁니다">📋 복사한 가사 붙여넣고 정리</button></div></div>
       <label class="no-html">가사·글 붙여넣기</label>
       <div class="no-html"><textarea id="ePaste" rows="5" placeholder="가사를 붙여넣으세요. 빈 줄에서는 반드시 나뉩니다.&#10;묶음 첫 줄에 #1절 · #후렴 · #브리지 처럼 쓰면 곡 구성 이름이 붙습니다."></textarea>
@@ -852,6 +863,7 @@ function openItemEditor(id, focusIndex, preset) {
           <button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button>
           ${s.elements?.length || s.htmlFile ? '' : '<button class="icon" data-a="split" title="커서 위치에서 나누기">✂</button>'}
           <button class="icon" data-a="merge" title="다음 슬라이드와 합치기">⇣</button>
+          <button class="icon" data-a="blank" title="이 뒤에 빈 슬라이드">＋</button>
           <button class="icon" data-a="bg" title="배경">🖼</button>
           <button class="icon" data-a="rm" title="삭제">🗑</button></div>`;
       const pv = row.querySelector('.wc-screen');
@@ -889,6 +901,7 @@ function openItemEditor(id, focusIndex, preset) {
         if (a === 'up' && i > 0) [sl[i - 1], sl[i]] = [sl[i], sl[i - 1]];
         if (a === 'down' && i < sl.length - 1) [sl[i + 1], sl[i]] = [sl[i], sl[i + 1]];
         if (a === 'rm') sl.splice(i, 1);
+        if (a === 'blank') sl.splice(i + 1, 0, it.type === 'html' ? { text: '', html: '' } : { text: '' });
         if (a === 'split') {
           const ta = row.querySelector('[data-text]'); const p = ta.selectionStart;
           const before = s.text.slice(0, p).replace(/\n+$/, ''), after = s.text.slice(p).replace(/^\n+/, '');
@@ -962,22 +975,34 @@ function openItemEditor(id, focusIndex, preset) {
   };
   body.querySelector('#eTheme').onchange = e => { it.theme = e.target.value; draw(); };
   body.querySelector('#eBc').onchange = e => { it.noBroadcast = e.target.value === 'none'; it.bcFull = e.target.value === 'full'; };
+  // 브라우저로 직접 찾기: 사람이 여는 검색 화면은 막히지 않음 → 가사를 복사해 📋 버튼으로 넣음
+  const findUrl = (site, title) => {
+    const t = encodeURIComponent(title), q = encodeURIComponent(title + ' 가사');
+    return { b: `https://music.bugs.co.kr/search/track?q=${t}`, m: `https://www.melon.com/search/song/index.htm?q=${t}`,
+      n: `https://search.naver.com/search.naver?query=${q}`, g: `https://www.google.com/search?q=${q}` }[site];
+  };
   const find = site => {
-    const q = encodeURIComponent((body.querySelector('#eTitle').value || '') + ' 가사');
-    window.open(site === 'n' ? `https://search.naver.com/search.naver?query=${q}` : `https://www.google.com/search?q=${q}`, '_blank');
+    const title = (body.querySelector('#eLyQ').value || body.querySelector('#eTitle').value || '').trim();
+    window.open(findUrl(site, title), '_blank');
     toast('가사를 찾아 복사(⌘C / Ctrl+C)한 뒤 📋 버튼을 누르세요');
   };
   // 프로그램 안에서 바로 가사 받기
   const lyQ = body.querySelector('#eLyQ'), lyRes = body.querySelector('#eLyRes');
+  const lyOpen = () => lyRes.querySelectorAll('[data-open]').forEach(b => (b.onclick = () => find(b.dataset.open)));
   const lyFind = async () => {
     const q = lyQ.value.trim();
     if (!q) return toast('곡 제목을 넣으세요');
     lyQ.value = q;
     lyRes.innerHTML = '<div class="muted small">인터넷에서 찾는 중…</div>';
     try {
-      const list = await api('GET', '/api/lyrics?q=' + encodeURIComponent(q));
-      if (!list.length) { lyRes.innerHTML = '<div class="muted small">가사를 찾지 못했습니다. 제목을 줄이거나 가수 이름을 넣어 보세요. 아래 구글·네이버로 찾아도 됩니다.</div>'; return; }
-      lyRes.innerHTML = '<div class="muted small">고르면 아래 가사 칸에 들어갑니다</div>' + list.map((x, i) => {
+      const r = await fetch('/api/lyrics?q=' + encodeURIComponent(q));
+      const list = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(list.error || '오류가 발생했습니다');
+      // 벅스가 자동 검색을 막으면 [벅스에서 찾기] 단추를 바로 보여 줌
+      const blocked = r.headers.get('X-WC-Bugs') === 'blocked'
+        ? '<div class="small" style="margin:2px 0 4px">벅스가 지금 자동 검색을 막았습니다. 벅스에서 직접 찾아 가사를 복사한 뒤 📋 버튼을 누르세요. <button type="button" class="btn sm" data-open="b">벅스에서 찾기</button></div>' : '';
+      if (!list.length) { lyRes.innerHTML = blocked + '<div class="muted small">가사를 찾지 못했습니다. 제목을 줄이거나 가수 이름을 넣어 보세요. 아래 벅스·멜론·구글·네이버로 찾아도 됩니다.</div>'; lyOpen(); return; }
+      lyRes.innerHTML = blocked + '<div class="muted small">고르면 아래 가사 칸에 들어갑니다</div>' + list.map((x, i) => {
         const pre = x.text.split('\n').filter(Boolean).slice(0, 2).join(' / ');
         return `<button type="button" class="lyrow" data-ly="${i}"><b>${esc(x.title)}</b> <span class="muted">${esc(x.artist)} · ${esc(x.src)}</span><br><span class="muted small">${esc(pre)}</span></button>`;
       }).join('');
@@ -989,6 +1014,7 @@ function openItemEditor(id, focusIndex, preset) {
         lyRes.querySelectorAll('.lyrow').forEach(y => y.classList.toggle('on', y === b));
         toast('가사를 넣었습니다. 확인 후 [나누어 슬라이드 만들기]를 누르세요');
       });
+      lyOpen();
     } catch (e) { lyRes.innerHTML = `<div class="err small">${esc(e.message)}</div>`; }
   };
   const t0 = body.querySelector('#eTitle').value.trim();
@@ -996,6 +1022,8 @@ function openItemEditor(id, focusIndex, preset) {
   body.querySelector('#eTitle').addEventListener('change', e => { if (!lyQ.value.trim()) lyQ.value = e.target.value.trim(); });
   body.querySelector('#eLyGo').onclick = lyFind;
   lyQ.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); lyFind(); } };
+  body.querySelector('#eFindB').onclick = () => find('b');
+  body.querySelector('#eFindM').onclick = () => find('m');
   body.querySelector('#eFindG').onclick = () => find('g');
   body.querySelector('#eFindN').onclick = () => find('n');
   body.querySelector('#eClip').onclick = async () => {
@@ -1321,54 +1349,75 @@ async function openMediaPicker(onPick, onCancel) {
 }
 
 // 스타일
-function openStyle(pre) {
+// 종류별 탭: 전체 · 찬양 · 말씀 · 문구 · 광고 — 종류 탭에서 바꾼 값만 그 종류에 따로 적용
+const STYLE_TABS = [['', '전체'], ['song', '찬양'], ['bible', '말씀'], ['text', '문구'], ['notice', '광고']];
+const STYLE_SAMPLE = {
+  '': [{ text: '주님의 은혜가 오늘도\n나의 삶을 덮으시네' }, 'song', ''],
+  song: [{ text: '주님의 은혜가 오늘도\n나의 삶을 덮으시네' }, 'song', 'song'],
+  bible: [{ text: '여호와는 나의 목자시니\n내게 부족함이 없으리로다', ref: '시편 23:1' }, 'bible', 'bible'],
+  text: [{ text: '예배의 부름\n다 함께 일어나 찬양합시다' }, 'text', ''],
+  notice: [{ text: '교회 소식\n이번 주 수요예배는 저녁 7시 30분입니다' }, 'notice', 'notice'],
+};
+let styleTab = '';
+function openStyle(pre, tab) {
   const st = pre || JSON.parse(JSON.stringify(S.style));
-  const fonts = WC.FONTS.some(([v]) => v === st.main.font) ? WC.FONTS : [...WC.FONTS, [st.main.font, '지금 쓰는 글꼴']];
+  if (tab !== undefined) styleTab = tab; else if (!pre) styleTab = '';
+  const T0 = styleTab;
+  st.byType ||= {};
+  const own = () => (st.byType[T0] ||= { main: {}, overlay: {} });
+  const ovr = T0 ? (st.byType[T0] || { main: {}, overlay: {} }) : null;
+  const V = T0 ? { main: { ...st.main, ...(ovr.main || {}) }, overlay: { ...st.overlay, ...(ovr.overlay || {}) } } : st;
+  const changedN = k => { const o = st.byType[k]; return o ? Object.keys(o.main || {}).length + Object.keys(o.overlay || {}).length : 0; };
+  const fonts = WC.FONTS.some(([v]) => v === V.main.font) ? WC.FONTS : [...WC.FONTS, [V.main.font, '지금 쓰는 글꼴']];
   const fontSel = (cur, id) => `<select id="${id}">${fonts.map(([v, n]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''} style="font-family:${esc(v)}">${n}</option>`).join('')}</select>`;
-  const vidName = st.main.motionVideo ? decodeURIComponent(st.main.motionVideo.split('/').pop()) : '고르지 않음';
-  const sample = { text: '주님의 은혜가 오늘도\n나의 삶을 덮으시네' };
+  const vidName = V.main.motionVideo ? decodeURIComponent(V.main.motionVideo.split('/').pop()) : '고르지 않음';
   const body = openDlg(`
     <div class="dlg-head"><h3>자막 스타일</h3><button class="icon" data-x>✕</button></div>
+    <div class="row wrap" id="sTabs" style="margin:0 0 6px">${STYLE_TABS.map(([k, n]) => `<button class="btn sm ${k === T0 ? 'primary' : ''}" data-tab="${k}">${n}${k && changedN(k) ? '<span> •</span>' : ''}</button>`).join('')}</div>
+    <p class="muted small" style="margin:0 0 8px">${T0 ? `<b>${STYLE_TABS.find(t => t[0] === T0)[1]}</b> <span>— 이 종류만 따로 바꿉니다. 여기서 바꾼 것만 이 종류에 적용되고(자료의 모양(테마)보다 먼저), 나머지는 전체 설정을 따릅니다.</span>
+      ${changedN(T0) ? `<button class="btn sm" id="sTypeReset">↺ 이 종류는 전체 설정 따르기</button>` : ''}` : '모든 자료에 적용됩니다. 찬양·말씀·문구·광고만 다르게 하려면 위에서 그 종류를 고르세요. (• 표시는 따로 바꾼 종류)'}</p>
     <div class="two">
       <div><h4>예배당 화면 (HDMI)</h4><div class="form">
-        <label>글꼴</label>${fontSel(st.main.font, 'm_font')}
-        <label>글자 크기</label><input type="range" id="m_size" min="3" max="12" step="0.1" value="${esc(st.main.size)}">
-        <label>글자 색</label><input type="color" id="m_color" value="${esc(st.main.color)}">
-        <label>굵게</label><input type="checkbox" id="m_bold" ${st.main.bold ? 'checked' : ''}>
-        <label>그림자</label><input type="checkbox" id="m_shadow" ${st.main.shadow ? 'checked' : ''}>
-        <label>테두리 두께</label><input type="range" id="m_strokeWidth" min="0" max="5" step="0.5" value="${esc(st.main.strokeWidth)}">
-        <label>테두리 색</label><input type="color" id="m_stroke" value="${esc(st.main.stroke)}">
-        <label>가로 정렬</label><select id="m_align">${['left', 'center', 'right'].map(v => `<option value="${v}" ${v === st.main.align ? 'selected' : ''}>${{ left: '왼쪽', center: '가운데', right: '오른쪽' }[v]}</option>`).join('')}</select>
-        <label>세로 위치</label><select id="m_valign">${['top', 'middle', 'bottom'].map(v => `<option value="${v}" ${v === st.main.valign ? 'selected' : ''}>${{ top: '위', middle: '가운데', bottom: '아래' }[v]}</option>`).join('')}</select>
-        <label>화면 비율</label><select id="m_aspect" title="옛 프로젝터(4:3)면 4:3으로. 방송(OBS)은 늘 16:9">${[['16:9', '16:9 (TV·요즘 프로젝터)'], ['4:3', '4:3 (옛 프로젝터)']].map(([v, t]) => `<option value="${v}" ${(st.main.aspect || '16:9') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        <label>배경색</label><input type="color" id="m_bg" value="${esc(st.main.bg)}">
-        <label>움직이는 배경</label><select id="m_motion">${Object.entries(WC.MOTIONS).map(([k, n]) => `<option value="${k}" ${k === (st.main.motion || 'none') ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <label>글꼴</label>${fontSel(V.main.font, 'm_font')}
+        <label>글자 크기</label><input type="range" id="m_size" min="3" max="12" step="0.1" value="${esc(V.main.size)}">
+        <label>글자 색</label><input type="color" id="m_color" value="${esc(V.main.color)}">
+        <label>굵게</label><input type="checkbox" id="m_bold" ${V.main.bold ? 'checked' : ''}>
+        <label>그림자</label><input type="checkbox" id="m_shadow" ${V.main.shadow ? 'checked' : ''}>
+        <label>테두리 두께</label><input type="range" id="m_strokeWidth" min="0" max="5" step="0.5" value="${esc(V.main.strokeWidth)}">
+        <label>테두리 색</label><input type="color" id="m_stroke" value="${esc(V.main.stroke)}">
+        <label>가로 정렬</label><select id="m_align">${['left', 'center', 'right'].map(v => `<option value="${v}" ${v === V.main.align ? 'selected' : ''}>${{ left: '왼쪽', center: '가운데', right: '오른쪽' }[v]}</option>`).join('')}</select>
+        <label>세로 위치</label><select id="m_valign">${['top', 'middle', 'bottom'].map(v => `<option value="${v}" ${v === V.main.valign ? 'selected' : ''}>${{ top: '위', middle: '가운데', bottom: '아래' }[v]}</option>`).join('')}</select>
+        <label>화면 비율</label><select id="m_aspect" ${T0 ? 'disabled' : ''} title="옛 프로젝터(4:3)면 4:3으로. 방송(OBS)은 늘 16:9">${[['16:9', '16:9 (TV·요즘 프로젝터)'], ['4:3', '4:3 (옛 프로젝터)']].map(([v, t]) => `<option value="${v}" ${(V.main.aspect || '16:9') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <label>배경색</label><input type="color" id="m_bg" value="${esc(V.main.bg)}">
+        <label>움직이는 배경</label><select id="m_motion">${Object.entries(WC.MOTIONS).map(([k, n]) => `<option value="${k}" ${k === (V.main.motion || 'none') ? 'selected' : ''}>${n}</option>`).join('')}</select>
         <label>배경 동영상</label><div class="row" style="margin:0"><span class="muted small grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(vidName)}</span><button class="btn sm" id="mvPick">동영상 고르기</button></div>
-        <label>움직이는 배경 켜기</label><input type="checkbox" id="m_motionOn" ${st.main.motionOn !== false ? 'checked' : ''}>
+        <label>움직이는 배경 켜기</label><input type="checkbox" id="m_motionOn" ${T0 ? 'disabled title="전체 탭에서 정합니다"' : ''} ${V.main.motionOn !== false ? 'checked' : ''}>
       </div><div id="sPvMain" class="wc-screen pv" style="margin-top:10px"></div>
       <p class="muted small">움직이는 배경은 그림 배경이 없는 글자 슬라이드 뒤에 깔립니다. 자료마다 ✎ 편집 → 모양(테마)으로 따로 정할 수도 있습니다.</p></div>
       <div><h4>방송 자막 (OBS)</h4><div class="form">
-        <label>글꼴</label>${fontSel(st.overlay.font, 'o_font')}
-        <label>글자 크기</label><input type="range" id="o_size" min="2.5" max="9" step="0.1" value="${esc(st.overlay.size)}">
-        <label>글자 색</label><input type="color" id="o_color" value="${esc(st.overlay.color)}">
-        <label>굵게</label><input type="checkbox" id="o_bold" ${st.overlay.bold ? 'checked' : ''}>
-        <label>자막 바 색</label><input type="color" id="o_box" value="${esc(st.overlay.box)}">
-        <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${esc(st.overlay.boxOpacity)}">
-        <label>위치</label><select id="o_position"><option value="bottom" ${st.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${st.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
-        <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${st.overlay.showTitle ? 'checked' : ''}>
+        <label>글꼴</label>${fontSel(V.overlay.font, 'o_font')}
+        <label>글자 크기</label><input type="range" id="o_size" min="2.5" max="9" step="0.1" value="${esc(V.overlay.size)}">
+        <label>글자 색</label><input type="color" id="o_color" value="${esc(V.overlay.color)}">
+        <label>굵게</label><input type="checkbox" id="o_bold" ${V.overlay.bold ? 'checked' : ''}>
+        <label>자막 바 색</label><input type="color" id="o_box" value="${esc(V.overlay.box)}">
+        <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${esc(V.overlay.boxOpacity)}">
+        <label>위치</label><select id="o_position"><option value="bottom" ${V.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${V.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
+        <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${V.overlay.showTitle ? 'checked' : ''}>
         <label>그림 보내기</label><select id="o_imgMode" title="악보·사진·PPT 그림 슬라이드를 방송에 어떻게 보낼지">
-          ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['circle', '화면 가득 + 사람 원'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(st.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        <label>일부 — 크기</label><input type="range" id="o_partSize" min="15" max="70" step="1" value="${esc(st.overlay.partSize ?? 35)}">
-        <label>일부 — 위치</label><select id="o_partPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(st.overlay.partPos || 'tr') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
-        <label>원 — 크기</label><input type="range" id="o_circSize" min="12" max="60" step="1" value="${esc(st.overlay.circSize ?? 30)}">
-        <label>원 — 위치</label><select id="o_circPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(st.overlay.circPos || 'br') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+          ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['circle', '화면 가득 + 사람 원'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(V.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <label>일부 — 크기</label><input type="range" id="o_partSize" min="15" max="70" step="1" value="${esc(V.overlay.partSize ?? 35)}">
+        <label>일부 — 위치</label><select id="o_partPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(V.overlay.partPos || 'tr') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+        <label>원 — 크기</label><input type="range" id="o_circSize" min="12" max="60" step="1" value="${esc(V.overlay.circSize ?? 30)}">
+        <label>원 — 위치</label><select id="o_circPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(V.overlay.circPos || 'br') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </div><div id="sPvOv" class="wc-screen pv checker" style="margin-top:10px"></div></div>
     </div>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="sSave">적용</button></div>`);
   body.querySelector('#mvPick').onclick = () => openMediaPicker(url => {
     if (!/\.(mp4|mov|m4v|webm)$/i.test(url)) return toast('동영상(mp4·mov·webm)을 골라 주세요');
-    st.main.motionVideo = url; st.main.motion = 'video'; openStyle(st);
-  }, () => openStyle(st));
+    const g = T0 ? own().main : st.main; g.motionVideo = url; g.motion = 'video'; openStyle(st, T0);
+  }, () => openStyle(st, T0));
+  body.querySelectorAll('[data-tab]').forEach(b => (b.onclick = () => openStyle(st, b.dataset.tab)));
+  const rs = body.querySelector('#sTypeReset'); if (rs) rs.onclick = () => { delete st.byType[T0]; openStyle(st, T0); };
   // 슬라이더 옆에 지금 값 표시
   body.querySelectorAll('input[type=range]').forEach(el => {
     const out = document.createElement('span'); out.className = 'muted small'; out.style.cssText = 'min-width:36px;text-align:right';
@@ -1378,13 +1427,14 @@ function openStyle(pre) {
     el.addEventListener('input', upd); upd();
   });
   const paint = () => {
-    const fake = { slide: sample, next: null, style: st, live: { black: false, clear: false }, item: { type: 'song', title: '예시 찬양' } };
+    const [slide, type, kind] = STYLE_SAMPLE[T0];
+    const fake = { slide, next: null, style: st, live: { black: false, clear: false }, item: { type, title: '예시 찬양', theme: kind ? defTheme(kind, { bible: 'word', notice: 'notice' }[kind] || '') : '' } };
     WC.render(body.querySelector('#sPvMain'), fake, 'main', { fade: false });
     WC.render(body.querySelector('#sPvOv'), fake, 'overlay', { fade: false });
   };
   body.querySelectorAll('[id^=m_],[id^=o_]').forEach(el => el.addEventListener('input', () => {
     const [grp, key] = [el.id[0] === 'm' ? 'main' : 'overlay', el.id.slice(2)];
-    st[grp][key] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? +el.value : el.value;
+    (T0 ? own()[grp] : st[grp])[key] = el.type === 'checkbox' ? el.checked : el.type === 'range' ? +el.value : el.value;
     paint();
   }));
   body.querySelector('#sSave').onclick = async () => { await api('PUT', '/api/style', st); closeDlg(); toast('스타일을 적용했습니다'); };
@@ -2257,6 +2307,7 @@ function bind() {
     toast('이 자료의 배경 영상을 뺐습니다');
   };
   initSplits();
+  $('#addBlank').onclick = () => addBlankSlide().catch(e => toast(e.message));
   $('#styleBtn').onclick = () => openStyle();   // 클릭 정보가 '고치던 스타일'로 넘어가지 않게
   $('#mediaBtn').onclick = () => openMediaPicker(null, null);
   if (IS_EDITOR) return;

@@ -186,22 +186,30 @@
     if (!u || isVideo(u) || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || mediaUrl(snap.live?.mediaBg)) return snap;
     return { ...snap, slide: { ...s, bg: u } };
   }
+  // 🎨 자막 스타일에서 종류별(찬양·말씀·문구·광고)로 따로 바꾼 값 — 전체 스타일·모양(테마)보다 먼저
+  function typeStyle(snap) {
+    const o = snap.style?.byType?.[snap.item?.type];
+    return { main: (o && o.main) || {}, overlay: (o && o.overlay) || {} };
+  }
   function mainStyle(snap) {
     const { name, motion, base, bgImg, ...t } = themeOf(snap);
-    return safeMain({ ...snap.style.main, ...t });
+    const { motionOn, aspect, ...ty } = typeStyle(snap).main;
+    return safeMain({ ...snap.style.main, ...t, ...ty });
   }
+  const ovStyle = snap => safeOverlay({ ...(snap.style.overlay || {}), ...typeStyle(snap).overlay });
   // 이 슬라이드 뒤에 깔 움직이는 배경 (그림·PPT·HTML 슬라이드에는 깔지 않음)
   function motionKey(snap, st) {
     const L = snap.live || {}, s = snap.slide, main = snap.style.main || {};
-    if (L.black || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
+    if (L.black || !s || s.bg || s._bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
     const iv = mediaUrl(snap.item?.motionVideo);   // 이 찬양에 저장해 둔 배경 영상이 먼저
     if (iv) return 'video:' + iv;
     const t = themeOf(snap);
     const tv = mediaUrl(t.bgImg);   // 내 모양의 배경 영상
     if (tv && isVideo(tv)) return 'video:' + tv;
-    const m = t.motion !== undefined ? t.motion : st.motion;
+    const ty = typeStyle(snap).main;
+    const m = ty.motion !== undefined ? ty.motion : t.motion !== undefined ? t.motion : st.motion;
     if (!MOTIONS[m] || m === 'none') return '';
-    if (m === 'video') { const u = mediaUrl(main.motionVideo); return u ? 'video:' + u : ''; }
+    if (m === 'video') { const u = mediaUrl(ty.motionVideo || main.motionVideo); return u ? 'video:' + u : ''; }
     return m;
   }
   // 방송에 '화면 그대로' 보낼 슬라이드: 그림·HTML·PPT (PPT는 글자로 가져온 것도 칸 배치가 있어 자막 바로 만들지 않음)
@@ -277,7 +285,7 @@
       return `<div class="wc-layer" style="background:${see ? 'transparent' : '#000'}">${logo}</div>`;
     }
     const mk = motionKey(snap, st);
-    const under = mk || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
+    const under = mk || s._bg || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
     const bg = under ? 'transparent' : L.clear ? '#000' : col(s.bgColor, st.bg);   // 글자 지움·모두 끄기는 검정 (악보·밝은 테마의 흰 바탕이 남지 않게)
     return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
@@ -296,7 +304,7 @@
     // 👤 사람 화면(P): 그림·악보·PPT·HTML 은 유튜브에 보내지 않음 → 카메라만 보임 (예배당 TV에는 그대로)
     if (L.camOnly && (isVisual(s) || snap.item?.bcFull)) return 'off';
     if (snap.item?.bcFull) return 'full';
-    if (isVisual(s)) return safeOverlay(snap.style.overlay || {}).imgMode === 'none' ? 'off' : 'full';
+    if (isVisual(s)) return ovStyle(snap).imgMode === 'none' ? 'off' : 'full';
     return String(s.text || '').trim() ? 'caption' : 'off';
   }
 
@@ -304,7 +312,7 @@
     const mode = bcMode(snap), s = snap.slide;
     if (mode === 'off') return '<div class="wc-layer"></div>';
     if (mode === 'full') {
-      const st = mainStyle(snap), mk = motionKey(snap, st), ov = safeOverlay(snap.style.overlay || {});
+      const st = mainStyle(snap), mk = motionKey(snap, st), ov = ovStyle(snap);
       const screen = `${motionHTML(mk, opts.still)}${slideInner(snap, st, opts.still, true)}`;
       const bg = mk ? '#000' : col(s.bgColor, st.bg);
       if (ov.imgMode === 'part' && !snap.item?.bcFull) {
@@ -326,7 +334,7 @@
       const pip = snap.live?.pip && snap.obs?.base && snap.obs?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
       return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
     }
-    const st = safeOverlay(snap.style.overlay);
+    const st = ovStyle(snap);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
     const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
     return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
@@ -364,6 +372,18 @@
     el.style.cssText = `position:absolute;inset:0;pointer-events:none;${top ? 'z-index:5;' : ''}`;
     if (top) container.appendChild(el); else container.prepend(el);
     if (fade) { el.style.opacity = 0; el.style.transition = 'opacity .7s'; fadeIn(el, 750); }
+  }
+
+  // 예배당 화면: 슬라이드 배경을 슬라이드 층에서 떼어 냄 (소리 내는 영상·그림만 있는 슬라이드를 TV에서 끈 때는 그대로)
+  //   떼어 내는 것: 글자 뒤 배경, 영상 배경, 지금 깔린 것과 같은 배경. 그림만 있는 슬라이드(악보·PPT 그림·사진)는 장마다 그림이 달라 그대로 둠
+  function liftBg(snap, container) {
+    const s = snap.slide, L = snap.live || {}, url = mediaUrl(s?.bg);
+    const picOnly = s && !String(s.text || '').trim() && !(s.elements || []).some(e => e.type !== 'image');
+    if (!url || L.black || L.logo || L.clear || timerOver(snap) || s.html || s.htmlFile || s.sound || (L.tvNoImg && picOnly)) return { snap, key: '' };
+    const cover = s.fit !== 'contain', key = url + '|' + (cover ? 1 : 0);
+    const cur = container?.querySelector(':scope > .wc-sbg')?._key;
+    if (picOnly && !isVideo(url) && cur !== key) return { snap, key: '' };
+    return { snap: { ...snap, slide: { ...s, bg: undefined, _bg: url } }, key, url, cover };
   }
 
   // 페이드 전환 렌더
@@ -408,6 +428,13 @@
       if (on && real) ytSync(container, snap, mode);
     }
     if (mode === 'main') {
+      // 슬라이드에 넣은 배경(사진·영상): 같은 배경이면 슬라이드를 넘겨도 처음부터 다시 시작하지 않고 계속 이어짐
+      const lb = liftBg(snap, container); snap = lb.snap;
+      persist(container, 'wc-sbg', lb.key, () => bgHTML(lb.url, lb.cover), false, fade);
+      // 미디어 배경보다 위, 슬라이드 글자보다 아래에 (예전처럼 슬라이드 배경이 미디어 배경을 가림)
+      const sb = container.querySelector(':scope > .wc-sbg'), firstLayer = container.querySelector(':scope > .wc-layer');
+      if (sb && firstLayer && sb.nextElementSibling !== firstLayer) container.insertBefore(sb, firstLayer);
+      else if (sb && !firstLayer) container.insertBefore(sb, container.querySelector(':scope > .wc-mtop, :scope > .wc-yt, :scope > .wc-mark'));
       const mk = motionKey(snap, mainStyle(snap));
       persist(container, 'wc-mbase', mk, () => motionHTML(mk, opts.still), false, fade);
     }
@@ -443,6 +470,11 @@
     }
     const swap = () => {
       if (fade) {
+        // 잔상 없게: 옛 화면의 글자·그림은 바로 숨기고(바탕색만 남김) 새 화면이 그 위에 나타남 → 두 화면이 겹쳐 보이지 않음
+        olds.forEach(o => {
+          o.querySelectorAll(':scope > :not(.wc-ov), .wc-ov-text, .wc-ov-title').forEach(ch => (ch.style.visibility = 'hidden'));
+          o.querySelectorAll('video').forEach(v => { try { v.pause(); } catch {} });
+        });
         fadeIn(layer);
         if (layer.dataset.tr || mode === 'overlay') olds.forEach(o => (o.style.opacity = 0));  // 투명 층은 서로 겹쳐 보이지 않게 같이 바꿈
         setTimeout(() => olds.forEach(o => o.remove()), 320);

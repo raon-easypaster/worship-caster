@@ -425,13 +425,15 @@ app.get('/api/lyrics', needAuth, async (req, res) => {
   const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (!q) return res.status(400).json({ error: '곡 제목을 넣으세요' });
   const [a, b] = await Promise.allSettled([lrclib(q), bugs(q)]);
+  // 벅스가 자동 검색을 막았거나(429·403 등) 대답하지 않음 → 화면에서 '벅스에서 찾기'로 직접 열도록 알림 (막은 것을 뚫지 않음)
+  if (b.status === 'rejected' && !isOffline(b.reason)) res.set('X-WC-Bugs', 'blocked');
   const seen = new Set();   // 같은 가사(편곡만 다른 곡)는 하나만
   const list = [...(a.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
   if (!list.length && a.status === 'rejected' && b.status === 'rejected') {
     // 둘 다 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
     if (isOffline(a.reason) && isOffline(b.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
     console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 벅스', b.reason?.message);
-    return res.status(502).json({ error: '가사 사이트가 지금 대답하지 않습니다. 잠시 뒤 다시 찾거나, 아래 구글·네이버로 찾아 붙여 넣으세요', code: 'busy' });
+    return res.status(502).json({ error: '가사 사이트가 지금 대답하지 않습니다 (벅스가 자동 검색을 막았을 수 있습니다). 아래 [벅스]·[멜론]을 눌러 찾은 뒤, 가사를 복사해 📋 버튼으로 넣으세요', code: 'busy' });
   }
   res.json(list);
 });
@@ -508,8 +510,25 @@ function cleanStyle(src, base) {
   }
   return out;
 }
+// 종류별 자막 스타일: 찬양·말씀·문구·광고마다 '따로 바꾼 값'만 저장 (나머지는 전체 스타일을 따름)
+const STYLE_TYPES = ['song', 'bible', 'text', 'notice'];
+const TYPE_ONLY_SKIP = ['aspect', 'motionOn'];   // 화면 비율·움직이는 배경 켜기는 전체에서만
+function cleanByType(src) {
+  const out = {};
+  for (const t of STYLE_TYPES) {
+    const o = src?.[t]; if (!o || typeof o !== 'object') continue;
+    const main = cleanStyle(o.main, {}), overlay = cleanStyle(o.overlay, {});
+    TYPE_ONLY_SKIP.forEach(k => delete main[k]);
+    if (Object.keys(main).length || Object.keys(overlay).length) out[t] = { main, overlay };
+  }
+  return out;
+}
+function withByType(main, overlay, byType) {
+  const b = cleanByType(byType);
+  return Object.keys(b).length ? { main, overlay, byType: b } : { main, overlay };
+}
 app.put('/api/style', needAuth, (req, res) => {
-  db.style = { main: cleanStyle(req.body.main, db.style.main), overlay: cleanStyle(req.body.overlay, db.style.overlay) };
+  db.style = withByType(cleanStyle(req.body.main, db.style.main), cleanStyle(req.body.overlay, db.style.overlay), 'byType' in req.body ? req.body.byType : db.style.byType);
   changed(); pushLive(); res.json(db.style);
 });
 const LOGO_RE = /^\/media\/[^"'<>()\\\s]+$/;
@@ -810,7 +829,7 @@ function cleanRestore(src) {
   return {
     items, services,
     currentServiceId: services.some(s => s.id === src.currentServiceId) ? src.currentServiceId : (services[0]?.id || null),
-    style: { main: cleanStyle(src.style?.main, store.DEFAULT_STYLE.main), overlay: cleanStyle(src.style?.overlay, store.DEFAULT_STYLE.overlay) },
+    style: withByType(cleanStyle(src.style?.main, store.DEFAULT_STYLE.main), cleanStyle(src.style?.overlay, store.DEFAULT_STYLE.overlay), src.style?.byType),
     phrases: (Array.isArray(src.phrases) ? src.phrases : []).map(x => t(x, 500)).filter(x => x.trim()).slice(0, 200),
     props: arr(src.props, 50).map(p => ({ id: ID.test(p.id) ? p.id : store.uid(), text: t(p.text, 80).trim(), sub: t(p.sub, 120).trim(),
       where: ['both', 'tv', 'obs'].includes(p.where) ? p.where : 'both', pos: p.pos === 'top' ? 'top' : 'bottom' })).filter(p => p.text),
