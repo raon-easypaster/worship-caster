@@ -43,7 +43,7 @@
     '그림으로 가져올 때는 이 컴퓨터의 ': 'Picture import uses ', '리브레오피스': 'LibreOffice', '키노트': 'Keynote', '파워포인트': 'PowerPoint',
     '(맥) 또는 ': '(Mac) or ', '(윈도우)로 바꿉니다. 처음 한 번 "키노트를 제어하도록 허용" 질문이 나오면 [허용]을 누르세요.': '(Windows) on this computer. If asked once to allow control of Keynote, press [Allow].',
     '잘 안 되면 파워포인트·키노트에서 ': 'If it does not work, save it ', 'PDF로 저장': 'as PDF', '한 뒤 [＋ PDF·악보]로 넣으면 똑같이 들어갑니다.': ' in PowerPoint/Keynote and add it with [＋ PDF · Score] — it looks the same.',
-    '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 1분쯤 걸릴 수 있습니다)': 'Converting exactly like the original… (many slides can take about a minute)',
+    '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 몇 분 걸릴 수 있습니다)': 'Converting exactly like the original… (many slides can take a few minutes)',
     'PPT 가져오는 중…': 'Importing PPT…', '그림으로 바꾸지 못했습니다': 'Could not convert to pictures',
     '글자로 가져오기는 .pptx 파일만 됩니다. 그림으로 가져오기를 고르세요': 'Text import works only with .pptx files. Choose picture import',
     '☑ 고르기': '☑ Select', '여러 곡을 골라 한 번에 지우기 (검색한 뒤 [모두]로 검색된 곡 전체를 고를 수 있습니다)': 'Pick several songs and delete them at once (search first, then [All] picks every song found)',

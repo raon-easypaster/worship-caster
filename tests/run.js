@@ -104,7 +104,7 @@ async function main() {
       ok(fs.existsSync(out), '애플스크립트 문법 오류');
     }
   });
-  await check('PPT 그림으로 가져오기(서버): PDF로 바꿔 돌려줌 · 이상한 파일·이름만 PPT인 파일은 막음 · 매크로는 실행 안 함 · 폴더 항목 든 .pptx 다시 묶기 · 맥은 리브레오피스→키노트, 윈도우는 파워포인트→리브레오피스 · 없으면 PDF로 넣으라는 안내', async () => {
+  await check('PPT 그림으로 가져오기(서버): PDF로 바꿔 돌려줌 · 이상한 파일·이름만 PPT인 파일은 막음 · 매크로는 실행 안 함 · 폴더 항목 든 .pptx 다시 묶기 · 맥은 리브레오피스→이음오피스→키노트, 윈도우는 파워포인트→리브레오피스 · 없으면 PDF로 넣으라는 안내 · 키노트가 못 여는 파일이면 키노트를 끄고 리브레오피스 설치 안내 · 맥은 이음오피스도 씀(키노트보다 먼저)', async () => {
     const JSZip = require(path.join(ROOT, 'node_modules', 'jszip'));
     const z = new JSZip(); z.folder('ppt'); z.file('ppt/presentation.xml', '<p/>'); z.file('[Content_Types].xml', '<Types/>');
     const pptx = await z.generateAsync({ type: 'nodebuffer' });
@@ -126,11 +126,16 @@ async function main() {
     const has = list => p => list.some(x => p.includes(x));
     ok(conv.converters('darwin', has(['LibreOffice.app', 'Keynote.app'])).map(c => c.name).join() === '리브레오피스,키노트', '맥 순서');
     ok(conv.converters('darwin', has(['Keynote.app'])).map(c => c.name).join() === '키노트', '맥 키노트만');
+    ok(conv.converters('darwin', has(['LibreOffice.app', 'IeumOffice.app', 'Keynote.app'])).map(c => c.name).join() === '리브레오피스,이음오피스,키노트', '맥에 이음오피스가 있으면 리브레오피스 다음, 키노트 앞에 씀');
+    ok(conv.converters('win32', has(['IeumOffice.app'])).every(c => c.name !== '이음오피스'), '윈도우에 맥용 이음오피스 경로를 씀');
+    await conv.converters('darwin', has(['IeumOffice.app']))[0].run('/x/a.key', '/x/a.pdf').then(() => ok(false, '이음오피스로 .key 를 바꾸려 함'), e => ok(/pptx/.test(e.message), e.message));
     ok(conv.converters('darwin', () => false).length === 0, '맥에 아무것도 없을 때');
     ok(conv.converters('win32', has(['LibreOffice'])).map(c => c.name).join() === '파워포인트,리브레오피스', '윈도우 순서');
     ok(/front document/.test(conv.KEYNOTE_SCRIPT) && !/set d to open/.test(conv.KEYNOTE_SCRIPT), "키노트 14는 'set d to open' 문서를 내보내면 죽음 → 맨 앞 문서로");
     ok(/SaveAs\(\$out, 32\)/.test(conv.POWERPOINT_PS1) && /Presentations\.Open\(\$in, -1, 0, 0\)/.test(conv.POWERPOINT_PS1), '파워포인트: 창 없이 읽기 전용으로 열어 PDF(32)로');
     ok(/AutomationSecurity = 3/.test(conv.POWERPOINT_PS1), '파워포인트에서 매크로를 막지 않음');
+    ok(/on error[\s\S]*if not wasRunning then do shell script "killall Keynote/.test(conv.KEYNOTE_SCRIPT), '키노트가 못 여는 파일일 때 오류 창 뜬 키노트를 그대로 둠');
+    ok(/리브레오피스\(libreoffice\.org\)/.test(conv.failMessage(['키노트: 못 엶'], false, 'darwin')) && !/libreoffice\.org/.test(conv.failMessage(['리브레오피스: x'], true, 'darwin')), '바꾸지 못했을 때 리브레오피스 설치 안내가 없음(또는 이미 있는데 권함)');
     if (process.platform === 'darwin') {
       const out = path.join(DATA, 'kn.scpt');
       require('child_process').execFileSync('osacompile', ['-o', out, '-e', conv.KEYNOTE_SCRIPT]);   // 문법만 확인 (실행하지 않음)

@@ -1231,7 +1231,7 @@ function openPpt() {
         selId = it.id; closeDlg(); toast(`슬라이드 ${it.slides.length}장을 가져왔습니다`);
         return;
       }
-      prog.textContent = '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 1분쯤 걸릴 수 있습니다)';
+      prog.textContent = '원본 모양 그대로 바꾸는 중… (슬라이드가 많으면 몇 분 걸릴 수 있습니다)';
       const fd = new FormData(); fd.append('file', f);
       const r = await fetch('/api/pptx-pdf', { method: 'POST', body: fd });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || '그림으로 바꾸지 못했습니다'); }
@@ -1595,7 +1595,7 @@ function openSettings() {
     </div>
     <div class="row wrap" style="margin-top:16px"><label class="row" style="margin:0;gap:6px"><input type="checkbox" id="stUpd" ${S.settings.updateCheck !== false ? 'checked' : ''}> 새 버전이 나오면 알려 주기</label>
       <a class="btn sm" href="https://raon-easypaster.github.io/worship-caster/" target="_blank" rel="noopener">받는 곳 열기</a></div>
-    <p class="muted small" style="margin-top:8px">예배송출 v0.14.4 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
+    <p class="muted small" style="margin-top:8px">예배송출 v0.14.5 · 만든 사람: <b>쉬운목사 이광복</b> · 무료로 나눕니다</p>
     <div class="dlg-foot"><button class="btn" data-x>닫기</button></div>`);
   const folders = [...(S.settings.bibleFolders || [])];
   const saveFolders = async list => { const r = await api('PUT', '/api/bible/folders', { folders: list }); toast(`번역본 ${r.versions.length}개를 읽었습니다`); await reload(); openSettings(); };
