@@ -92,6 +92,7 @@
         <span id="mbLive" class="mbin-live muted">배경 없음</span>
         <div class="grow"></div>
         <input type="range" id="mbSize" min="110" max="260" step="10" value="150" title="미리보기 크기">
+        <button class="btn sm toggle" id="mbPick" title="여러 개를 골라 한 번에 지우기 — 누르거나, 빈 곳에서 끌어서 네모로 고르기 (Shift: 사이 전부)">☑ 고르기</button>
         <label class="btn sm">＋ 올리기<input type="file" id="mbUp" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,video/*" hidden></label>
         <select id="mbFit" class="mbin-fit" title="배경 크기 맞춤 (파일마다 기억)">
           <option value="auto">맞춤: 자동</option><option value="cover">꽉 채우기</option><option value="contain">전체 보이기</option><option value="small">작게 (로고)</option>
@@ -101,6 +102,9 @@
         <button class="btn sm" id="mbTopOff" title="⬆ 위에 띄운 그림만 빼기 (배경·슬라이드는 그대로)" disabled>⏹ 그림 끄기</button>
         <button class="icon" id="mbFold" title="미디어 칸 접기·펴기">▾</button>
       </div>
+      <div id="mbBar" class="libbar mbbar hidden"><label class="libbar-all"><input type="checkbox" id="mbAll"> 모두</label><span id="mbCnt" class="grow small">0개</span>
+        <span class="muted small">누르거나 끌어서 고르기 · Shift: 사이 전부</span>
+        <button class="btn sm danger" id="mbDel" disabled>🗑 지우기</button><button class="btn sm" id="mbDone">그만</button></div>
       <div id="mbGrid" class="mbin-grid"></div>
     </div>
   </section>

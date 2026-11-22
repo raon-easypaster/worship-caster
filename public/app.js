@@ -1786,6 +1786,65 @@ function initOverlayQuick() {
 // ── 미디어 칸: 누르면 예배당 화면 배경으로 계속 나옴 ──
 const isVid = u => /\.(mp4|mov|m4v|webm)$/i.test(u);
 let mbFiles = [], mbFilter = 'all';
+// ☑ 고르기: 여러 개를 골라 한 번에 지우기 (누르기 · Shift 사이 전부 · 끌어서 네모로)
+let mbPick = false, mbLast = null, mbDragged = false;
+const mbSel = new Set();
+const mbVisible = () => [...document.querySelectorAll('#mbGrid .mb-item')].map(el => el.dataset.url);
+function mbSetPick(on) {
+  mbPick = on; if (!on) { mbSel.clear(); mbLast = null; }
+  $('#mbGrid')?.classList.toggle('picking', on);
+  $('#mbBar')?.classList.toggle('hidden', !on);
+  $('#mbPick')?.classList.toggle('on', on);
+  document.querySelectorAll('#mbGrid .mb-item').forEach(el => (el.draggable = !on));
+  mbMark();
+}
+function mbMark() {
+  const vis = mbVisible();
+  [...mbSel].forEach(u => { if (!mbFiles.some(f => f.url === u)) mbSel.delete(u); });
+  document.querySelectorAll('#mbGrid .mb-item').forEach(el => el.classList.toggle('sel', mbSel.has(el.dataset.url)));
+  if (!$('#mbCnt')) return;
+  $('#mbCnt').textContent = `${mbSel.size}개 고름`;
+  $('#mbDel').disabled = !mbSel.size;
+  $('#mbAll').checked = !!vis.length && vis.every(u => mbSel.has(u));
+}
+function mbToggle(url, shift) {
+  const vis = mbVisible();
+  if (shift && mbLast && vis.includes(mbLast)) {
+    const [a, b] = [vis.indexOf(mbLast), vis.indexOf(url)].sort((x, y) => x - y);
+    vis.slice(a, b + 1).forEach(u => mbSel.add(u));
+  } else mbSel.has(url) ? mbSel.delete(url) : mbSel.add(url);
+  mbLast = url; mbMark();
+}
+// 빈 곳(고르기 중에는 아무 데서나)에서 끌면 네모 안의 것을 고름. 고르기가 꺼져 있으면 저절로 켜짐
+function initMbBand() {
+  const grid = $('#mbGrid');
+  grid.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    const onItem = e.target.closest('.mb-item');
+    if (onItem && !mbPick) return;   // 고르기가 꺼져 있으면 사진을 끌어 슬라이드로 놓는 기능 그대로
+    e.preventDefault();
+    const x0 = e.clientX, y0 = e.clientY, base = e.shiftKey || e.metaKey || e.ctrlKey ? new Set(mbSel) : new Set();
+    let band = null;
+    const move = ev => {
+      const x1 = ev.clientX, y1 = ev.clientY;
+      if (!band && Math.hypot(x1 - x0, y1 - y0) < 6) return;
+      if (!band) { band = document.createElement('div'); band.className = 'mb-band'; document.body.appendChild(band); if (!mbPick) mbSetPick(true); }
+      const L = Math.min(x0, x1), T = Math.min(y0, y1), R = Math.max(x0, x1), B = Math.max(y0, y1);
+      Object.assign(band.style, { left: L + 'px', top: T + 'px', width: R - L + 'px', height: B - T + 'px' });
+      mbSel.clear(); base.forEach(u => mbSel.add(u));
+      grid.querySelectorAll('.mb-item').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.left < R && r.right > L && r.top < B && r.bottom > T) mbSel.add(el.dataset.url);
+      });
+      mbMark();
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      if (band) { band.remove(); mbDragged = true; setTimeout(() => (mbDragged = false), 0); }
+    };
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
+}
 const fitMem = () => { try { return JSON.parse(localStorage.getItem('wc-mb-fit') || '{}') || {}; } catch { return {}; } };
 async function loadMediaBin() {
   if (IS_EDITOR || !$('#mbGrid')) return;
@@ -1795,7 +1854,7 @@ async function loadMediaBin() {
 function renderMediaBin() {
   const grid = $('#mbGrid'); if (!grid) return;
   const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
-  grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" draggable="true" title="${esc(f.name)} — 누르면 예배당 화면 배경으로${isVid(f.url) ? ' · 위쪽 슬라이드 칸으로 끌어다 놓으면 이 찬양의 배경 영상으로 저장' : ''}">
+  grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" draggable="${mbPick ? 'false' : 'true'}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로${isVid(f.url) ? ' · 위쪽 슬라이드 칸으로 끌어다 놓으면 이 찬양의 배경 영상으로 저장' : ''}">
       <div class="mb-th">${isVid(f.url) ? `<video src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
       <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button>
       <button class="mb-top" title="화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)">⬆ 위에</button></div>
@@ -1814,8 +1873,14 @@ function renderMediaBin() {
     el.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-wc-media', el.dataset.url); e.dataTransfer.effectAllowed = 'copy'; });
     el.querySelector('.mb-del').onclick = e => { e.stopPropagation(); deleteMedia(el.dataset.url, e.currentTarget.dataset.del); };
     el.querySelector('.mb-top').onclick = e => { e.stopPropagation(); goLive({ mediaTop: el.dataset.url }).then(() => toast('화면 위에 띄웠습니다 — ⏹ 그림 끄기로 뺍니다')).catch(() => {}); };
-    el.onclick = () => goLive({ mediaBg: el.dataset.url, mediaFit: fitMem()[el.dataset.url] || 'auto' }).then(() => toast('예배당 화면 배경으로 내보냈습니다')).catch(() => {});
+    el.onclick = e => {
+      if (mbDragged) return;
+      if (mbPick) return mbToggle(el.dataset.url, e.shiftKey);
+      goLive({ mediaBg: el.dataset.url, mediaFit: fitMem()[el.dataset.url] || 'auto' }).then(() => toast('예배당 화면 배경으로 내보냈습니다')).catch(() => {});
+    };
   });
+  grid.classList.toggle('picking', mbPick);
+  mbMark();
   markMediaLive();
 }
 // 미디어 파일 삭제: 어디서 쓰는지 알려 주고, 지금 배경이면 끄고 지움
@@ -1831,6 +1896,23 @@ async function deleteMedia(url, name) {
   await api('DELETE', '/api/media/' + encodeURIComponent(name));
   await loadMediaBin().catch(() => {});
   toast('삭제했습니다');
+  return true;
+}
+// 고른 파일 한 번에 지우기: 어디서 쓰는지 모아서 한 번만 묻고 지움
+async function deleteMediaMany(urls) {
+  const files = mbFiles.filter(f => urls.includes(f.url)); if (!files.length) return false;
+  const set = new Set(files.map(f => f.url));
+  const used = (S?.items || []).filter(it => set.has(it.motionVideo) || (it.slides || []).some(s => set.has(s.bg) || set.has(s.img) || (s.elements || []).some(e => set.has(e.src))));
+  let msg = `고른 파일 ${files.length}개를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.\n\n` + files.slice(0, 5).map(f => '· ' + f.name).join('\n') + (files.length > 5 ? `\n· … 외 ${files.length - 5}개` : '');
+  if (set.has(S?.settings?.logo) || set.has(S?.settings?.titleLogo)) msg += '\n\n※ 설정에서 로고로 쓰고 있는 파일이 들어 있습니다.';
+  if (set.has(S?.style?.main?.motionVideo)) msg += '\n\n※ 움직이는 배경(내 동영상)으로 쓰고 있는 파일이 들어 있습니다.';
+  if (set.has(snap?.live?.mediaBg) || set.has(snap?.live?.mediaTop)) msg += '\n\n※ 지금 예배당 화면에 나가는 파일이 들어 있습니다. 끄고 삭제합니다.';
+  if (used.length) msg += `\n\n※ 이 파일들을 쓰는 자료가 ${used.length}개 있습니다 (${used.slice(0, 3).map(i => i.title).join(', ')}${used.length > 3 ? ' 등' : ''}).\n삭제하면 그 슬라이드에서는 그림이 안 나옵니다.`;
+  if (!confirm(msg)) return false;
+  const r = await api('POST', '/api/media/delete', { names: files.map(f => f.name) });
+  mbSetPick(false);
+  await loadMediaBin().catch(() => {});
+  toast(`${r.deleted}개를 삭제했습니다`);
   return true;
 }
 function markMediaLive() {
@@ -1866,6 +1948,11 @@ function initMediaBin() {
     e.target.value = '';
     toast('올리는 중…'); await api('POST', '/api/media', fd); await loadMediaBin(); toast('올렸습니다');
   };
+  $('#mbPick').onclick = () => mbSetPick(!mbPick);
+  $('#mbDone').onclick = () => mbSetPick(false);
+  $('#mbAll').onchange = e => { mbVisible().forEach(u => (e.target.checked ? mbSel.add(u) : mbSel.delete(u))); mbMark(); };
+  $('#mbDel').onclick = () => deleteMediaMany([...mbSel]).catch(e => toast(e.message));
+  initMbBand();
   $('#mbOff').onclick = () => goLive({ mediaBg: null });
   $('#mbTopOff').onclick = () => goLive({ mediaTop: null });
   $('#mbObs').onclick = () => goLive({ mediaObs: !snap?.live?.mediaObs }).catch(() => {});

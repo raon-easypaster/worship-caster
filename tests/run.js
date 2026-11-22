@@ -417,6 +417,21 @@ async function main() {
     await api('PUT', '/api/style', { byType: {} });
   });
 
+  await check('미디어 여러 개 한 번에 지우기(서버): 고른 것만 지움 · 지금 배경이면 끔 · 자료 폴더 밖 파일은 못 지움', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const fd = new FormData(); ['mdel_a.png', 'mdel_b.png', 'mdel_c.png'].forEach(n => fd.append('files', new Blob([png]), n));
+    const up = await api('POST', '/api/media', fd);
+    ok(up.length === 3, '올리기 실패: ' + JSON.stringify(up));
+    await api('POST', '/api/live', { mediaBg: up[0].url });
+    fs.writeFileSync(path.join(DATA, 'keep-me.txt'), 'x');
+    const r = await api('POST', '/api/media/delete', { names: [up[0].name, up[1].name, '../keep-me.txt', '..'] });
+    const left = (await api('GET', '/api/media')).map(m => m.name);
+    ok(!left.includes(up[0].name) && !left.includes(up[1].name) && left.includes(up[2].name), '고른 것만 지워지지 않음: ' + left.join(','));
+    ok(fs.existsSync(path.join(DATA, 'keep-me.txt')), '자료 폴더 밖 파일이 지워짐');
+    ok(!(await api('GET', '/api/state')).live.mediaBg, '지운 파일이 배경으로 남음');
+    await api('POST', '/api/media/delete', { names: [up[2].name] });
+  });
+
   // ── 화면 (헤드리스 크롬) ──
   if (!findChrome()) { console.log('\n[화면] 크롬이 없어 화면 점검은 건너뜀'); return; }
   console.log('\n[화면]');
@@ -682,6 +697,36 @@ async function main() {
     ok(urls[0] === 'https://music.bugs.co.kr/search/track?q=' + t && urls[1] === 'https://www.melon.com/search/song/index.htm?q=' + t, '벅스·멜론 주소가 다름: ' + JSON.stringify(urls));
     ok(/google\.com/.test(urls[2]) && /naver\.com/.test(urls[3]) && urls[3].includes(encodeURIComponent('주의 은혜 가사')), '구글·네이버가 안 됨: ' + JSON.stringify(urls));
     await c.eval(`(closeDlg(), 1)`); noErr();
+  });
+  await check('미디어 배경 ☑ 고르기: 누르기·Shift 사이 전부·빈 곳에서 끌어 네모로 고르기 → 한 번에 지우기 · 고르기 중에는 눌러도 배경으로 안 나감 · 그만', async () => {
+    c.errors.splice(0);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const fd = new FormData(); ['mpick_1.png', 'mpick_2.png', 'mpick_3.png', 'mpick_4.png'].forEach(n => fd.append('files', new Blob([png]), n));
+    const up = await api('POST', '/api/media', fd);
+    await openControl(); await c.eval(`(document.querySelector('.mbin')?.classList.remove('fold'), loadMediaBin()).then(() => 1)`); await sleep(500);
+    const sel = u => `document.querySelector('#mbGrid .mb-item[data-url="${u}"]')`;
+    await c.eval(`(document.querySelector('#mbPick').click(), 1)`);
+    await c.eval(`(${sel(up[0].url)}.click(), ${sel(up[2].url)}.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })), 1)`);
+    let n = await c.eval(`[...mbSel].filter(u => u.includes('mpick_')).length`);
+    ok(n === 3, 'Shift 로 사이 전부가 안 골라짐: ' + n);
+    ok(!(await api('GET', '/api/state')).live.mediaBg, '고르기 중에 눌렀는데 배경으로 나감');
+    await c.eval(`(document.querySelector('#mbDone').click(), 1)`);
+    ok(await c.eval(`!mbPick && !mbSel.size && document.querySelector('#mbBar').classList.contains('hidden')`), '그만이 안 됨');
+    // 고르기가 꺼진 채 빈 곳에서 끌기 → 고르기가 켜지고 네모 안이 골라짐
+    const dragged = await c.eval(`(() => {
+      const g = document.querySelector('#mbGrid'), r = g.getBoundingClientRect();
+      g.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: r.left + 2, clientY: r.top + 1 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.right - 2, clientY: r.bottom - 2 }));
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      return mbPick && [...mbSel].filter(u => u.includes('mpick_')).length;
+    })()`);
+    ok(dragged === 4, '끌어서 고르기가 안 됨: ' + dragged);
+    // 지우기: mpick 만 남기고 고른 뒤 지움
+    await c.eval(`(mbSel.clear(), ${JSON.stringify(up.map(x => x.url))}.forEach(u => mbSel.add(u)), mbMark(), window.confirm = () => true, document.querySelector('#mbDel').click(), 1)`); await sleep(900);
+    const left = (await api('GET', '/api/media')).map(m => m.name);
+    ok(!left.some(x => /mpick_/.test(x)) && left.length >= 1, '한 번에 지우기가 안 됨: ' + left.join(','));
+    ok(await c.eval(`!mbPick && !document.querySelector('#mbGrid .mb-item[data-url*="mpick_"]')`), '지운 뒤 화면에 남음');
+    noErr();
   });
   await check('새 찬양: 제목 칸에 보이는 이름으로 저장 (\'새 찬양\'으로 저장되지 않음)', async () => {
     await c.eval(`(closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);

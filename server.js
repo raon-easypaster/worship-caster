@@ -777,12 +777,22 @@ app.post('/api/media', needAuth, upload.array('files', 50), (req, res) => {
   }
   res.json(out);
 });
-app.delete('/api/media/:name', needAuth, (req, res) => {
-  const p = path.join(MEDIA_DIR, path.basename(req.params.name));
-  if (live.mediaBg === '/media/' + path.basename(req.params.name)) { live.mediaBg = null; pushLive(); }
-  if (live.mediaTop === '/media/' + path.basename(req.params.name)) { live.mediaTop = null; pushLive(); }
-  if (live.yt?.file && path.basename(decodeURIComponent(live.yt.file)) === path.basename(req.params.name)) { live.yt = null; pushLive(); }   // 틀던 내 영상을 지움
-  fs.rm(p, { force: true }, () => res.json({ ok: true }));
+// 미디어 파일 하나 지우기: 지금 화면에 쓰는 중이면 먼저 끔
+function removeMedia(name) {
+  const base = path.basename(String(name || ''));
+  if (!base || base.startsWith('.')) return false;
+  if (live.mediaBg === '/media/' + base) { live.mediaBg = null; pushLive(); }
+  if (live.mediaTop === '/media/' + base) { live.mediaTop = null; pushLive(); }
+  if (live.yt?.file && path.basename(decodeURIComponent(live.yt.file)) === base) { live.yt = null; pushLive(); }   // 틀던 내 영상을 지움
+  fs.rmSync(path.join(MEDIA_DIR, base), { force: true });
+  return true;
+}
+app.delete('/api/media/:name', needAuth, (req, res) => { removeMedia(req.params.name); res.json({ ok: true }); });
+// 여러 파일 한 번에 지우기 (미디어 칸 ☑ 고르기)
+app.post('/api/media/delete', needAuth, (req, res) => {
+  const names = Array.isArray(req.body?.names) ? req.body.names.slice(0, 1000) : [];
+  let n = 0; for (const x of names) if (removeMedia(x)) n++;
+  res.json({ ok: true, deleted: n });
 });
 
 // ── 백업·복원: 자료 전체(찬양·순서·설정·사진·영상·HTML)를 zip 하나로 ──

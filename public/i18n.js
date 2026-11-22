@@ -190,6 +190,8 @@
     '벅스가 지금 자동 검색을 막았습니다. 벅스에서 직접 찾아 가사를 복사한 뒤 📋 버튼을 누르세요.': 'Bugs is blocking automatic search right now. Search on Bugs yourself, copy the lyrics, then press 📋.',
     '가사를 찾지 못했습니다. 제목을 줄이거나 가수 이름을 넣어 보세요. 아래 벅스·멜론·구글·네이버로 찾아도 됩니다.': 'No lyrics found. Try a shorter title or add the artist. You can also search Bugs, Melon, Google or Naver below.',
     '가사 사이트가 지금 대답하지 않습니다 (벅스가 자동 검색을 막았을 수 있습니다). 아래 [벅스]·[멜론]을 눌러 찾은 뒤, 가사를 복사해 📋 버튼으로 넣으세요': 'The lyrics sites are not responding (Bugs may be blocking automatic search). Press [Bugs] or [Melon] below, copy the lyrics, then use 📋.',
+    '누르거나 끌어서 고르기 · Shift: 사이 전부': 'Click or drag to select · Shift: range',
+    '여러 개를 골라 한 번에 지우기 — 누르거나, 빈 곳에서 끌어서 네모로 고르기 (Shift: 사이 전부)': 'Select several to delete at once — click, or drag a box from an empty spot (Shift: range)',
     '자막 스타일': 'Caption Style', '방송 자막 (OBS)': 'Stream captions (OBS)', '글꼴': 'Font', '글자 크기': 'Text size', '글자 색': 'Text color', '굵게': 'Bold',
     '그림자': 'Shadow', '테두리 두께': 'Outline width', '테두리 색': 'Outline color', '가로 정렬': 'Alignment', '세로 위치': 'Vertical position',
     '화면 비율': 'Aspect ratio', '16:9 (TV·요즘 프로젝터)': '16:9 (TVs, modern projectors)', '4:3 (옛 프로젝터)': '4:3 (older projectors)',
