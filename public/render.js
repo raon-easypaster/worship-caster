@@ -257,14 +257,16 @@
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
     const ref = s.ref ? `<div class="wc-ref" style="font-size:${(st.size * 0.6).toFixed(2)}cqh;color:${st.refColor}">${esc(s.ref)}</div>` : '';
     const lines = String(s.text || '').split('\n');
+    // 슬라이드마다 글자 색 (✎ 편집·빠른 수정에서 고름) — 정하면 이 슬라이드만 모양(테마)·자막 스타일의 글자 색 대신
+    const sc = /^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : null;
     let body;
     if (st.headline && lines[0].trim()) {
       const rest = lines.slice(1).join('\n').trim();
-      body = `<div class="wc-head" style="color:${st.headColor};font-size:${rest ? 1.2 : 1.3}em">${esc(lines[0])}</div>` +
+      body = `<div class="wc-head" style="color:${sc || st.headColor};font-size:${rest ? 1.2 : 1.3}em">${esc(lines[0])}</div>` +
         (rest ? `<div class="wc-sub" style="font-size:.8em">${esc(rest).replace(/\n/g, '<br>')}</div>` : '');
     } else body = esc(s.text).replace(/\n/g, '<br>');
     return inner + `<div class="wc-textwrap" style="justify-content:${jc};text-align:${st.align}">
-      <div class="wc-text-main" dir="auto" style="font-family:${st.font};font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};
+      <div class="wc-text-main" dir="auto" style="font-family:${st.font};font-size:${st.size}cqh;color:${sc || st.color};font-weight:${st.bold ? 700 : 400};
         line-height:${lhFor(s.text || '', st.lineHeight)};text-shadow:${textShadow(st)};${st.strokeWidth ? `-webkit-text-stroke:${st.strokeWidth / 10}cqh ${st.stroke};paint-order:stroke fill;` : ''}">${body}</div>${ref}</div>`;
   }
 

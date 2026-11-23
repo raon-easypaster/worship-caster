@@ -77,6 +77,9 @@ li.sel .badge { background: rgba(255,255,255,.2); color: #fff; }
 .slide.hid:hover { opacity: .8; }
 .slide.hid .shide { opacity: 1; }
 .slide.hid .shide:hover { background: var(--accent); border-color: var(--accent); }
+/* 슬라이드마다 글자 색 (✎ 편집·빠른 수정) */
+.sl-color { display: inline-flex; align-items: center; gap: 4px; color: var(--text); margin: 0; }
+.sl-color input[type=color] { width: 30px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
 
 .pv { border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .checker { background: repeating-conic-gradient(#3a3f4a 0% 25%, #2a2e36 0% 50%) 50% / 20px 20px; }

@@ -371,11 +371,16 @@ function quickEdit(it, s) {
   const body = openDlg(`
     <div class="dlg-head"><h3>빠른 수정 — ${esc(it.title)}</h3><button class="icon" data-x>✕</button></div>
     <textarea id="qeText" rows="5">${esc(s.text || '')}</textarea>
+    <div class="row" style="margin:6px 0 0"><label class="small sl-color" title="이 슬라이드만 글자 색을 바꿉니다 (예배당 화면)">🎨 글자 색 <input type="color" id="qeColor" value="${esc(/^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : '#ffffff')}"></label>
+      <button type="button" class="btn sm" id="qeColorDel" title="모양(테마) 색으로 되돌림"${s.color ? '' : ' hidden'}>기본</button></div>
     <p class="muted small">저장하면 바로 화면에도 바뀝니다. (⌘/Ctrl + Enter 저장)</p>
     <div class="dlg-foot"><button class="btn" data-x>취소</button><button class="btn primary" id="qeSave">저장</button></div>`);
   const ta = body.querySelector('#qeText');
+  let color = s.color || null;   // null = 모양(테마) 색 그대로
+  body.querySelector('#qeColor').oninput = e => { color = e.target.value; body.querySelector('#qeColorDel').hidden = false; };
+  body.querySelector('#qeColorDel').onclick = e => { color = null; e.target.hidden = true; };
   const save = async () => {
-    const slides = it.slides.map(x => (x === s ? { ...x, text: ta.value } : x));
+    const slides = it.slides.map(x => { if (x !== s) return x; const y = { ...x, text: ta.value }; if (color) y.color = color; else delete y.color; return y; });
     await api('PUT', '/api/items/' + it.id, { slides }); closeDlg(); toast('고쳤습니다');
   };
   body.querySelector('#qeSave').onclick = save;
@@ -895,6 +900,8 @@ function openItemEditor(id, focusIndex, preset) {
         : s.elements?.length ? elEdit : `${s.htmlFile ? `<div class="muted small" style="margin-bottom:4px">HTML 파일 ${(+s.page || 0) + 1}번째 장 · 아래 글은 프롬프터(설교자 화면)에만 보입니다</div>` : ''}<textarea data-text rows="4">${esc(s.text)}</textarea>`}
           ${it.type === 'bible' ? `<input data-ref placeholder="구절 표시 (예: 요한복음 3:16)" value="${esc(s.ref || '')}" style="margin-top:6px">` : ''}
           ${isHtml || s.htmlFile || s.elements?.length ? '' : `<div class="row" style="margin:6px 0 0"><input data-label list="labelList" placeholder="이름 (1절·후렴…)" value="${esc(s.label || '')}" style="width:150px;padding:4px 8px;font-size:12px">
+            <label class="small sl-color" title="이 슬라이드만 글자 색을 바꿉니다 (예배당 화면). [기본]을 누르면 모양(테마) 색으로">🎨 글자 색 <input type="color" data-color value="${esc(/^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : '#ffffff')}"></label>
+            <button type="button" class="btn sm" data-colordel title="이 슬라이드의 글자 색을 모양(테마) 색으로 되돌림"${s.color ? '' : ' hidden'}>기본</button>
             ${/\.(mp4|mov|m4v|webm)$/i.test(s.bg || '') ? `<label class="small" style="display:flex;gap:4px;align-items:center;color:var(--text)"><input type="checkbox" data-sound ${s.sound ? 'checked' : ''}> 🔊 소리 켜고 한 번 재생 (예배당 화면)</label>` : ''}</div>`}
           ${isHtml || s.htmlFile ? '' : `<div class="media-row small">
             <span title="슬라이드 뒤에 깔리는 배경">🖼 배경</span> <span class="mname">${s.bg ? esc(mediaName(s.bg)) : '<span class="muted">없음</span>'}</span>
@@ -919,6 +926,9 @@ function openItemEditor(id, focusIndex, preset) {
       row.querySelector('[data-ref]')?.addEventListener('input', e => { s.ref = e.target.value; repaint(); });
       row.querySelector('[data-label]')?.addEventListener('input', e => { const v = e.target.value.trim().slice(0, 20); if (v) s.label = v; else delete s.label; drawChips(); });
       row.querySelector('[data-sound]')?.addEventListener('change', e => { if (e.target.checked) s.sound = true; else delete s.sound; });
+      // 슬라이드마다 글자 색: 고르면 이 슬라이드만, [기본]으로 모양 색으로 되돌림
+      row.querySelector('[data-color]')?.addEventListener('input', e => { s.color = e.target.value; row.querySelector('[data-colordel]').hidden = false; repaint(); });
+      row.querySelector('[data-colordel]')?.addEventListener('click', () => { delete s.color; draw(); });
       row.querySelectorAll('[data-el]').forEach(t => t.addEventListener('input', e => {
         s.elements[+t.dataset.el].text = e.target.value;
         s.text = s.elements.filter(x => x.type === 'text').map(x => x.text).join('\n');

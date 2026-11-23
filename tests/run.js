@@ -994,6 +994,32 @@ async function main() {
     ok(await c.eval(`snap.live.itemId === ${JSON.stringify(song.id)} && snap.live.index === 0`), '빠른 수정 단추를 누르니 송출이 바뀜');
     await c.eval(`(closeDlg(), 1)`); noErr();
   });
+  await check('슬라이드마다 글자 색: 빠른 수정에서 고르면 그 슬라이드만 예배당 화면 글자 색이 바뀜 · 다른 슬라이드는 그대로 · [기본]으로 되돌림 · ✎ 편집에도 칸', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '색 점검', slides: [{ text: '흰 글자' }, { text: '빨간 글자' }], place: true });
+    await c.go(BASE + '/control', 2000);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), select(${JSON.stringify(it.id)}), 1)`); await sleep(500);
+    const qe = i => `(document.querySelector('#slides .slide[data-item=${JSON.stringify(it.id)}][data-i="${i}"] .qedit').click(), 1)`;
+    await c.eval(qe(1)); await sleep(500);
+    await c.eval(`(() => { const p = document.querySelector('#qeColor'); p.value = '#ff0000'; p.dispatchEvent(new Event('input')); document.querySelector('#qeSave').click(); return 1; })()`); await sleep(900);
+    let st = await api('GET', '/api/state');
+    let got = st.items.find(i => i.id === it.id);
+    ok(got.slides[1].color === '#ff0000' && !got.slides[0].color && got.slides[1].text === '빨간 글자', '글자 색이 저장되지 않음: ' + JSON.stringify(got.slides));
+    const colorOf = async i => { await api('POST', '/api/live', { itemId: it.id, index: i }); await c.go(BASE + '/output?nohint', 1200); return c.eval(`getComputedStyle([...document.querySelectorAll('#screen > .wc-layer .wc-text-main')].pop()).color`); };
+    ok(await colorOf(1) === 'rgb(255, 0, 0)', '고른 슬라이드 글자가 빨갛지 않음');
+    ok(await colorOf(0) !== 'rgb(255, 0, 0)', '다른 슬라이드 글자까지 바뀜');
+    await c.go(BASE + '/control', 2000);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), select(${JSON.stringify(it.id)}), 1)`); await sleep(500);
+    await c.eval(qe(1)); await sleep(500);
+    ok(await c.eval(`!document.querySelector('#qeColorDel').hidden && document.querySelector('#qeColor').value === '#ff0000'`), '빠른 수정 창에 고른 색·[기본]이 안 보임');
+    await c.eval(`(document.querySelector('#qeColorDel').click(), document.querySelector('#qeSave').click(), 1)`); await sleep(900);
+    got = (await api('GET', '/api/state')).items.find(i => i.id === it.id);
+    ok(!got.slides[1].color, '[기본]으로 되돌아가지 않음: ' + JSON.stringify(got.slides[1]));
+    await c.eval(`(document.querySelector('#editItem').click(), 1)`); await sleep(700);
+    ok(await c.eval(`document.querySelectorAll('#eSlides [data-color]').length === 2`), '✎ 편집에 슬라이드마다 글자 색 칸이 없음');
+    await c.eval(`(closeDlg(), 1)`);
+    await api('POST', '/api/live', { reset: true });
+    noErr();
+  });
   await check("미디어 배경 영상 칸에 브라우저 '화면 속 화면' 단추가 나오지 않음 (운영 화면의 모든 영상)", async () => {
     await c.go(BASE + '/control', 2500);
     const r = await c.eval(`(() => { const v = [...document.querySelectorAll('video')]; return { all: v.length, mb: document.querySelectorAll('#mbGrid video').length, pip: v.filter(x => !x.disablePictureInPicture).map(x => x.closest('[id],[class]')?.className || x.src).slice(0, 3) }; })()`);
