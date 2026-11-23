@@ -378,22 +378,60 @@ async function main() {
     };
     try {
       // 1) LRCLIB 가 한 번 실패해도 다시 물어 찾음, 벅스가 막혀도 결과는 나옴
-      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j, h) => {
+      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB, WC_LYRICS_GENIE: MB }, (st, j, h) => {
         ok(st === 200 && Array.isArray(j) && j[0]?.title === '점검 찬양', `다시 묻기가 안 됨: ${st} ${JSON.stringify(j).slice(0, 120)}`);
         ok(h.get('x-wc-bugs') === 'blocked', '벅스가 막혔다는 표시가 화면에 안 감');
         ok(lrcHits === 2, 'LRCLIB 에 다시 묻지 않음: ' + lrcHits);
       });
       // 2) 둘 다 사이트 문제(500·429) → 인터넷이 아니라 '사이트가 대답하지 않음'
       mode = 'down';
-      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB }, (st, j) => {
+      await run({ WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB, WC_LYRICS_GENIE: MB }, (st, j) => {
         ok(st === 502 && j.code === 'busy' && !/인터넷에 연결/.test(j.error) && /벅스/.test(j.error), `사이트 문제를 인터넷 끊김으로 알림(또는 벅스 안내 없음): ${JSON.stringify(j)}`);
       });
       // 3) 정말 연결이 안 되면 인터넷 안내
-      await run({ WC_LYRICS_LRCLIB: dead, WC_LYRICS_BUGS: dead }, (st, j, h) => {
+      await run({ WC_LYRICS_LRCLIB: dead, WC_LYRICS_BUGS: dead, WC_LYRICS_GENIE: dead }, (st, j, h) => {
         ok(st === 502 && j.code === 'offline' && /인터넷/.test(j.error), `연결 불가인데 인터넷 안내가 없음: ${JSON.stringify(j)}`);
         ok(!h.get('x-wc-bugs'), '인터넷이 끊겼는데 벅스가 막았다고 함');
       });
     } finally { mock.close(); }
+  });
+  await check('가사 찾기: 지니에서도 찾음 (LRCLIB 에 없고 벅스가 막아도) · 띄어쓰기 없앤 제목으로 다시 찾음 · 가사 없는 곡은 뺌', async () => {
+    const http = require('http');
+    const queries = [];
+    const mock = http.createServer((req, res) => {
+      const u = new URL(req.url, 'http://x');
+      if (u.pathname === '/api/search') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('[]'); }   // LRCLIB: 없음
+      if (u.pathname === '/search/searchSong') {
+        const q = u.searchParams.get('query'); queries.push(q);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        if (q !== '주품에') return res.end('<table></table>');   // 띄어쓰기 있는 제목으로는 못 찾음
+        return res.end(`<table>
+          <tr class="list" songid="111"><td><a href="#" class="title ellipsis" title="주 품에">주 품에</a><a href="#" class="artist ellipsis">점검 &amp; 찬양팀</a></td></tr>
+          <tr class="list" songid="222"><td><a href="#" class="title ellipsis" title="가사 없는 곡">x</a><a href="#" class="artist ellipsis">누구</a></td></tr>
+        </table>`);
+      }
+      if (u.pathname === '/detail/songInfo') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(u.searchParams.get('xgnm') === '111'
+          ? '<pre id="pLyrics"><p>  주 품에 품으소서<br>능력의 팔로 덮으소서<br><br><br>두려움 없이</p></pre>'
+          : '<pre id="pLyrics"><p>가사 정보가 없습니다.</p></pre>');
+      }
+      res.writeHead(429); res.end('막음');   // 벅스: 자동 검색 막음
+    });
+    await new Promise(r => mock.listen(0, r));
+    const MB = `http://localhost:${mock.address().port}`;
+    const D = fs.mkdtempSync(path.join(os.tmpdir(), 'wc-lyr-')), P = PORT + 51, B = `http://localhost:${P}`;
+    const s2 = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(P), WC_DATA_DIR: D, NO_OPEN: '1', WC_LYRICS_LRCLIB: MB, WC_LYRICS_BUGS: MB, WC_LYRICS_GENIE: MB }, stdio: 'ignore' });
+    try {
+      for (let i = 0; i < 50; i++) { try { await fetch(B + '/api/me'); break; } catch { await sleep(200); } }
+      const r = await fetch(B + '/api/lyrics?q=' + encodeURIComponent('주 품에'), { headers: { Origin: B } });
+      const j = await r.json();
+      ok(r.status === 200 && Array.isArray(j) && j.length === 1, `지니 결과가 없거나 가사 없는 곡이 끼어 있음: ${r.status} ${JSON.stringify(j).slice(0, 200)}`);
+      ok(j[0]?.src === '지니' && j[0].title === '주 품에' && j[0].artist === '점검 & 찬양팀', '지니 곡 제목·가수가 다름: ' + JSON.stringify(j[0]));
+      ok(j[0]?.text === '주 품에 품으소서\n능력의 팔로 덮으소서\n\n두려움 없이', '지니 가사 정리가 다름: ' + JSON.stringify(j[0]?.text));
+      ok(queries.includes('주 품에') && queries.includes('주품에'), '띄어쓰기 없앤 제목으로 다시 찾지 않음: ' + JSON.stringify(queries));
+      ok(r.headers.get('x-wc-bugs') === 'blocked', '벅스가 막혔다는 표시가 없어짐');
+    } finally { s2.kill(); await sleep(300); fs.rmSync(D, { recursive: true, force: true }); mock.close(); }
   });
   await check('설정: 언어·화면 비율·스타일 저장', async () => {
     await api('PUT', '/api/style', { main: { aspect: '4:3', size: 7 } });
@@ -896,6 +934,29 @@ async function main() {
     await c.go(BASE + '/overlay', 2000);
     const r = await c.eval(`({ bg: getComputedStyle(document.documentElement).backgroundColor, bar: !!document.querySelector('.wc-ov') })`);
     ok(r.bar && /rgba\(0, 0, 0, 0\)|transparent/.test(r.bg), JSON.stringify(r)); noErr();
+  });
+  await check('방송 자막 위치: 아래·가운데·위 (가운데는 화면 한가운데) · 이상한 값은 아래로', async () => {
+    const where = async () => { await sleep(700); return c.eval(`(() => { const b = [...document.querySelectorAll('.wc-ov')].pop(); if (!b) return null; const r = b.getBoundingClientRect(); return { mid: (r.top + r.bottom) / 2 / innerHeight, top: r.top / innerHeight, bot: r.bottom / innerHeight }; })()`); };
+    try {
+      await api('PUT', '/api/style', { overlay: { position: 'middle' } });
+      ok((await api('GET', '/api/state')).style.overlay.position === 'middle', '가운데가 저장되지 않음');
+      await c.go(BASE + '/overlay', 1500);
+      let w = await where(); ok(w && Math.abs(w.mid - 0.5) < 0.03, '가운데 자막 바가 한가운데가 아님: ' + JSON.stringify(w));
+      await api('PUT', '/api/style', { overlay: { position: 'top' } });
+      w = await where(); ok(w && w.top < 0.1, '위 자막 바가 위에 없음: ' + JSON.stringify(w));
+      await api('PUT', '/api/style', { overlay: { position: 'bottom' } });
+      w = await where(); ok(w && w.bot > 0.9, '아래 자막 바가 아래에 없음: ' + JSON.stringify(w));
+      await api('PUT', '/api/style', { overlay: { position: 'left' } });
+      ok((await api('GET', '/api/state')).style.overlay.position === 'bottom', '이상한 위치 값이 걸러지지 않음');
+      await c.go(BASE + '/control', 2000);
+      ok(await c.eval(`[...document.querySelectorAll('.ovq [data-ov="position"] option')].map(o => o.value).join() === 'bottom,middle,top'`), '운영 화면 방송 자막 칸에 가운데 선택이 없음');
+      // 🎨 자막 스타일 창: 방송 자막 칸이 '자막 글자·바' / '그림 보내기' 두 묶음으로 나뉨 (가운데 선택도 있음)
+      await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#styleBtn').click(), 1)`); await sleep(600);
+      const secs = await c.eval(`(() => { const f = document.querySelector('#o_font')?.closest('.form'); if (!f) return null; const s = [...f.querySelectorAll('.form-sec')]; return { t: s.map(x => x.textContent.trim()), fontIn1: s[0]?.compareDocumentPosition(document.querySelector('#o_font')) & 4, posIn1: s[1]?.compareDocumentPosition(document.querySelector('#o_position')) & 2, imgIn2: s[1]?.compareDocumentPosition(document.querySelector('#o_imgMode')) & 4, mid: !!document.querySelector('#o_position option[value=middle]') }; })()`);
+      ok(secs && secs.t.length === 2 && /자막 글자/.test(secs.t[0]) && /그림 보내기/.test(secs.t[1]) && secs.fontIn1 && secs.posIn1 && secs.imgIn2 && secs.mid, '자막 스타일 창의 방송 자막 묶음이 다름: ' + JSON.stringify(secs));
+      await c.eval(`(closeDlg(), 1)`);
+    } finally { await api('PUT', '/api/style', { overlay: { position: 'bottom' } }).catch(() => {}); }
+    noErr();
   });
   await check('프롬프터가 열림', async () => { await c.go(BASE + '/stage', 1500); ok(await c.eval(`!!document.querySelector('.wc-st-cur')`), '프롬프터가 안 그려짐'); noErr(); });
   await check('다국어 자막 글꼴 (태국어·미얀마어·베트남어)', async () => {

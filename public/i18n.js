@@ -94,7 +94,7 @@
     '🎥 방송에도 나가는 중': '🎥 Also on stream', '꺼짐 — 예배당 화면에만 나가는 중': 'Off — main screen only',
     '먼저 자료의 슬라이드를 하나 띄우세요': 'Show a slide from an item first',
     '사람 화면을 쓰려면 🎥 OBS 자막 주소 → 사람 화면 설정을 해 주세요': 'To use Camera PiP, set it up in 🎥 OBS Caption URL → camera scene',
-    '바꾸면 바로 방송에 적용됩니다': 'Changes apply to the stream immediately', '그림 보내기': 'Pictures', '화면 가득': 'Full screen',
+    '바꾸면 바로 방송에 적용됩니다': 'Changes apply to the stream immediately', '그림 보내기': 'Pictures', '✍ 자막 글자·바': '✍ Caption text & bar', '🖼 그림 보내기 (악보·사진·PPT)': '🖼 Pictures (sheet music, photos, PPT)', '보내는 방식': 'How to send', '화면 가득': 'Full screen',
     '화면 일부 (카메라 보이게)': 'Part of screen (camera visible)', '화면 가득 + 사람 원': 'Full screen + camera circle', '번역본 이름': 'Translation name', ' 화면에 번역본 이름 보이기 (예: 개역개정)': ' Show the translation name on screen (e.g. NIV)', '화면에 번역본 이름 보이기 (예: 개역개정)': 'Show the translation name on screen (e.g. NIV)', '원 — 크기': 'Circle — size', '원 — 위치': 'Circle — position', '사람 원 장면': 'Camera circle scene', '👤 설교자': '👤 Speaker', '화면 일부': 'Part of screen', '보내지 않기 (자막만)': "Don't send (captions only)",
     '보내지 않기': "Don't send", '자막 위치': 'Caption position', '바 진하기': 'Bar opacity', '위': 'Top', '아래': 'Bottom',
     '오른쪽 위': 'Top right', '오른쪽 중간': 'Middle right', '오른쪽 아래': 'Bottom right', '왼쪽 위': 'Top left', '왼쪽 중간': 'Middle left', '왼쪽 아래': 'Bottom left',

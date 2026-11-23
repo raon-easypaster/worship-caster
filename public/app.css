@@ -129,6 +129,9 @@ dialog::backdrop { background: rgba(10,14,22,.5); }
 .two > * { min-width: 0; }
 .form.narrow { grid-template-columns: 70px 1fr; margin: 6px 0; }
 .form > * { min-width: 0; }
+/* 한 칸 안의 묶음 제목 (예: 방송 자막의 '자막 글자·바' / '그림 보내기') */
+.form-sec { grid-column: 1 / -1; font-size: 13px; font-weight: 700; color: var(--text); margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.form-sec:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
 /* ── 타이틀 로고 ── */
 .brand { display: flex; align-items: center; gap: 6px; }

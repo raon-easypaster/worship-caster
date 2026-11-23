@@ -82,7 +82,7 @@
   });
   const safeOverlay = st => ({
     ...st, font: font(st.font), size: num(st.size, 4.6, 1, 20), color: col(st.color, '#ffffff'), box: col(st.box, '#0b1d3a'),
-    boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
+    boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'middle', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
     // 방송에 그림 보내는 방식: full 화면 가득 / part 화면 일부(크기·위치) / circle 화면 가득 + 사람 원 / none 보내지 않음
     imgMode: pick(st.imgMode, ['full', 'part', 'circle', 'none'], 'full'), partSize: num(st.partSize, 35, 15, 70),
     partPos: pick(st.partPos, ['tr', 'mr', 'br', 'tl', 'ml', 'bl'], 'tr'),
@@ -336,7 +336,7 @@
     }
     const st = ovStyle(snap);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
-    const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
+    const pos = st.position === 'top' ? 'top:4cqh' : st.position === 'middle' ? 'top:50%;transform:translateY(-50%)' : 'bottom:5cqh';
     return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
       ${title ? `<div class="wc-ov-title" style="font-size:${(st.size * 0.55).toFixed(2)}cqh">${esc(title)}</div>` : ''}
       <div class="wc-ov-text" dir="auto" style="font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};line-height:${lhFor(s.text || '', st.lineHeight)}">${esc(s.text).replace(/\n/g, '<br>')}</div>

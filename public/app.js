@@ -1396,15 +1396,17 @@ function openStyle(pre, tab) {
       </div><div id="sPvMain" class="wc-screen pv" style="margin-top:10px"></div>
       <p class="muted small">움직이는 배경은 그림 배경이 없는 글자 슬라이드 뒤에 깔립니다. 자료마다 ✎ 편집 → 모양(테마)으로 따로 정할 수도 있습니다.</p></div>
       <div><h4>방송 자막 (OBS)</h4><div class="form">
+        <div class="form-sec">✍ 자막 글자·바</div>
         <label>글꼴</label>${fontSel(V.overlay.font, 'o_font')}
         <label>글자 크기</label><input type="range" id="o_size" min="2.5" max="9" step="0.1" value="${esc(V.overlay.size)}">
         <label>글자 색</label><input type="color" id="o_color" value="${esc(V.overlay.color)}">
         <label>굵게</label><input type="checkbox" id="o_bold" ${V.overlay.bold ? 'checked' : ''}>
         <label>자막 바 색</label><input type="color" id="o_box" value="${esc(V.overlay.box)}">
         <label>바 불투명도</label><input type="range" id="o_boxOpacity" min="0" max="1" step="0.05" value="${esc(V.overlay.boxOpacity)}">
-        <label>위치</label><select id="o_position"><option value="bottom" ${V.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="top" ${V.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
+        <label>위치</label><select id="o_position"><option value="bottom" ${V.overlay.position === 'bottom' ? 'selected' : ''}>아래</option><option value="middle" ${V.overlay.position === 'middle' ? 'selected' : ''}>가운데</option><option value="top" ${V.overlay.position === 'top' ? 'selected' : ''}>위</option></select>
         <label>곡명·구절 표시</label><input type="checkbox" id="o_showTitle" ${V.overlay.showTitle ? 'checked' : ''}>
-        <label>그림 보내기</label><select id="o_imgMode" title="악보·사진·PPT 그림 슬라이드를 방송에 어떻게 보낼지">
+        <div class="form-sec">🖼 그림 보내기 (악보·사진·PPT)</div>
+        <label>보내는 방식</label><select id="o_imgMode" title="악보·사진·PPT 그림 슬라이드를 방송에 어떻게 보낼지">
           ${[['full', '화면 가득'], ['part', '화면 일부 (카메라 보이게)'], ['circle', '화면 가득 + 사람 원'], ['none', '보내지 않기 (자막만)']].map(([v, t]) => `<option value="${v}" ${(V.overlay.imgMode || 'full') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
         <label>일부 — 크기</label><input type="range" id="o_partSize" min="15" max="70" step="1" value="${esc(V.overlay.partSize ?? 35)}">
         <label>일부 — 위치</label><select id="o_partPos">${Object.entries(PART_POS).map(([v, t]) => `<option value="${v}" ${(V.overlay.partPos || 'tr') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>

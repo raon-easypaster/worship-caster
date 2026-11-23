@@ -386,11 +386,12 @@ app.delete('/api/items/:id', needAuth, (req, res) => {
 });
 app.post('/api/split', needAuth, (req, res) => res.json(store.splitLyrics(req.body.text, Math.max(1, +req.body.lines || 2))));
 
-// 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB) 먼저, 모자라면 벅스
+// 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB)·지니·벅스를 함께 찾아 LRCLIB → 지니 → 벅스 순으로
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 // 가사 사이트 주소 (점검에서만 가짜 사이트로 바꿈)
 const LRCLIB = process.env.WC_LYRICS_LRCLIB || 'https://lrclib.net';
 const BUGS = process.env.WC_LYRICS_BUGS || 'https://music.bugs.co.kr';
+const GENIE = process.env.WC_LYRICS_GENIE || 'https://www.genie.co.kr';
 // 정말 인터넷이 안 될 때 나는 오류 (주소를 못 찾음·연결 불가) — 사이트가 느리거나 막은 것과 구분
 const OFFLINE = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL']);
 const isOffline = e => OFFLINE.has(e?.cause?.code || e?.code);
@@ -421,18 +422,41 @@ async function bugs(q) {
   }).catch(() => null)));
   return got.filter(x => x && x.text);
 }
+async function genie(q) {
+  // 지니: 한국 찬양(CCM)이 많음. 검색 화면에서 곡 번호를 뽑고 곡마다 가사를 읽음 (막으면 건너뜀)
+  const search = async t => {
+    const html = await getText(GENIE + '/search/searchSong?query=' + encodeURIComponent(t), 6000);
+    const rows = [], seen = new Set();
+    for (const m of html.matchAll(/<tr[^>]*class="list"[^>]*songid="(\d+)"([\s\S]*?)<\/tr>/g)) {
+      if (seen.has(m[1])) continue; seen.add(m[1]);
+      const title = m[2].match(/<a[^>]*class="title ellipsis"[^>]*title="([^"]*)"/);
+      const artist = m[2].match(/<a[^>]*class="artist ellipsis"[^>]*>([\s\S]*?)<\/a>/);
+      rows.push({ id: m[1], title: title ? unent(title[1]).trim() : '', artist: artist ? lyricTidy(artist[1]).replace(/\s+/g, ' ') : '' });
+      if (rows.length >= 6) break;
+    }
+    return rows;
+  };
+  let rows = await search(q);
+  if (!rows.length && /\s/.test(q)) rows = await search(q.replace(/\s+/g, ''));   // 띄어쓰기가 달라 못 찾는 곡
+  const got = await Promise.all(rows.map(r => getText(GENIE + '/detail/songInfo?xgnm=' + r.id).then(h => {
+    const m = h.match(/<pre id="pLyrics">[\s\S]*?<p>([\s\S]*?)<\/p>/);
+    const text = m ? lyricTidy(m[1].replace(/<br\s*\/?>/gi, '\n')).split('\n').map(l => l.trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim() : '';
+    return text && !/가사\s*정보가\s*없|등록된\s*가사가\s*없/.test(text) ? { src: '지니', title: r.title, artist: r.artist, text } : null;
+  }).catch(() => null)));
+  return got.filter(Boolean);
+}
 app.get('/api/lyrics', needAuth, async (req, res) => {
   const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (!q) return res.status(400).json({ error: '곡 제목을 넣으세요' });
-  const [a, b] = await Promise.allSettled([lrclib(q), bugs(q)]);
+  const [a, b, g] = await Promise.allSettled([lrclib(q), bugs(q), genie(q)]);
   // 벅스가 자동 검색을 막았거나(429·403 등) 대답하지 않음 → 화면에서 '벅스에서 찾기'로 직접 열도록 알림 (막은 것을 뚫지 않음)
   if (b.status === 'rejected' && !isOffline(b.reason)) res.set('X-WC-Bugs', 'blocked');
   const seen = new Set();   // 같은 가사(편곡만 다른 곡)는 하나만
-  const list = [...(a.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
-  if (!list.length && a.status === 'rejected' && b.status === 'rejected') {
-    // 둘 다 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
-    if (isOffline(a.reason) && isOffline(b.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
-    console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 벅스', b.reason?.message);
+  const list = [...(a.value || []), ...(g.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
+  if (!list.length && a.status === 'rejected' && b.status === 'rejected' && g.status === 'rejected') {
+    // 모두 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
+    if (isOffline(a.reason) && isOffline(b.reason) && isOffline(g.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
+    console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 지니', g.reason?.message, '/ 벅스', b.reason?.message);
     return res.status(502).json({ error: '가사 사이트가 지금 대답하지 않습니다 (벅스가 자동 검색을 막았을 수 있습니다). 아래 [벅스]·[멜론]을 눌러 찾은 뒤, 가사를 복사해 📋 버튼으로 넣으세요', code: 'busy' });
   }
   res.json(list);
@@ -490,7 +514,7 @@ app.put('/api/current-service', needAuth, (req, res) => { db.currentServiceId = 
 const STYLE_RULES = {
   color: 'color', stroke: 'color', bg: 'color', box: 'color',
   size: [1, 30], strokeWidth: [0, 10], lineHeight: [0.8, 3], boxOpacity: [0, 1],
-  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'], aspect: ['16:9', '4:3'],
+  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'middle', 'bottom'], aspect: ['16:9', '4:3'],
   bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
   motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
   imgMode: ['full', 'part', 'circle', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
