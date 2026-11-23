@@ -880,6 +880,31 @@ async function main() {
     await c.eval(`(document.querySelector('#rdLines').value = '2', document.querySelector('#rdLines').dispatchEvent(new Event('change')), closeDlg(), 1)`);
     noErr();
   });
+  await check('말씀·교독문·광고도 찬양과 같은 모양으로: 따로 정하지 않으면 새 찬양 기본 모양 (＋ 교독문 · 예배 템플릿의 교회 소식 · 설정 칸)', async () => {
+    try {
+      await api('PUT', '/api/settings', { themeDefaults: { song: 'song_galaxy' } });
+      await openControl();
+      await c.eval(`(closeDlg(), document.querySelector('#newReading').click(), 1)`); await sleep(500);
+      await c.eval(`(() => { const i = document.querySelector('#rdQ'); i.value = '98'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); return 1; })()`); await sleep(1500);
+      let st = await api('GET', '/api/state');
+      const rd = st.items.filter(i => i.title === '교독문 98 점검 교독문').pop();
+      ok(rd?.theme === 'song_galaxy', '교독문이 찬양 모양이 아님: ' + rd?.theme);
+      ok(await c.eval(`['bible', 'reading', 'notice'].every(k => defTheme(k, defTheme('song')) === 'song_galaxy')`), '말씀·광고 기본 모양이 찬양을 따르지 않음');
+      await c.eval(`(closeDlg(), document.querySelector('#settingsBtn')?.click(), 1)`); await sleep(700);
+      const defs = await c.eval(`Object.fromEntries([...document.querySelectorAll('#stThemeDefs select')].map(s => [s.dataset.def, s.value]))`);
+      ok(defs && defs.bible === 'song_galaxy' && defs.reading === 'song_galaxy' && defs.notice === 'song_galaxy', '설정의 기본 모양 칸이 찬양을 따르지 않음: ' + JSON.stringify(defs));
+      await c.eval(`(closeDlg(), 1)`);
+      const svcBefore = st.currentServiceId;
+      await api('POST', '/api/services', { template: 'sunday', name: '모양 점검 예배' });
+      st = await api('GET', '/api/state');
+      const svc = st.services.find(s => s.name === '모양 점검 예배');
+      const notice = svc.itemIds.map(id => st.items.find(i => i.id === id)).find(i => i?.title === '교회 소식');
+      ok(notice?.theme === 'song_galaxy', '템플릿 교회 소식이 찬양 모양이 아님: ' + notice?.theme);
+      await api('DELETE', '/api/services/' + svc.id);
+      await api('PUT', '/api/current-service', { id: svcBefore });
+    } finally { await api('PUT', '/api/settings', { themeDefaults: {} }); }
+    noErr();
+  });
   await check('＋ 성경: 번역본 이름 보이기를 끄면 구절만 (다음에도 기억), 켜면 (번역본)', async () => {
     const fd = new FormData(); fd.append('file', new Blob(['창 3:16 점검 본문 하나\n창 3:17 점검 본문 둘\n']), '점검역.txt'); fd.append('name', '점검역');
     const up = await api('POST', '/api/bible/upload', fd); ok(up.ok, JSON.stringify(up));
@@ -958,7 +983,39 @@ async function main() {
     } finally { await api('PUT', '/api/style', { overlay: { position: 'bottom' } }).catch(() => {}); }
     noErr();
   });
+  await check('슬라이드 칸 [✎ 빠른 수정] 단추: 누르면 빠른 수정 창이 열리고 송출은 그대로 (오른쪽 클릭과 같음)', async () => {
+    await api('POST', '/api/live', { itemId: song.id, index: 0 });
+    await c.go(BASE + '/control', 2000);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), select(${JSON.stringify(song.id)}), 1)`); await sleep(500);
+    const r = await c.eval(`(() => { const b = document.querySelectorAll('#slides .slide .qedit, .slide .qedit'); const t = b[1] || b[0]; if (!t) return { n: 0 }; t.click(); return { n: b.length, txt: t.textContent }; })()`);
+    await sleep(500);
+    ok(r.n > 0 && /빠른 수정/.test(r.txt), '빠른 수정 단추가 없음: ' + JSON.stringify(r));
+    ok(await c.eval(`!!document.querySelector('#dlg')?.open && /빠른 수정/.test(document.querySelector('#dlg h3')?.textContent || '')`), '단추를 눌러도 빠른 수정 창이 안 열림');
+    ok(await c.eval(`snap.live.itemId === ${JSON.stringify(song.id)} && snap.live.index === 0`), '빠른 수정 단추를 누르니 송출이 바뀜');
+    await c.eval(`(closeDlg(), 1)`); noErr();
+  });
+  await check("미디어 배경 영상 칸에 브라우저 '화면 속 화면' 단추가 나오지 않음 (운영 화면의 모든 영상)", async () => {
+    await c.go(BASE + '/control', 2500);
+    const r = await c.eval(`(() => { const v = [...document.querySelectorAll('video')]; return { all: v.length, mb: document.querySelectorAll('#mbGrid video').length, pip: v.filter(x => !x.disablePictureInPicture).map(x => x.closest('[id],[class]')?.className || x.src).slice(0, 3) }; })()`);
+    ok(r.mb > 0, '미디어 배경 칸에 영상이 없음: ' + JSON.stringify(r));
+    ok(!r.pip.length, '화면 속 화면이 켜진 영상이 있음: ' + JSON.stringify(r));
+    noErr();
+  });
   await check('프롬프터가 열림', async () => { await c.go(BASE + '/stage', 1500); ok(await c.eval(`!!document.querySelector('.wc-st-cur')`), '프롬프터가 안 그려짐'); noErr(); });
+  await check('프롬프터 글자 150% (짧은 가사는 화면 높이의 12%) · 다음 가사는 크게(7%, 두 줄까지) · 긴 가사는 넘치지 않게 그 슬라이드만 줄임', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '프롬프터 크기', slides: [{ text: '짧은 줄' }, { text: Array(6).fill('아주 길고 긴 가사 한 줄이 여기 있습니다 계속 이어집니다').join('\n') }, { text: '마지막' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0 });
+    await c.go(BASE + '/stage', 1500);
+    const m = () => c.eval(`(() => { const el = [...document.querySelectorAll('.wc-st-cur')].pop(), sc = el.closest('.wc-stage'), nx = sc.querySelector('.wc-st-next'), lh = parseFloat(getComputedStyle(nx).lineHeight); return { ratio: parseFloat(getComputedStyle(el).fontSize) / sc.clientHeight, next: parseFloat(getComputedStyle(nx).fontSize) / sc.clientHeight, nextLines: Math.round((nx.clientHeight - parseFloat(getComputedStyle(nx).paddingTop)) / lh), fits: el.scrollHeight <= el.clientHeight + 1 }; })()`);
+    let r = await m();
+    ok(Math.abs(r.ratio - 0.12) < 0.01 && r.fits, '짧은 가사 글자가 150%(12%)가 아님: ' + JSON.stringify(r));
+    ok(Math.abs(r.next - 0.07) < 0.005 && r.nextLines >= 1 && r.nextLines <= 2, '다음 가사가 크지 않거나 두 줄을 넘음: ' + JSON.stringify(r));   // 다음 = 긴 가사 → 두 줄에서 자름
+    await api('POST', '/api/live', { itemId: it.id, index: 1 }); await sleep(900);
+    r = await m();
+    ok(r.fits && r.ratio < 0.12, '긴 가사가 프롬프터 화면을 넘침: ' + JSON.stringify(r));
+    await api('POST', '/api/live', { reset: true });
+    noErr();
+  });
   await check('다국어 자막 글꼴 (태국어·미얀마어·베트남어)', async () => {
     const it = await api('POST', '/api/items', { type: 'song', title: '다국어', slides: [{ text: 'พระเจ้า ဘုရား Chúa yêu' }], place: true });
     await api('POST', '/api/live', { itemId: it.id, index: 0 });
@@ -1008,6 +1065,51 @@ async function main() {
     await c.eval(`(document.querySelector('#allView').click(), 1)`); await sleep(700);
     ok(await c.eval(`!document.querySelector('#slides .allsec') && document.querySelector('#slides').classList.contains('grid') && S.settings.continuous === false`), '끄면 한 자료 보기로 안 돌아감');
     await c.eval(`(goLive({ reset: true }), 1)`); await sleep(300); noErr();
+  });
+  await check('📜 전체 이어 보기 [✕ 순서에서 빼기]: 예배 순서에서만 빠지고 내용(문구)은 지워지지 않고 자료실에 남음 · ＋로 다시 넣기', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '빼기 점검 문구', slides: [{ text: '보관될 내용' }], place: true });
+    await openControl();
+    await c.eval(`(S.settings.continuous || document.querySelector('#allView').click(), 1)`); await sleep(700);
+    const sel = `#slides .allsec[data-sec=${JSON.stringify(it.id)}] .allrm`;
+    ok(await c.eval(`!!document.querySelector(${JSON.stringify(sel)})`), '제목 줄에 순서에서 빼기 단추가 없음');
+    await c.eval(`(document.querySelector(${JSON.stringify(sel)}).click(), 1)`); await sleep(900);
+    const st = await api('GET', '/api/state');
+    const svc = st.services.find(s => s.id === st.currentServiceId);
+    const kept = st.items.find(i => i.id === it.id);
+    ok(!svc.itemIds.includes(it.id), '예배 순서에서 빠지지 않음');
+    ok(kept && kept.kept === true && kept.slides[0]?.text === '보관될 내용', '내용이 지워짐(또는 보관 표시 없음): ' + JSON.stringify(kept));
+    ok(await c.eval(`!document.querySelector('#slides .allsec[data-sec=${JSON.stringify(it.id)}]') && [...document.querySelectorAll('#libList li .t')].some(x => x.textContent === '빼기 점검 문구')`), '이어 보기에서 안 빠지거나 자료실에 안 보임');
+    // 다른 순서 변경(정리)이 일어나도 그대로 남음
+    await api('PUT', '/api/services/' + svc.id, { itemIds: svc.itemIds });
+    ok((await api('GET', '/api/state')).items.some(i => i.id === it.id), '순서를 다시 저장하니 보관한 자료가 지워짐');
+    // 자료실 ＋로 다시 넣기
+    await c.eval(`([...document.querySelectorAll('#libList li')].find(li => li.querySelector('.t')?.textContent === '빼기 점검 문구').querySelector('[data-a=add]').click(), 1)`); await sleep(800);
+    const st2 = await api('GET', '/api/state');
+    ok(st2.services.find(s => s.id === st2.currentServiceId).itemIds.includes(it.id), '자료실 ＋로 다시 넣어지지 않음');
+    await c.eval(`(document.querySelector('#allView').click(), 1)`); await sleep(500);
+    noErr();
+  });
+  await check('슬라이드 [숨기기]: 그 한 장만 송출·다음에서 건너뜀 · 내용은 그대로 · 나가던 슬라이드는 그대로 · 흐린 칸 [↺ 다시 보이기]로 되돌림', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '숨기기 점검', slides: [{ text: '하나' }, { text: '둘' }, { text: '셋' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 2 });   // '셋'이 나가는 중
+    await openControl();
+    await c.eval(`(S.settings.continuous || document.querySelector('#allView').click(), 1)`); await sleep(700);
+    const card = i => `#slides .slide[data-item=${JSON.stringify(it.id)}][data-i="${i}"]`;
+    await c.eval(`(document.querySelector(${JSON.stringify(card(1) + ' .shide')}).click(), 1)`); await sleep(900);   // '둘' 숨기기
+    let st = await api('GET', '/api/state');
+    const got = st.items.find(i => i.id === it.id);
+    ok(got.slides.length === 3 && got.slides[1].text === '둘' && got.slides[1].hidden === true, '내용이 지워졌거나 숨김 표시가 없음: ' + JSON.stringify(got.slides));
+    ok(st.live.live.itemId === it.id && st.live.live.index === 1 && st.live.slide?.text === '셋', `숨긴 뒤 나가던 '셋'이 그대로가 아님: ${JSON.stringify(st.live.live.index)}`);
+    ok(await c.eval(`!!document.querySelector('#slides .slide.hid[data-item=${JSON.stringify(it.id)}]') && !document.querySelector(${JSON.stringify(card(2))})`), '숨긴 칸이 흐리게 따로 나오지 않음');
+    await api('POST', '/api/live', { itemId: it.id, index: 0 });
+    const nx = await api('POST', '/api/live', { step: 1 });
+    ok(nx.live.index === 1 && nx.slide?.text === '셋', '다음이 숨긴 슬라이드를 건너뛰지 않음: ' + JSON.stringify({ live: nx.live, slide: nx.slide }));
+    await c.eval(`(document.querySelector('#slides .slide.hid[data-item=${JSON.stringify(it.id)}] .shide').click(), 1)`); await sleep(900);   // ↺ 다시 보이기
+    st = await api('GET', '/api/state');
+    ok(!st.items.find(i => i.id === it.id).slides[1].hidden && st.live.live.index === 2 && st.live.slide?.text === '셋', `다시 보이기가 안 되거나 나가던 '셋'이 바뀜: ${JSON.stringify(st.live.live.index)}`);
+    await c.eval(`(document.querySelector('#allView').click(), 1)`); await sleep(500);
+    await api('POST', '/api/live', { reset: true });
+    noErr();
   });
   await check('타이머: 0이 되면 예배당 화면에서 사라짐', async () => {
     await api('POST', '/api/live', { timer: { min: 0.05, label: '시작까지', tv: 'big' } });
@@ -1116,6 +1218,37 @@ async function main() {
     let back = false;
     for (let i = 0; i < 16 && !back; i++) { await sleep(500); back = await c.eval(`!document.querySelector('.wc-tm-over') && (document.querySelector('#screen > .wc-layer:last-of-type .wc-text-main')?.innerText || '').includes('첫 줄')`); }
     ok(back, '0이 된 뒤 슬라이드로 안 돌아옴');
+    await api('POST', '/api/live', { timer: null, reset: true }); noErr();
+  });
+  await check('타이머 [⏸ 멈춤]·[▶ 계속]: 남은 시간이 멈췄다가 그 시간부터 다시 · [숨기기]: 예배당·유튜브에서만 빠지고 프롬프터에는 (숨김) · [보이기]로 돌아옴', async () => {
+    await api('POST', '/api/live', { itemId: song.id, index: 0 });
+    await api('POST', '/api/live', { timer: { min: 10, label: '설교', tv: 'big', obs: true } });
+    await openControl();
+    await c.eval(`(document.querySelector('#tmPause').click(), 1)`); await sleep(700);
+    const p1 = await c.eval(`({ paused: snap.live.timer.paused, btn: document.querySelector('#tmPause').textContent })`);
+    ok(p1.paused > 590000 && p1.paused <= 600000 && /계속/.test(p1.btn), '멈춤이 안 됨: ' + JSON.stringify(p1));
+    await sleep(1600);
+    ok((await c.eval(`snap.live.timer.paused`)) === p1.paused, '멈췄는데 시간이 흐름');
+    await c.go(BASE + '/output?nohint', 1200);
+    const v1 = await c.eval(`document.querySelector('.wc-tm-v')?.textContent`);
+    await sleep(1500);
+    ok(v1 && v1 === await c.eval(`document.querySelector('.wc-tm-v')?.textContent`), '예배당 화면 숫자가 멈추지 않음: ' + v1);
+    await openControl();
+    await c.eval(`(document.querySelector('#tmPause').click(), 1)`); await sleep(700);
+    const t2 = await c.eval(`snap.live.timer`);
+    ok(t2.paused == null && Math.abs(t2.end - Date.now() - p1.paused) < 4000, '계속하니 남은 시간부터 다시가 아님: ' + JSON.stringify(t2));
+    // 숨기기
+    await c.eval(`(document.querySelector('#tmHide').click(), 1)`); await sleep(700);
+    ok(await c.eval(`snap.live.timer.hidden === true && /보이기/.test(document.querySelector('#tmHide').textContent)`), '숨기기가 안 됨');
+    await c.go(BASE + '/output?nohint', 1200);
+    ok(!(await c.eval(`!!document.querySelector('.wc-tm')`)), '숨겼는데 예배당 화면에 타이머가 보임');
+    await c.go(BASE + '/overlay', 1200);
+    ok(!(await c.eval(`!!document.querySelector('.wc-tm')`)), '숨겼는데 유튜브에 타이머가 보임');
+    await c.go(BASE + '/stage', 1200);
+    ok(/숨김/.test(await c.eval(`document.querySelector('.wc-tm-l')?.textContent || ''`)), '프롬프터에 숨김 표시가 없음');
+    await api('POST', '/api/live', { timerHide: false });
+    await c.go(BASE + '/output?nohint', 1200);
+    ok(await c.eval(`!!document.querySelector('.wc-tm-big')`), '보이기로 돌아오지 않음');
     await api('POST', '/api/live', { timer: null, reset: true }); noErr();
   });
   await check('▶ 유튜브 영상: 운영 화면에서 띄우고 예배당·프롬프터에 나오고 끄기', async () => {

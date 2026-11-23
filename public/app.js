@@ -83,7 +83,7 @@ function renderServices() {
       if (a === 'copy') return copyItem(id, id);
       const ids = [...svc.itemIds];
       if (a === 'rm') {
-        if (!KEEP.has(it.type) && !S.services.some(x => x.id !== svc.id && x.itemIds.includes(id)) && !confirm(`'${it.title}'을(를) 순서에서 빼면 지워집니다. 뺄까요?\n(찬양은 자료실에 남습니다)`)) return;
+        if (!KEEP.has(it.type) && !it.kept && !S.services.some(x => x.id !== svc.id && x.itemIds.includes(id)) && !confirm(`'${it.title}'을(를) 순서에서 빼면 지워집니다. 뺄까요?\n(찬양은 자료실에 남습니다)`)) return;
         ids.splice(i, 1);
       }
       if (a === 'up' && i > 0) [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
@@ -168,7 +168,7 @@ function renderLib() {
   ul.innerHTML = '';
   const q = search.trim().toLowerCase();
   const abc = $('#libSort')?.value === 'abc';
-  const list = S.items.filter(i => KEEP.has(i.type)).filter(i => !q || i.title.toLowerCase().includes(q) || i.slides.some(s => (s.text || '').toLowerCase().includes(q)))
+  const list = S.items.filter(i => KEEP.has(i.type) || i.kept).filter(i => !q || i.title.toLowerCase().includes(q) || i.slides.some(s => (s.text || '').toLowerCase().includes(q)))
     .sort(abc ? (a, b) => a.title.localeCompare(b.title, 'ko') : (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   libShown = list;
   ul.classList.toggle('picking', libPicking);
@@ -215,9 +215,37 @@ function slideCard(it, s, i, tag) {
   d.innerHTML = `<span class="num">${i + 1}</span>${tag}<div class="wc-screen"></div>`;
   WC.thumb(d.querySelector('.wc-screen'), s, S.style, it);
   d.onclick = () => IS_EDITOR ? openItemEditor(it.id, it.slides.indexOf(s)) : goLive({ itemId: it.id, index: i });
-  // 오른쪽 클릭 = 빠른 수정 (오타 등)
-  if (!s.elements?.length && !s.html && !s.htmlFile) d.oncontextmenu = e => { e.preventDefault(); quickEdit(it, s); };
+  // 오른쪽 클릭 = 빠른 수정 (오타 등) · 칸 오른쪽 아래 작은 [✎ 빠른 수정] 단추로도 (누르면 송출하지 않고 수정 창만)
+  if (!s.elements?.length && !s.html && !s.htmlFile) {
+    d.oncontextmenu = e => { e.preventDefault(); quickEdit(it, s); };
+    const q = document.createElement('button');
+    q.type = 'button'; q.className = 'qedit'; q.textContent = '✎ 빠른 수정'; q.title = '슬라이드 글자만 바로 고칩니다 (오른쪽 클릭과 같음)';
+    q.onclick = e => { e.stopPropagation(); quickEdit(it, s); };
+    d.appendChild(q);
+  }
+  // 칸 왼쪽 아래 작은 [숨기기]: 이 슬라이드만 송출·이어 넘기기에서 건너뜀 (내용은 그대로, ↺ 다시 보이기로 되돌림)
+  const h = document.createElement('button');
+  h.type = 'button'; h.className = 'shide'; h.textContent = '숨기기'; h.title = '이 슬라이드만 건너뜁니다. 내용은 지우지 않습니다 (↺ 다시 보이기로 되돌림)';
+  h.onclick = e => { e.stopPropagation(); setSlideHidden(it, s, true); };
+  d.appendChild(h);
   return d;
+}
+// 숨긴 슬라이드 칸: 흐리게 맨 뒤에, [↺ 다시 보이기]만 (눌러도 송출하지 않음)
+function hiddenCard(it, s) {
+  const d = document.createElement('div');
+  d.className = 'slide hid'; d.dataset.item = it.id; d.dataset.hidden = it.slides.indexOf(s);
+  d.innerHTML = '<span class="num">숨김</span><div class="wc-screen"></div>';
+  WC.thumb(d.querySelector('.wc-screen'), s, S.style, it);
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'shide on'; b.textContent = '↺ 다시 보이기'; b.title = '다시 송출 순서에 넣습니다';
+  b.onclick = e => { e.stopPropagation(); setSlideHidden(it, s, false); };
+  d.appendChild(b);
+  return d;
+}
+async function setSlideHidden(it, s, on) {
+  const slides = it.slides.map(x => { if (x !== s) return x; const y = { ...x }; if (on) y.hidden = true; else delete y.hidden; return y; });
+  try { const u = await api('PUT', '/api/items/' + it.id, { slides }); Object.assign(it, u); renderSlides(); toast(on ? '슬라이드를 숨겼습니다 (↺ 다시 보이기로 되돌림)' : '슬라이드를 다시 보이게 했습니다'); }
+  catch (err) { toast(err.message || '바꾸지 못했습니다'); }
 }
 function groupTags(it) {   // 곡 구성 이름표 (1절·후렴…): 묶음이 바뀌는 첫 칸에만
   const groupOf = new Map(); let g = '', prev = null;
@@ -231,14 +259,27 @@ function groupTags(it) {   // 곡 구성 이름표 (1절·후렴…): 묶음이 
 function renderAllView(grid) {
   grid.className = 'allview';
   const ids = service()?.itemIds || [];
-  for (const id of ids) {
+  for (const [k, id] of ids.entries()) {
     const it = item(id); if (!it) continue;
-    const list = WC.seq(it), tags = groupTags(it), folded = allFold.has(id);
+    const list = WC.seq(it), tags = groupTags(it), folded = allFold.has(id), hid = it.slides.filter(s => s.hidden);
     const sec = document.createElement('div');
     sec.className = 'allsec' + (id === selId ? ' sel' : '') + (snap?.live.itemId === id ? ' livesec' : '');
     sec.dataset.sec = id;
-    sec.innerHTML = `<div class="allhead"><button class="icon fold" title="접기·펴기">${folded ? '▸' : '▾'}</button><span class="badge">${TYPE[it.type] || ''}</span><b class="t">${esc(it.title)}</b><span class="muted small">${list.length}장</span></div>`;
+    sec.innerHTML = `<div class="allhead"><button class="icon fold" title="접기·펴기">${folded ? '▸' : '▾'}</button><span class="badge">${TYPE[it.type] || ''}</span><b class="t">${esc(it.title)}</b><span class="muted small">${list.length}장</span>${hid.length ? `<span class="muted small">숨김 ${hid.length}</span>` : ''}${IS_EDITOR ? '' : '<button type="button" class="allrm" title="예배 순서에서만 뺍니다. 내용은 지우지 않고 자료실에 보관합니다 (＋로 다시 넣기)">✕ 순서에서 빼기</button>'}</div>`;
     sec.querySelector('.allhead').onclick = () => select(id);
+    // 순서에서 빼기: 예배 순서에서만 빠지고 내용은 남음 (문구·말씀·광고도 보관 표시를 붙여 지워지지 않게)
+    const rm = sec.querySelector('.allrm');
+    if (rm) rm.onclick = async e => {
+      e.stopPropagation();
+      try {
+        if (!KEEP.has(it.type) && !it.kept) await api('PUT', '/api/items/' + id, { kept: true });
+        const cur = [...(service()?.itemIds || [])], at = cur[k] === id ? k : cur.indexOf(id);
+        if (at < 0) return;
+        cur.splice(at, 1);
+        await saveService(cur);
+        toast(`'${it.title}'을(를) 순서에서 뺐습니다 · 자료실에 보관됨`);
+      } catch (err) { toast(err.message || '빼지 못했습니다'); }
+    };
     sec.querySelector('.fold').onclick = e => {
       e.stopPropagation();
       allFold.has(id) ? allFold.delete(id) : allFold.add(id);
@@ -247,7 +288,8 @@ function renderAllView(grid) {
     if (!folded) {
       const g = document.createElement('div'); g.className = 'grid';
       list.forEach((s, i) => g.appendChild(slideCard(it, s, i, tags[i])));
-      if (!list.length) g.innerHTML = '<p class="muted small">슬라이드가 없습니다</p>';
+      if (!list.length && !hid.length) g.innerHTML = '<p class="muted small">슬라이드가 없습니다</p>';
+      hid.forEach(s => g.appendChild(hiddenCard(it, s)));
       sec.appendChild(g);
     }
     grid.appendChild(sec);
@@ -293,6 +335,7 @@ function renderSlides() {
   // 곡 구성 순서대로 (같은 후렴이 여러 번 나오면 여러 칸)
   const tags = groupTags(it);
   WC.seq(it).forEach((s, i) => grid.appendChild(slideCard(it, s, i, tags[i])));
+  it.slides.filter(s => s.hidden).forEach(s => grid.appendChild(hiddenCard(it, s)));   // 숨긴 슬라이드는 흐리게 맨 뒤에
   if (!it.slides.length) grid.innerHTML = '<p class="muted">슬라이드가 없습니다. ✎ 편집에서 내용을 넣으세요.</p>';
   renderSecNav();
 }
@@ -697,7 +740,7 @@ function openReading() {
   linesSel.onchange = () => { try { localStorage.setItem('wc-read-lines', linesSel.value); } catch {} };
   async function add(n) {
     const r = await api('GET', `/api/readings/${n}?lines=${+linesSel.value || 2}`);
-    const it = await api('POST', '/api/items', { type: 'bible', title: `교독문 ${r.num} ${r.title}`, theme: defTheme('reading', 'word'), slides: r.slides, after: afterId() });
+    const it = await api('POST', '/api/items', { type: 'bible', title: `교독문 ${r.num} ${r.title}`, theme: defTheme('reading', defTheme('song')), slides: r.slides, after: afterId() });
     selId = it.id;
     toast(`교독문 ${r.num}번 '${r.title}'을(를) 넣었습니다`);
   }
@@ -965,7 +1008,7 @@ function openItemEditor(id, focusIndex, preset) {
   const typeUI = () => {
     body.querySelectorAll('.song-only').forEach(x => x.classList.toggle('hidden', it.type !== 'song'));
     body.querySelectorAll('.no-html').forEach(x => x.classList.toggle('hidden', it.type === 'html'));
-    body.querySelector('#eKeepNote').textContent = KEEP.has(it.type) ? '찬양 자료실에 남습니다' : '예배 순서에서 빼면 지워집니다';
+    body.querySelector('#eKeepNote').textContent = KEEP.has(it.type) ? '찬양 자료실에 남습니다' : it.kept ? '자료실에 보관된 자료입니다' : '예배 순서에서 빼면 지워집니다';
   };
   drawChips();
   body.querySelector('#eType').onchange = e => {
@@ -1157,7 +1200,7 @@ function openBible() {
       if (t2) text += '\n\n' + t2;
       slides.push({ text, ref: `${res.book} ${res.ch}:${r}` + (showV ? ` (${res.version}${t2 ? ' · ' + res2.version : ''})` : '') });
     }
-    const it = await api('POST', '/api/items', { type: 'bible', title: showV ? `${res.title} ${res.version}` : res.title, theme: defTheme('bible', 'word'), slides, after: afterId() });
+    const it = await api('POST', '/api/items', { type: 'bible', title: showV ? `${res.title} ${res.version}` : res.title, theme: defTheme('bible', defTheme('song')), slides, after: afterId() });
     selId = it.id; closeDlg(); toast('말씀 슬라이드를 만들고 예배 순서에 넣었습니다');
   };
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -1335,7 +1378,7 @@ async function openMediaPicker(onPick, onCancel) {
     <div class="row"><label class="btn primary">＋ 사진·영상 올리기<input type="file" id="mUp" multiple accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,video/*,audio/*" hidden></label>
       <span class="muted small">jpg·png·mp4·mov·webm 등. 영상 배경은 소리 없이 반복 재생됩니다.</span></div>
     <div class="media-grid">${files.map(f => `<div class="m" data-url="${esc(f.url)}">
-      ${/\.(mp4|mov|m4v|webm)$/i.test(f.url) ? `<video src="${esc(f.url)}" muted preload="metadata"></video>` : /\.(mp3|m4a|wav|aac)$/i.test(f.url) ? '<div style="aspect-ratio:16/9;display:grid;place-items:center;font-size:28px">🎵</div>' : `<img src="${esc(f.url)}" loading="lazy">`}
+      ${/\.(mp4|mov|m4v|webm)$/i.test(f.url) ? `<video disablepictureinpicture src="${esc(f.url)}" muted preload="metadata"></video>` : /\.(mp3|m4a|wav|aac)$/i.test(f.url) ? '<div style="aspect-ratio:16/9;display:grid;place-items:center;font-size:28px">🎵</div>' : `<img src="${esc(f.url)}" loading="lazy">`}
       <div class="n">${esc(f.name)}</div>${onPick ? '' : `<button class="icon" data-del="${esc(f.name)}" title="삭제">🗑</button>`}</div>`).join('') || '<p class="muted">아직 올린 파일이 없습니다.</p>'}</div>
     <div class="dlg-foot"><button class="btn" data-x>${onPick ? '취소' : '닫기'}</button></div>`);
   body.querySelector('#mUp').onchange = async e => {
@@ -1431,7 +1474,7 @@ function openStyle(pre, tab) {
   });
   const paint = () => {
     const [slide, type, kind] = STYLE_SAMPLE[T0];
-    const fake = { slide, next: null, style: st, live: { black: false, clear: false }, item: { type, title: '예시 찬양', theme: kind ? defTheme(kind, { bible: 'word', notice: 'notice' }[kind] || '') : '' } };
+    const fake = { slide, next: null, style: st, live: { black: false, clear: false }, item: { type, title: '예시 찬양', theme: kind ? defTheme(kind, defTheme('song')) : '' } };
     WC.render(body.querySelector('#sPvMain'), fake, 'main', { fade: false });
     WC.render(body.querySelector('#sPvOv'), fake, 'overlay', { fade: false });
   };
@@ -1610,7 +1653,7 @@ function openSettings() {
     <h4 style="margin:18px 0 8px">🎨 모양 (테마)</h4>
     <p class="muted small" style="margin-top:0">교회에 맞는 모양(글꼴·색·배경)을 만들어 두면 자료마다 ✎ 편집 → 모양에서 고를 수 있습니다. 새로 넣을 때 처음부터 쓸 모양도 정해 두세요.</p>
     <div class="form narrow" id="stThemeDefs" style="grid-template-columns:90px 1fr">
-      ${[['bible', '성경', 'word'], ['reading', '교독문', 'word'], ['notice', '광고', 'notice'], ['song', '새 찬양', '']].map(([k, n, fb]) => `<label>${n}</label><select data-def="${k}">${themeOpts(defTheme(k, fb))}</select>`).join('')}
+      ${[['bible', '성경', null], ['reading', '교독문', null], ['notice', '광고', null], ['song', '새 찬양', '']].map(([k, n, fb]) => `<label>${n}</label><select data-def="${k}">${themeOpts(defTheme(k, fb ?? defTheme('song')))}</select>`).join('')}
     </div>
     <div class="cards" id="stMyThemes" style="margin:8px 0">${myThemes().map(([k, t]) => `<div class="c" data-te="${k}" title="눌러서 고치기"><div class="wc-screen"></div>
       <div class="row" style="margin:0"><div class="n grow">${esc(t.name)}</div><button class="icon" data-tdel="${k}" title="이 모양 지우기">🗑</button></div></div>`).join('')}</div>
@@ -1858,7 +1901,7 @@ function renderMediaBin() {
   const grid = $('#mbGrid'); if (!grid) return;
   const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
   grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" draggable="${mbPick ? 'false' : 'true'}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로${isVid(f.url) ? ' · 위쪽 슬라이드 칸으로 끌어다 놓으면 이 찬양의 배경 영상으로 저장' : ''}">
-      <div class="mb-th">${isVid(f.url) ? `<video src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
+      <div class="mb-th">${isVid(f.url) ? `<video disablepictureinpicture src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
       <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button>
       <button class="mb-top" title="화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)">⬆ 위에</button></div>
       <div class="mb-name"><span class="t">${esc(f.name)}</span>${isVid(f.url) ? '<span title="반복 재생">🔁</span>' : ''}</div></div>`).join('')
@@ -2071,8 +2114,12 @@ function renderTools() {
   const box = $('#tools'); if (!box || !snap) return;
   const L = snap.live;
   // 타이머
-  $('#tmState').textContent = L.timer ? `${L.timer.label || '타이머'} · ` : '꺼짐';
+  $('#tmState').textContent = L.timer ? `${L.timer.label || '타이머'}${L.timer.paused != null ? ' · 멈춤' : ''}${L.timer.hidden ? ' · 숨김' : ''} · ` : '꺼짐';
   $('#tmStop').disabled = !L.timer;
+  // 멈춤 ↔ 계속 · 숨기기 ↔ 보이기
+  $('#tmPause').disabled = $('#tmHide').disabled = !L.timer;
+  $('#tmPause').textContent = L.timer?.paused != null ? '▶ 계속' : '⏸ 멈춤';
+  $('#tmHide').textContent = L.timer?.hidden ? '보이기' : '숨기기';
   // 무대 메시지
   $('#msgState').textContent = L.msg ? `보내는 중: ${L.msg}` : '';
   $('#msgClear').disabled = !L.msg;
@@ -2141,7 +2188,7 @@ function tickTools() {
   const t = snap.live.timer;
   if (!t) { $('#tmLeft').textContent = ''; return; }
   if (snap.now && !snap._recv) snap._recv = Date.now();
-  const left = Math.round((t.end - (snap.now + (Date.now() - (snap._recv || Date.now())))) / 1000);
+  const left = t.paused != null ? Math.round(t.paused / 1000) : Math.round((t.end - (snap.now + (Date.now() - (snap._recv || Date.now())))) / 1000);   // 멈췄으면 남은 시간 그대로
   $('#tmLeft').textContent = WC.fmt(left);
   $('#tmLeft').classList.toggle('over', left < 0);
 }
@@ -2158,6 +2205,8 @@ function initTools() {
   $('#tmUntil').oninput = () => { if ($('#tmUntil').value) $('#tmMin').value = ''; };
   $('#tmUntilGo').onclick = () => { const v = $('#tmUntil').value; if (!v) return toast('시각을 고르세요'); goLive({ timer: { ...timer(), until: v } }); };
   $('#tmStop').onclick = () => goLive({ timer: null });
+  $('#tmPause').onclick = () => { const t = snap?.live?.timer; if (t) goLive({ timerPause: t.paused == null }); };
+  $('#tmHide').onclick = () => { const t = snap?.live?.timer; if (t) goLive({ timerHide: !t.hidden }).then(() => toast(t.hidden ? '타이머를 다시 보이게 했습니다' : '타이머를 숨겼습니다 (프롬프터에는 보임)')).catch(() => {}); };
   // 예배 시간: 예배 순서마다 저장. 정하거나 ▶를 누르면 '예배 시작까지' 타이머가 바로 시작 (정각에 사라짐)
   const svcTimer = () => {
     const v = $('#tmSvcTime').value; if (!v) return toast('예배 시간을 정하세요');
@@ -2171,7 +2220,12 @@ function initTools() {
     svcTimer();
   };
   // 표시 방법·유튜브에도를 바꾸면 도는 타이머에 바로 (남은 시간·시각 그대로)
-  const retimer = () => { const t = snap?.live?.timer; if (t) goLive({ timer: { ...timer(), label: t.label, ...(t.clock ? { until: new Date(t.end).toTimeString().slice(0, 5) } : { min: Math.max(0, (t.end - Date.now()) / 60000) }) } }); };
+  const retimer = () => {
+    const t = snap?.live?.timer; if (!t) return;
+    // 멈춤·숨김 상태도 그대로 (멈췄으면 붙잡아 둔 남은 시간으로 다시 만들고 곧바로 멈춤)
+    const keep = { ...(t.paused != null ? { timerPause: true } : {}), ...(t.hidden ? { timerHide: true } : {}) };
+    goLive({ timer: { ...timer(), label: t.label, ...(t.clock && t.paused == null ? { until: new Date(t.end).toTimeString().slice(0, 5) } : { min: Math.max(0, (t.paused != null ? t.paused : t.end - Date.now()) / 60000) }) }, ...keep });
+  };
   $('#tmTv').onchange = retimer; $('#tmObs').onchange = retimer;
   const send = () => { const v = $('#msgIn').value.trim(); if (!v) return; goLive({ msg: v }); $('#msgIn').value = ''; toast('프롬프터에 메시지를 보냈습니다'); };
   $('#msgSend').onclick = send;
@@ -2358,7 +2412,7 @@ function bind() {
   };
   $('#svcDel').onclick = async () => { const s = service(); if (s && confirm(`'${s.name}' 순서를 삭제할까요?\n(찬양은 자료실에 남고, 말씀·광고·문구는 함께 지워집니다)`)) await api('DELETE', '/api/services/' + s.id); };
   $('#newSong').onclick = () => openItemEditor(null);
-  $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: defTheme('notice', 'notice'), slides: [{ text: '교회 소식\n내용을 적으세요' }] });
+  $('#newNotice').onclick = () => openItemEditor(null, null, { type: 'notice', title: '광고', theme: defTheme('notice', defTheme('song')), slides: [{ text: '교회 소식\n내용을 적으세요' }] });
   $('#newHtml').onclick = openHtmlChoice;
   $('#newPhrase').onclick = openPhrases;
   // 빈 편집 창: 고르기 창 없이 바로 직접 적기

@@ -65,6 +65,18 @@ li.sel .badge { background: rgba(255,255,255,.2); color: #fff; }
 .slide.live { outline-color: var(--live); }
 .slide .num { position: absolute; left: 6px; top: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 5px; z-index: 2; }
 .slide.live .num { background: var(--live); }
+/* 슬라이드 칸 오른쪽 아래 작은 [✎ 빠른 수정] (오른쪽 클릭과 같음) — 평소엔 흐리게, 칸에 마우스를 올리면 또렷하게 */
+.slide .qedit { position: absolute; right: 6px; bottom: 6px; z-index: 2; background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.25); font-size: 10.5px; line-height: 1.5; padding: 0 6px; border-radius: 5px; cursor: pointer; opacity: .55; transition: opacity .1s; }
+.slide:hover .qedit { opacity: 1; }
+.slide .qedit:hover { background: var(--accent); border-color: var(--accent); }
+/* 칸 왼쪽 아래 작은 [숨기기] · 숨긴 칸은 흐리게 + [↺ 다시 보이기] */
+.slide .shide { position: absolute; left: 6px; bottom: 6px; z-index: 2; background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.25); font-size: 10.5px; line-height: 1.5; padding: 0 6px; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity .1s; }
+.slide:hover .shide { opacity: 1; }
+.slide .shide:hover { background: var(--live); border-color: var(--live); }
+.slide.hid { cursor: default; opacity: .45; outline: 2px dashed var(--line); outline-offset: -2px; }
+.slide.hid:hover { opacity: .8; }
+.slide.hid .shide { opacity: 1; }
+.slide.hid .shide:hover { background: var(--accent); border-color: var(--accent); }
 
 .pv { border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .checker { background: repeating-conic-gradient(#3a3f4a 0% 25%, #2a2e36 0% 50%) 50% / 20px 20px; }
@@ -281,6 +293,10 @@ table.conti input { width: 100%; padding: 4px 6px; }
 .allhead { display: flex; align-items: center; gap: 6px; padding: 4px 2px 6px; width: 0; min-width: 100%; box-sizing: border-box; cursor: pointer; }
 .allhead .t { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .allhead .fold { width: 20px; flex: none; }
+/* 전체 이어 보기 제목 줄의 작은 [✕ 순서에서 빼기] — 평소엔 흐리게, 제목 줄에 마우스를 올리면 또렷하게 */
+.allhead .allrm { margin-left: auto; flex: none; background: transparent; color: var(--muted); border: 1px solid var(--line); font-size: 11px; line-height: 1.5; padding: 0 7px; border-radius: 5px; cursor: pointer; opacity: .5; }
+.allhead:hover .allrm { opacity: 1; }
+.allhead .allrm:hover { background: var(--live); border-color: var(--live); color: #fff; }
 .allhead .badge, .allhead .small { flex: none; }
 .allsec.sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .allsec.sel > .allhead .t { color: var(--accent); }

@@ -61,7 +61,7 @@ fs.mkdirSync(SLIDES_DIR, { recursive: true });
 const KEEP_TYPES = new Set(['song', 'score']);
 function pruneOrphans() {
   const used = new Set(db.services.flatMap(s => s.itemIds));
-  const gone = db.items.filter(i => !KEEP_TYPES.has(i.type) && !used.has(i.id));
+  const gone = db.items.filter(i => !KEEP_TYPES.has(i.type) && !i.kept && !used.has(i.id));   // 보관(kept)한 자료는 남김
   if (!gone.length) return 0;
   db.items = db.items.filter(i => !gone.includes(i));
   // PPT에서 뽑아낸 그림(ppt_…)은 다른 자료가 쓰지 않으면 같이 지움
@@ -141,6 +141,8 @@ function itemFields(b, it = {}) {
     key: b.key !== undefined ? String(b.key ?? '').trim().slice(0, 10) : (it.key || ''),
     bpm: b.bpm !== undefined ? (Number.isFinite(+b.bpm) && +b.bpm > 0 ? Math.min(300, Math.round(+b.bpm)) : 0) : (it.bpm || 0),
     memo: b.memo !== undefined ? String(b.memo ?? '').slice(0, 200) : (it.memo || ''),
+    // 보관: 예배 순서에서 빼도 지우지 않고 자료실에 남김 (문구·말씀·광고도) — 전체 이어 보기의 '순서에서 빼기'
+    kept: b.kept !== undefined ? !!b.kept : !!it.kept,
   };
 }
 function addItem(b) {
@@ -349,9 +351,14 @@ app.post('/api/items', needAuth, (req, res) => { const it = addItem(req.body || 
 app.put('/api/items/:id', needAuth, (req, res) => {
   const it = db.items.find(i => i.id === req.params.id);
   if (!it) return res.status(404).json({ error: '없음' });
+  const liveId = live.itemId === it.id ? store.seq(it)[live.index]?.id : null;   // 지금 나가는 슬라이드
   Object.assign(it, itemFields(req.body || {}, it), { updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
-  if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, store.seq(it).length - 1)); pushLive(); }
+  if (live.itemId === it.id) {
+    // 앞 슬라이드를 숨기거나 넣어도 지금 나가는 슬라이드가 그대로 나가게 (없어졌으면 그 자리)
+    const ns = store.seq(it), j = liveId ? ns.findIndex(s => s.id === liveId) : -1;
+    live.index = j >= 0 ? j : Math.min(live.index, Math.max(0, ns.length - 1)); pushLive();
+  }
   changed(); res.json(it);
 });
 // 복제: 가사·슬라이드·모양·배경 영상까지 그대로 담은 새 자료를 예배 순서에 하나 더 (따로 떨어진 사본)
@@ -464,6 +471,8 @@ app.get('/api/lyrics', needAuth, async (req, res) => {
 
 // 예배 순서
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+// 광고(교회 소식)는 찬양과 같은 모양으로: 광고 기본 모양을 따로 정했으면 그것, 아니면 새 찬양 기본 모양 (public/app.js 의 defTheme 와 같은 규칙)
+const noticeTheme = () => { const d = db.settings.themeDefaults || {}; return d.notice ?? d.song ?? ''; };
 app.post('/api/services', needAuth, (req, res) => {
   const tpl = templates.SERVICES[req.body.template];
   const s = { id: store.uid(), name: String(req.body.name || tpl?.name || '새 예배').slice(0, 100), date: String(req.body.date || new Date().toISOString().slice(0, 10)).slice(0, 20), itemIds: [] };
@@ -472,7 +481,7 @@ app.post('/api/services', needAuth, (req, res) => {
   db.services.push(s); db.currentServiceId = s.id;
   for (const step of tpl?.steps || []) {
     const b = step === 'COMMUNION' ? templates.communionItem(bible, db.settings.bibleNoVer)
-      : { type: 'text', title: step[0].split('\n')[0], theme: step[1], slides: [{ text: step[0] }] };
+      : { type: 'text', title: step[0].split('\n')[0], theme: step[1] === 'notice' ? noticeTheme() : step[1], slides: [{ text: step[0] }] };
     addItem(b);   // 찬양이 아니므로 지금 예배 순서 끝에 들어감
   }
   changed(); res.json(s);
@@ -1078,6 +1087,13 @@ app.post('/api/live', needControl, (req, res) => {
   if (['auto', 'cover', 'contain', 'small'].includes(b.mediaFit)) live.mediaFit = b.mediaFit;
   if (b.msg !== undefined) live.msg = String(b.msg || '').trim().slice(0, 200);          // 무대 메시지 (프롬프터에만)
   if (b.timer !== undefined) live.timer = makeTimer(b.timer);
+  // 타이머 멈춤(⏸)·계속(▶): 멈추면 남은 시간을 붙잡아 두고, 계속하면 그 남은 시간부터 다시
+  if (live.timer && b.timerPause !== undefined) {
+    if (b.timerPause && live.timer.paused == null) live.timer.paused = live.timer.end - Date.now();
+    else if (!b.timerPause && live.timer.paused != null) { live.timer.end = Date.now() + live.timer.paused; delete live.timer.paused; }
+  }
+  // 타이머 숨기기: 예배당 화면·유튜브에서만 안 보임 (시간은 계속 흐르고 프롬프터에는 보임)
+  if (live.timer && b.timerHide !== undefined) live.timer.hidden = !!b.timerHide;
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
   if (b.yt !== undefined) ytCommand(b.yt);
