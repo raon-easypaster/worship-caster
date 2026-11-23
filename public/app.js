@@ -31,6 +31,8 @@ const service = () => S.services.find(s => s.id === S.currentServiceId);
 const myThemes = () => Object.entries(S?.settings?.themes || {});
 const themeOpts = cur => (myThemes().length ? `<optgroup label="🎨 내 모양">${myThemes().map(([k, t]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</optgroup><optgroup label="기본 모양">` : '')
   + Object.entries(WC.THEMES).map(([k, t]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(t.name)}</option>`).join('') + (myThemes().length ? '</optgroup>' : '');
+// 글꼴 목록: 프로그램에 든 글꼴 + 교회가 올린 '내 글꼴'(⚙︎ 설정 → 🔤 내 글꼴)
+const allFonts = () => [...WC.FONTS, ...(S?.settings?.fonts || []).map(f => [`'${f.family}', sans-serif`, '🔤 ' + f.name])];
 // 새로 넣을 때 처음 쓸 모양 (⚙︎ 설정 → 🎨 모양에서 정함)
 const defTheme = (kind, fallback = '') => { const v = S?.settings?.themeDefaults?.[kind]; return v != null && (WC.THEMES[v] || S.settings.themes?.[v]) ? v : fallback; };
 
@@ -1422,7 +1424,7 @@ function openStyle(pre, tab) {
   const ovr = T0 ? (st.byType[T0] || { main: {}, overlay: {} }) : null;
   const V = T0 ? { main: { ...st.main, ...(ovr.main || {}) }, overlay: { ...st.overlay, ...(ovr.overlay || {}) } } : st;
   const changedN = k => { const o = st.byType[k]; return o ? Object.keys(o.main || {}).length + Object.keys(o.overlay || {}).length : 0; };
-  const fonts = WC.FONTS.some(([v]) => v === V.main.font) ? WC.FONTS : [...WC.FONTS, [V.main.font, '지금 쓰는 글꼴']];
+  const fonts = allFonts().some(([v]) => v === V.main.font) ? allFonts() : [...allFonts(), [V.main.font, '지금 쓰는 글꼴']];
   const fontSel = (cur, id) => `<select id="${id}">${fonts.map(([v, n]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''} style="font-family:${esc(v)}">${n}</option>`).join('')}</select>`;
   const vidName = V.main.motionVideo ? decodeURIComponent(V.main.motionVideo.split('/').pop()) : '고르지 않음';
   const body = openDlg(`
@@ -1578,7 +1580,7 @@ function openThemeEditor(key, draft) {
     <div class="two"><div class="form narrow" style="grid-template-columns:96px 1fr">
       <label>이름</label><input id="tmName" maxlength="30" placeholder="예: 우리교회 말씀" value="${esc(d.name || '')}">
       <label>시작할 모양</label><select id="tmBase">${Object.entries(WC.THEMES).map(([b, t]) => `<option value="${b}" ${b === (d.base || '') ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
-      <label>글꼴</label><select id="tmFont">${WC.FONTS.map(([f, n]) => `<option value="${esc(f)}" ${f === d.font ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <label>글꼴</label><select id="tmFont">${allFonts().map(([f, n]) => `<option value="${esc(f)}" ${f === d.font ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
       <label>글자 크기</label><input type="range" id="tmSize" min="3" max="12" step="0.1" value="${d.size}">
       <label>줄 간격</label><input type="range" id="tmLh" min="1" max="2.2" step="0.05" value="${d.lineHeight}">
       <label>글자 색</label><div class="row" style="margin:0"><input type="color" id="tmColor" style="width:56px;flex:none" value="${d.color}"><label class="small" style="white-space:nowrap"><input type="checkbox" id="tmBold" ${d.bold ? 'checked' : ''}> 굵게</label><label class="small" style="white-space:nowrap"><input type="checkbox" id="tmShadow" ${d.shadow ? 'checked' : ''}> 그림자</label></div>
@@ -1685,6 +1687,11 @@ function openSettings() {
       ${S.readingCount ? '<button class="btn sm" id="stReadingDel">모두 지우기</button>' : ''}</div>
     <p class="muted small">교독문은 성경 본문이라 저작권이 있어 프로그램에 넣지 않았습니다. 교회가 가진 교독문 파일(.txt)을 한 번 가져오면 ＋ 교독문에서 번호·제목으로 바로 넣습니다.</p>
     <p class="muted small">형식: "1. 시편 1편"처럼 번호와 제목 줄로 시작하고, 그 아래 한 줄씩 번갈아 읽을 본문, 다 같이 읽는 부분 앞에는 "(다같이)" 줄. UTF-8 또는 EUC-KR.</p>
+    <h4 style="margin:18px 0 8px">🔤 내 글꼴</h4>
+    <div class="row wrap"><span>${(S.settings.fonts || []).length ? `올린 글꼴 ${S.settings.fonts.length}개` : '<span class="muted">아직 올린 글꼴이 없습니다</span>'}</span>
+      <label class="btn sm" title="여러 파일을 한꺼번에 골라도 됩니다">글꼴 파일 올리기<input type="file" id="stFont" accept=".ttf,.otf,.woff,.woff2" multiple hidden></label></div>
+    <div id="stFontList">${(S.settings.fonts || []).map(f => `<div class="row" style="margin:4px 0"><span class="grow" style="font-family:'${esc(f.family)}', sans-serif;font-size:18px">${esc(f.name)} — 가나다 ABC 123</span><button class="btn sm" data-fontdel="${esc(f.id)}" title="이 글꼴을 지웁니다 (쓰던 곳은 기본 글꼴로)">지우기</button></div>`).join('')}</div>
+    <p class="muted small">교회가 가진 글꼴 파일(.ttf · .otf · .woff · .woff2)을 올리면 🎨 자막 스타일과 내 모양의 글꼴 목록 맨 아래에 🔤 표시로 나옵니다. 예배당 화면·방송(OBS)·리모컨 어디서나 같은 글꼴로 보입니다. 글꼴마다 사용 허락(라이선스)이 다르니 교회에서 써도 되는 글꼴인지 확인하세요.</p>
     <h4 style="margin:18px 0 8px">성경</h4>
     <div class="form">
       <label>성경 폴더</label><div>
@@ -1742,6 +1749,18 @@ function openSettings() {
     const fd = new FormData(); fd.append('file', f);
     try { const r = await api('POST', '/api/readings/upload', fd); toast(`교독문 ${r.count}편을 가져왔습니다 (모두 ${r.total}편)`); await reload(); openSettings(); } catch {}
   };
+  // 🔤 내 글꼴 올리기·지우기
+  body.querySelector('#stFont').onchange = async e => {
+    const list = [...e.target.files]; e.target.value = ''; if (!list.length) return;
+    const fd = new FormData(); list.forEach(f => fd.append('file', f, f.name));
+    toast('올리는 중…');
+    try { const r = await api('POST', '/api/fonts', fd); WC.reloadMyFonts(); toast(`글꼴 ${r.added}개를 올렸습니다 — 🎨 자막 스타일의 글꼴에서 고르세요`); await reload(); openSettings(); } catch {}
+  };
+  body.querySelectorAll('[data-fontdel]').forEach(b => b.onclick = async () => {
+    const f = (S.settings.fonts || []).find(x => x.id === b.dataset.fontdel);
+    if (!f || !confirm(`'${f.name}' 글꼴을 지울까요?\n(이 글꼴을 쓰던 자막은 기본 글꼴로 보입니다)`)) return;
+    try { await api('DELETE', '/api/fonts/' + f.id); WC.reloadMyFonts(); await reload(); openSettings(); } catch {}
+  });
   body.querySelector('#stReadingDel')?.addEventListener('click', async () => { if (!confirm('가져온 교독문을 모두 지울까요?\n(예배 순서에 이미 넣은 교독문은 남습니다)')) return; await api('DELETE', '/api/readings'); await reload(); openSettings(); });
   // 🎨 모양: 기본 모양 정하기 · 내 모양 고치기/지우기/새로
   body.querySelectorAll('#stThemeDefs select').forEach(sel => sel.onchange = async () => {
