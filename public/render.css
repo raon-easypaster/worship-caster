@@ -31,9 +31,9 @@
 .wc-st-top span:first-child { color: #fff; font-weight: 700; flex: 1; }
 .wc-st-status { color: #ff6b6b; }
 .wc-clock { font-size: 5cqh; color: #7ee0a1; font-weight: 700; }
-.wc-st-cur { flex: 1; display: flex; flex-direction: column; justify-content: center; font-size: 8cqh; font-weight: 700; line-height: 1.35; word-break: keep-all; }
+.wc-st-cur { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; font-size: 12cqh;   /* 150% (8 → 12). 넘치면 render.js fitStage 가 그 슬라이드만 줄임 */ font-weight: 700; line-height: 1.35; word-break: keep-all; }
 .wc-st-ref { font-size: 4cqh; color: #ffd76a; margin-top: 2cqh; }
-.wc-st-next { font-size: 4cqh; color: #b9c2d3; border-top: .2cqh solid #2a3140; padding-top: 2cqh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-st-next { flex: none; font-size: 7cqh; line-height: 1.3; color: #b9c2d3; border-top: .2cqh solid #2a3140; padding-top: 2cqh; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; word-break: keep-all; }   /* 다음 가사: 크게(4 → 7), 두 줄까지 */
 .wc-st-next b { color: #6aa8ff; margin-right: 1cqw; }
 
 /* 글머리 강조 (광고·순서 제목 테마) */

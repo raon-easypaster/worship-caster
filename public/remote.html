@@ -37,6 +37,37 @@
   .msg { text-align: center; color: var(--muted); padding: 30px 10px; }
   .err { color: #ff8a8a; min-height: 1.2em; }
   #off { position: fixed; top: 8px; right: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--live); display: none; }
+  .list .t2 { display: none; }   /* 휴대폰: 슬라이드 첫 줄만 */
+  /* 배경 칸: 미디어 그림·영상을 눌러 예배당 화면 배경으로 */
+  .mbar { display: flex; gap: 6px; margin-bottom: 8px; }
+  .mbar button { flex: 1; padding: 10px 8px; font-size: 14px; }
+  .mbar button.on { background: var(--live); border-color: var(--live); }
+  .list.media { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; align-content: start; }
+  .list.media button { margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; text-align: left; }
+  .list.media button.live { box-shadow: 0 0 0 3px var(--live); border-color: var(--live); }
+  .list.media .th { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; display: block; pointer-events: none; }
+  .list.media .nm { font-size: 12px; color: var(--muted); padding: 4px 8px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list.media button.live .nm { color: var(--text); }
+  /* 태블릿·넓은 화면(가로 760px 이상): 왼쪽 조작 · 오른쪽 목록, 슬라이드는 두 줄짜리 칸으로 여러 줄 */
+  @media (min-width: 760px) {
+    body { padding-left: 16px; padding-right: 16px; }
+    #app.split { display: grid; grid-template-columns: minmax(320px, 5fr) 7fr; gap: 16px; align-items: start; }
+    .ctl, .pick { min-width: 0; }
+    .ctl { position: sticky; top: 8px; }
+    .pick { max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px); display: flex; flex-direction: column; }
+    .pick .list { overflow-y: auto; min-height: 0; padding: 2px; }
+    .now { font-size: 26px; }
+    .next { font-size: 16px; }
+    .big button { padding: 34px 8px; font-size: 26px; }
+    .tg button { padding: 14px 8px; }
+    .list.slides { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; align-content: start; }
+    .list.slides button { margin: 0; white-space: normal; min-height: 88px; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
+    .list.slides .t1, .list.slides .t2 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .list.slides .t2 { color: var(--muted); font-size: 14px; }
+    .list.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; align-content: start; }
+    .list.items button { margin: 0; padding: 14px 12px; }
+    .list.media { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  }
 </style>
 </head>
 <body>
@@ -47,7 +78,9 @@
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-let S = null, snap = null, tab = 'slides';
+let S = null, snap = null, tab = 'slides', media = null;   // media: 배경 칸에 보일 미디어 파일 목록 (배경 칸을 열 때 불러옴)
+const isVid = u => /\.(mp4|mov|m4v|webm)$/i.test(u);
+const loadMedia = () => api('GET', '/api/media').then(j => { media = j; draw(); }).catch(() => { media = []; draw(); });
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -68,12 +101,13 @@ function login() {
   $('#pin').onkeydown = e => { if (e.key === 'Enter') tryIt(); };
 }
 
-const seq = it => {   // 곡 구성 순서 (운영 화면과 같은 규칙)
+const seq = it => {   // 곡 구성 순서 (운영 화면과 같은 규칙) · 숨긴 슬라이드(hidden)는 건너뜀 — lib/store.js 의 seq 와 같아야 함
   const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
-  if (!arr.length || !sl.some(s => s.label)) return sl;
+  const shown = x => x.filter(s => !s?.hidden);
+  if (!arr.length || !sl.some(s => s.label)) return shown(sl);
   const g = new Map(); let c = null;
   for (const s of sl) { if (s.label) { c = String(s.label); if (!g.has(c)) g.set(c, []); } if (c) g.get(c).push(s); }
-  const out = arr.flatMap(l => g.get(String(l)) || []); return out.length ? out : sl;
+  const out = arr.flatMap(l => g.get(String(l)) || []); return shown(out.length ? out : sl);
 };
 const txt = s => s ? (s.text || (s.bg || s.img || s.elements?.length ? '[그림]' : s.html || s.htmlFile ? '[HTML]' : '')) : '';
 
@@ -88,7 +122,8 @@ function draw() {
   const it = S.items.find(i => i.id === L.itemId);
   const items = (svc?.itemIds || []).map(id => S.items.find(i => i.id === id)).filter(Boolean);
   const slides = it ? seq(it) : [];
-  $('#app').innerHTML = `
+  $('#app').className = 'split';   // 넓은 화면에서 왼쪽 조작(.ctl) · 오른쪽 목록(.pick)
+  $('#app').innerHTML = `<div class="ctl">
     <div class="card"><div class="now-t"><span>${esc(it?.title || '대기')}</span><span>${it ? `${L.index + 1} / ${slides.length}` : ''}${L.black ? ' · 검은 화면' : L.clear ? ' · 글자 지움' : ''}</span></div>
       <div class="now">${esc(txt(snap.slide))}</div><div class="next">다음: ${esc(txt(snap.next) || '— 끝 —')}</div></div>
     <div class="big"><button data-a="prev">◀ 이전</button><button class="nx" data-a="next">다음 ▶</button></div>
@@ -102,11 +137,15 @@ function draw() {
       <button data-t="overlayOff" class="${L.overlayOff ? 'on' : ''}">🎥 방송 끄기</button>
       <button data-a="reset">모두 끄기</button>
       <button data-a="reload">↻</button>
-    </div>
-    <div class="seg"><button data-tab="slides" class="${tab === 'slides' ? 'on' : ''}">슬라이드</button><button data-tab="items" class="${tab === 'items' ? 'on' : ''}">예배 순서</button></div>
-    <div class="list ${tab === 'slides' ? 'slides' : ''}">${tab === 'slides'
-      ? slides.map((s, i) => `<button data-i="${i}" class="${i === L.index ? 'live' : ''}"><small>${i + 1}${s.label ? ' ' + esc(s.label) : ''}</small>${esc(txt(s).split('\n')[0])}</button>`).join('') || '<p class="msg">예배 순서에서 자료를 고르세요</p>'
-      : items.map(x => `<button data-item="${x.id}" class="${x.id === L.itemId ? 'live' : ''}">${esc(x.title)}</button>`).join('') || '<p class="msg">예배 순서가 비어 있습니다</p>'}</div>`;
+    </div></div>
+    <div class="pick">
+    <div class="seg"><button data-tab="slides" class="${tab === 'slides' ? 'on' : ''}">슬라이드</button><button data-tab="items" class="${tab === 'items' ? 'on' : ''}">예배 순서</button><button data-tab="media" class="${tab === 'media' ? 'on' : ''}">배경</button></div>
+    ${tab === 'media' ? `<div class="mbar"><button data-m="off" ${L.mediaBg ? '' : 'disabled'}>■ 배경 끄기</button><button data-m="obs" class="${L.mediaObs ? 'on' : ''}" title="같은 배경을 유튜브(OBS)에도">🎥 방송에도</button></div>
+    <div class="list media">${media == null ? '<p class="msg">불러오는 중…</p>' : media.map(f => `<button data-bg="${esc(f.url)}" class="${f.url === L.mediaBg ? 'live' : ''}">${isVid(f.url)
+      ? `<video disablepictureinpicture class="th" src="${esc(f.url)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img class="th" src="${esc(f.url)}" loading="lazy" alt="">`}<span class="nm">${esc(decodeURIComponent(f.name))}</span></button>`).join('') || '<p class="msg">미디어 파일이 없습니다. 운영 노트북의 🖼 미디어에서 올리세요</p>'}</div></div>` : `
+    <div class="list ${tab === 'slides' ? 'slides' : 'items'}">${tab === 'slides'
+      ? slides.map((s, i) => { const ls = txt(s).split('\n'); return `<button data-i="${i}" class="${i === L.index ? 'live' : ''}"><span class="t1"><small>${i + 1}${s.label ? ' ' + esc(s.label) : ''}</small>${esc(ls[0])}</span><span class="t2">${esc(ls.slice(1).join(' '))}</span></button>`; }).join('') || '<p class="msg">예배 순서에서 자료를 고르세요</p>'
+      : items.map(x => `<button data-item="${x.id}" class="${x.id === L.itemId ? 'live' : ''}">${esc(x.title)}</button>`).join('') || '<p class="msg">예배 순서가 비어 있습니다</p>'}</div></div>`}`;
   $('#app').querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
     const a = b.dataset.a;
     if (a === 'prev') go({ step: -1 }); if (a === 'next') go({ step: 1 });
@@ -116,7 +155,10 @@ function draw() {
     const k = b.dataset.t;
     go(k === 'logo' ? { logo: !L.logo } : { [k]: !L[k] });
   });
-  $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; draw(); });
+  $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === 'media') loadMedia(); draw(); });
+  // 배경: 누르면 예배당 화면 배경으로 (슬라이드는 그대로) · 끄기 · 방송에도
+  $('#app').querySelectorAll('[data-bg]').forEach(b => b.onclick = () => go({ mediaBg: b.dataset.bg }));
+  $('#app').querySelectorAll('[data-m]').forEach(b => b.onclick = () => go(b.dataset.m === 'off' ? { mediaBg: null } : { mediaObs: !L.mediaObs }));
   $('#app').querySelectorAll('[data-i]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.i }));
   $('#app').querySelectorAll('[data-sec]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.sec }));
   $('#app').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { tab = 'slides'; go({ itemId: b.dataset.item }); });

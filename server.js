@@ -61,7 +61,7 @@ fs.mkdirSync(SLIDES_DIR, { recursive: true });
 const KEEP_TYPES = new Set(['song', 'score']);
 function pruneOrphans() {
   const used = new Set(db.services.flatMap(s => s.itemIds));
-  const gone = db.items.filter(i => !KEEP_TYPES.has(i.type) && !used.has(i.id));
+  const gone = db.items.filter(i => !KEEP_TYPES.has(i.type) && !i.kept && !used.has(i.id));   // 보관(kept)한 자료는 남김
   if (!gone.length) return 0;
   db.items = db.items.filter(i => !gone.includes(i));
   // PPT에서 뽑아낸 그림(ppt_…)은 다른 자료가 쓰지 않으면 같이 지움
@@ -141,6 +141,8 @@ function itemFields(b, it = {}) {
     key: b.key !== undefined ? String(b.key ?? '').trim().slice(0, 10) : (it.key || ''),
     bpm: b.bpm !== undefined ? (Number.isFinite(+b.bpm) && +b.bpm > 0 ? Math.min(300, Math.round(+b.bpm)) : 0) : (it.bpm || 0),
     memo: b.memo !== undefined ? String(b.memo ?? '').slice(0, 200) : (it.memo || ''),
+    // 보관: 예배 순서에서 빼도 지우지 않고 자료실에 남김 (문구·말씀·광고도) — 전체 이어 보기의 '순서에서 빼기'
+    kept: b.kept !== undefined ? !!b.kept : !!it.kept,
   };
 }
 function addItem(b) {
@@ -349,9 +351,14 @@ app.post('/api/items', needAuth, (req, res) => { const it = addItem(req.body || 
 app.put('/api/items/:id', needAuth, (req, res) => {
   const it = db.items.find(i => i.id === req.params.id);
   if (!it) return res.status(404).json({ error: '없음' });
+  const liveId = live.itemId === it.id ? store.seq(it)[live.index]?.id : null;   // 지금 나가는 슬라이드
   Object.assign(it, itemFields(req.body || {}, it), { updatedAt: Date.now() });
   it.slides.forEach(s => (s.id ||= store.uid()));
-  if (live.itemId === it.id) { live.index = Math.min(live.index, Math.max(0, store.seq(it).length - 1)); pushLive(); }
+  if (live.itemId === it.id) {
+    // 앞 슬라이드를 숨기거나 넣어도 지금 나가는 슬라이드가 그대로 나가게 (없어졌으면 그 자리)
+    const ns = store.seq(it), j = liveId ? ns.findIndex(s => s.id === liveId) : -1;
+    live.index = j >= 0 ? j : Math.min(live.index, Math.max(0, ns.length - 1)); pushLive();
+  }
   changed(); res.json(it);
 });
 // 복제: 가사·슬라이드·모양·배경 영상까지 그대로 담은 새 자료를 예배 순서에 하나 더 (따로 떨어진 사본)
@@ -386,11 +393,12 @@ app.delete('/api/items/:id', needAuth, (req, res) => {
 });
 app.post('/api/split', needAuth, (req, res) => res.json(store.splitLyrics(req.body.text, Math.max(1, +req.body.lines || 2))));
 
-// 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB) 먼저, 모자라면 벅스
+// 가사 찾기 — 운영자가 버튼을 누를 때만, 공개 가사 모음(LRCLIB)·지니·벅스를 함께 찾아 LRCLIB → 지니 → 벅스 순으로
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 // 가사 사이트 주소 (점검에서만 가짜 사이트로 바꿈)
 const LRCLIB = process.env.WC_LYRICS_LRCLIB || 'https://lrclib.net';
 const BUGS = process.env.WC_LYRICS_BUGS || 'https://music.bugs.co.kr';
+const GENIE = process.env.WC_LYRICS_GENIE || 'https://www.genie.co.kr';
 // 정말 인터넷이 안 될 때 나는 오류 (주소를 못 찾음·연결 불가) — 사이트가 느리거나 막은 것과 구분
 const OFFLINE = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL']);
 const isOffline = e => OFFLINE.has(e?.cause?.code || e?.code);
@@ -421,18 +429,41 @@ async function bugs(q) {
   }).catch(() => null)));
   return got.filter(x => x && x.text);
 }
+async function genie(q) {
+  // 지니: 한국 찬양(CCM)이 많음. 검색 화면에서 곡 번호를 뽑고 곡마다 가사를 읽음 (막으면 건너뜀)
+  const search = async t => {
+    const html = await getText(GENIE + '/search/searchSong?query=' + encodeURIComponent(t), 6000);
+    const rows = [], seen = new Set();
+    for (const m of html.matchAll(/<tr[^>]*class="list"[^>]*songid="(\d+)"([\s\S]*?)<\/tr>/g)) {
+      if (seen.has(m[1])) continue; seen.add(m[1]);
+      const title = m[2].match(/<a[^>]*class="title ellipsis"[^>]*title="([^"]*)"/);
+      const artist = m[2].match(/<a[^>]*class="artist ellipsis"[^>]*>([\s\S]*?)<\/a>/);
+      rows.push({ id: m[1], title: title ? unent(title[1]).trim() : '', artist: artist ? lyricTidy(artist[1]).replace(/\s+/g, ' ') : '' });
+      if (rows.length >= 6) break;
+    }
+    return rows;
+  };
+  let rows = await search(q);
+  if (!rows.length && /\s/.test(q)) rows = await search(q.replace(/\s+/g, ''));   // 띄어쓰기가 달라 못 찾는 곡
+  const got = await Promise.all(rows.map(r => getText(GENIE + '/detail/songInfo?xgnm=' + r.id).then(h => {
+    const m = h.match(/<pre id="pLyrics">[\s\S]*?<p>([\s\S]*?)<\/p>/);
+    const text = m ? lyricTidy(m[1].replace(/<br\s*\/?>/gi, '\n')).split('\n').map(l => l.trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim() : '';
+    return text && !/가사\s*정보가\s*없|등록된\s*가사가\s*없/.test(text) ? { src: '지니', title: r.title, artist: r.artist, text } : null;
+  }).catch(() => null)));
+  return got.filter(Boolean);
+}
 app.get('/api/lyrics', needAuth, async (req, res) => {
   const q = String(req.query.q || '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (!q) return res.status(400).json({ error: '곡 제목을 넣으세요' });
-  const [a, b] = await Promise.allSettled([lrclib(q), bugs(q)]);
+  const [a, b, g] = await Promise.allSettled([lrclib(q), bugs(q), genie(q)]);
   // 벅스가 자동 검색을 막았거나(429·403 등) 대답하지 않음 → 화면에서 '벅스에서 찾기'로 직접 열도록 알림 (막은 것을 뚫지 않음)
   if (b.status === 'rejected' && !isOffline(b.reason)) res.set('X-WC-Bugs', 'blocked');
   const seen = new Set();   // 같은 가사(편곡만 다른 곡)는 하나만
-  const list = [...(a.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
-  if (!list.length && a.status === 'rejected' && b.status === 'rejected') {
-    // 둘 다 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
-    if (isOffline(a.reason) && isOffline(b.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
-    console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 벅스', b.reason?.message);
+  const list = [...(a.value || []), ...(g.value || []), ...(b.value || [])].filter(x => { const k = x.text.replace(/\s+/g, '').slice(0, 120); return !seen.has(k) && seen.add(k); });
+  if (!list.length && a.status === 'rejected' && b.status === 'rejected' && g.status === 'rejected') {
+    // 모두 '연결 불가'일 때만 인터넷 문제라고 알림. 사이트가 느리거나 막았으면 그렇게 알림
+    if (isOffline(a.reason) && isOffline(b.reason) && isOffline(g.reason)) return res.status(502).json({ error: '인터넷에 연결할 수 없습니다. 이 컴퓨터의 인터넷 연결을 확인하세요', code: 'offline' });
+    console.log('  가사 찾기 실패:', 'LRCLIB', a.reason?.message, '/ 지니', g.reason?.message, '/ 벅스', b.reason?.message);
     return res.status(502).json({ error: '가사 사이트가 지금 대답하지 않습니다 (벅스가 자동 검색을 막았을 수 있습니다). 아래 [벅스]·[멜론]을 눌러 찾은 뒤, 가사를 복사해 📋 버튼으로 넣으세요', code: 'busy' });
   }
   res.json(list);
@@ -440,6 +471,8 @@ app.get('/api/lyrics', needAuth, async (req, res) => {
 
 // 예배 순서
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+// 광고(교회 소식)는 찬양과 같은 모양으로: 광고 기본 모양을 따로 정했으면 그것, 아니면 새 찬양 기본 모양 (public/app.js 의 defTheme 와 같은 규칙)
+const noticeTheme = () => { const d = db.settings.themeDefaults || {}; return d.notice ?? d.song ?? ''; };
 app.post('/api/services', needAuth, (req, res) => {
   const tpl = templates.SERVICES[req.body.template];
   const s = { id: store.uid(), name: String(req.body.name || tpl?.name || '새 예배').slice(0, 100), date: String(req.body.date || new Date().toISOString().slice(0, 10)).slice(0, 20), itemIds: [] };
@@ -448,7 +481,7 @@ app.post('/api/services', needAuth, (req, res) => {
   db.services.push(s); db.currentServiceId = s.id;
   for (const step of tpl?.steps || []) {
     const b = step === 'COMMUNION' ? templates.communionItem(bible, db.settings.bibleNoVer)
-      : { type: 'text', title: step[0].split('\n')[0], theme: step[1], slides: [{ text: step[0] }] };
+      : { type: 'text', title: step[0].split('\n')[0], theme: step[1] === 'notice' ? noticeTheme() : step[1], slides: [{ text: step[0] }] };
     addItem(b);   // 찬양이 아니므로 지금 예배 순서 끝에 들어감
   }
   changed(); res.json(s);
@@ -490,7 +523,7 @@ app.put('/api/current-service', needAuth, (req, res) => { db.currentServiceId = 
 const STYLE_RULES = {
   color: 'color', stroke: 'color', bg: 'color', box: 'color',
   size: [1, 30], strokeWidth: [0, 10], lineHeight: [0.8, 3], boxOpacity: [0, 1],
-  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'bottom'], aspect: ['16:9', '4:3'],
+  align: ['left', 'center', 'right'], valign: ['top', 'middle', 'bottom'], position: ['top', 'middle', 'bottom'], aspect: ['16:9', '4:3'],
   bold: 'bool', shadow: 'bool', showTitle: 'bool', font: 'font', motionOn: 'bool',
   motion: ['none', 'galaxy', 'water', 'rays', 'bokeh', 'aurora', 'dawn', 'embers', 'video'], motionVideo: 'media',
   imgMode: ['full', 'part', 'circle', 'none'], partSize: [15, 70], partPos: ['tr', 'mr', 'br', 'tl', 'ml', 'bl'],
@@ -1054,6 +1087,13 @@ app.post('/api/live', needControl, (req, res) => {
   if (['auto', 'cover', 'contain', 'small'].includes(b.mediaFit)) live.mediaFit = b.mediaFit;
   if (b.msg !== undefined) live.msg = String(b.msg || '').trim().slice(0, 200);          // 무대 메시지 (프롬프터에만)
   if (b.timer !== undefined) live.timer = makeTimer(b.timer);
+  // 타이머 멈춤(⏸)·계속(▶): 멈추면 남은 시간을 붙잡아 두고, 계속하면 그 남은 시간부터 다시
+  if (live.timer && b.timerPause !== undefined) {
+    if (b.timerPause && live.timer.paused == null) live.timer.paused = live.timer.end - Date.now();
+    else if (!b.timerPause && live.timer.paused != null) { live.timer.end = Date.now() + live.timer.paused; delete live.timer.paused; }
+  }
+  // 타이머 숨기기: 예배당 화면·유튜브에서만 안 보임 (시간은 계속 흐르고 프롬프터에는 보임)
+  if (live.timer && b.timerHide !== undefined) live.timer.hidden = !!b.timerHide;
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
   if (b.yt !== undefined) ytCommand(b.yt);

@@ -82,7 +82,7 @@
   });
   const safeOverlay = st => ({
     ...st, font: font(st.font), size: num(st.size, 4.6, 1, 20), color: col(st.color, '#ffffff'), box: col(st.box, '#0b1d3a'),
-    boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
+    boxOpacity: num(st.boxOpacity, 0.72, 0, 1), position: pick(st.position, ['top', 'middle', 'bottom'], 'bottom'), lineHeight: num(st.lineHeight, 1.35, 0.8, 3),
     // 방송에 그림 보내는 방식: full 화면 가득 / part 화면 일부(크기·위치) / circle 화면 가득 + 사람 원 / none 보내지 않음
     imgMode: pick(st.imgMode, ['full', 'part', 'circle', 'none'], 'full'), partSize: num(st.partSize, 35, 15, 70),
     partPos: pick(st.partPos, ['tr', 'mr', 'br', 'tl', 'ml', 'bl'], 'tr'),
@@ -119,8 +119,8 @@
     if (!key) return '';
     if (key.startsWith('video:')) {
       const u = mediaUrl(key.slice(6)); if (!u) return '';
-      return still ? `<div class="wc-motion m-video"><video class="wc-bg" src="${esc(u)}#t=1" muted preload="metadata"></video></div>`
-        : `<div class="wc-motion m-video"><video class="wc-bg" src="${esc(u)}" autoplay muted loop playsinline></video></div>`;
+      return still ? `<div class="wc-motion m-video"><video disablepictureinpicture class="wc-bg" src="${esc(u)}#t=1" muted preload="metadata"></video></div>`
+        : `<div class="wc-motion m-video"><video disablepictureinpicture class="wc-bg" src="${esc(u)}" autoplay muted loop playsinline></video></div>`;
     }
     const st = (n, seed, max, dur, cls = '') => `<i class="g-st ${cls}" style="background-image:${stars(n, seed, max)};animation-duration:${dur}s"></i>`;
     const M = {
@@ -138,8 +138,8 @@
   // sound: 소리 켜고 한 번 재생 (예배당 화면에서만 — 미리보기·방송에서는 소리 없이)
   function bgHTML(url, cover = true, sound = false) {
     if (!url) return '';
-    if (isVideo(url) && sound) return `<video class="wc-bg" src="${esc(url)}" autoplay playsinline data-sound="1" style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
-    if (isVideo(url)) return `<video class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
+    if (isVideo(url) && sound) return `<video disablepictureinpicture class="wc-bg" src="${esc(url)}" autoplay playsinline data-sound="1" style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
+    if (isVideo(url)) return `<video disablepictureinpicture class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
     return `<div class="wc-bg" style="background-image:url('${esc(url)}');background-size:${cover ? 'cover' : 'contain'}"></div>`;
   }
 
@@ -238,8 +238,8 @@
   function mediaHTML(url, fit, still) {
     url = mediaUrl(url); if (!url) return '';
     const f = fitOf(url, fit);
-    if (isVideo(url)) return still ? `<video class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}#t=1" muted preload="metadata"></video>`
-      : `<video class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}" autoplay muted loop playsinline></video>`;
+    if (isVideo(url)) return still ? `<video disablepictureinpicture class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}#t=1" muted preload="metadata"></video>`
+      : `<video disablepictureinpicture class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}" autoplay muted loop playsinline></video>`;
     return `<div class="wc-bg wc-media" style="${fitStyle(f)}background-image:url('${esc(url)}')"></div>`;
   }
 
@@ -252,19 +252,21 @@
     let inner = bgHTML(s.bg, s.fit !== 'contain', !!(audio && s.sound));
     // 추가 그림: 배경 위에 따로 얹음 (포스터·사진) — 빼도 배경은 그대로
     const img = mediaUrl(s.img);
-    if (img) inner += isVideo(img) ? `<video class="wc-img" src="${esc(img)}" autoplay muted loop playsinline></video>` : `<div class="wc-img" style="background-image:url('${esc(img)}')"></div>`;
+    if (img) inner += isVideo(img) ? `<video disablepictureinpicture class="wc-img" src="${esc(img)}" autoplay muted loop playsinline></video>` : `<div class="wc-img" style="background-image:url('${esc(img)}')"></div>`;
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
     const ref = s.ref ? `<div class="wc-ref" style="font-size:${(st.size * 0.6).toFixed(2)}cqh;color:${st.refColor}">${esc(s.ref)}</div>` : '';
     const lines = String(s.text || '').split('\n');
+    // 슬라이드마다 글자 색 (✎ 편집·빠른 수정에서 고름) — 정하면 이 슬라이드만 모양(테마)·자막 스타일의 글자 색 대신
+    const sc = /^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : null;
     let body;
     if (st.headline && lines[0].trim()) {
       const rest = lines.slice(1).join('\n').trim();
-      body = `<div class="wc-head" style="color:${st.headColor};font-size:${rest ? 1.2 : 1.3}em">${esc(lines[0])}</div>` +
+      body = `<div class="wc-head" style="color:${sc || st.headColor};font-size:${rest ? 1.2 : 1.3}em">${esc(lines[0])}</div>` +
         (rest ? `<div class="wc-sub" style="font-size:.8em">${esc(rest).replace(/\n/g, '<br>')}</div>` : '');
     } else body = esc(s.text).replace(/\n/g, '<br>');
     return inner + `<div class="wc-textwrap" style="justify-content:${jc};text-align:${st.align}">
-      <div class="wc-text-main" dir="auto" style="font-family:${st.font};font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};
+      <div class="wc-text-main" dir="auto" style="font-family:${st.font};font-size:${st.size}cqh;color:${sc || st.color};font-weight:${st.bold ? 700 : 400};
         line-height:${lhFor(s.text || '', st.lineHeight)};text-shadow:${textShadow(st)};${st.strokeWidth ? `-webkit-text-stroke:${st.strokeWidth / 10}cqh ${st.stroke};paint-order:stroke fill;` : ''}">${body}</div>${ref}</div>`;
   }
 
@@ -336,7 +338,7 @@
     }
     const st = ovStyle(snap);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
-    const pos = st.position === 'top' ? 'top:4cqh' : 'bottom:5cqh';
+    const pos = st.position === 'top' ? 'top:4cqh' : st.position === 'middle' ? 'top:50%;transform:translateY(-50%)' : 'bottom:5cqh';
     return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
       ${title ? `<div class="wc-ov-title" style="font-size:${(st.size * 0.55).toFixed(2)}cqh">${esc(title)}</div>` : ''}
       <div class="wc-ov-text" dir="auto" style="font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};line-height:${lhFor(s.text || '', st.lineHeight)}">${esc(s.text).replace(/\n/g, '<br>')}</div>
@@ -412,7 +414,7 @@
       const top = mediaUrl(L0.mediaTop);
       const on = top && !L0.black && (mode === 'main' ? !L0.tvNoImg : (L0.mediaObs && !L0.overlayOff));
       persist(container, 'wc-mtop', on ? top : '', () => isVideo(top)
-        ? `<div class="wc-mtop-in"><video src="${esc(top)}" autoplay muted loop playsinline></video></div>`
+        ? `<div class="wc-mtop-in"><video disablepictureinpicture src="${esc(top)}" autoplay muted loop playsinline></video></div>`
         : `<div class="wc-mtop-in"><div style="background-image:url('${esc(top)}')"></div></div>`, true, fade);
     }
     {
@@ -421,9 +423,9 @@
       const key = on ? (real ? 'p:' + y.id : 't:' + y.id + ':' + (y.playing ? 1 : 0)) : '';
       const st = mode === 'stage' ? ' st' : '';
       persist(container, 'wc-yt', key, () => real
-        ? (y.file ? `<div class="wc-yt-in${st}"><video class="wc-yt-p wc-yt-v" src="${esc(y.file)}" playsinline preload="auto" muted></video></div>`
+        ? (y.file ? `<div class="wc-yt-in${st}"><video disablepictureinpicture class="wc-yt-p wc-yt-v" src="${esc(y.file)}" playsinline preload="auto" muted></video></div>`
           : `<div class="wc-yt-in${st}"><div class="wc-yt-p"></div></div>`)
-        : y.file ? `<div class="wc-yt-in${st}"><video class="wc-yt-p wc-yt-v" src="${esc(y.file)}#t=${Math.max(0.5, Math.floor(y.pos || 0))}" muted preload="metadata"></video><div class="wc-yt-thumb" style="background:none"><span class="mine">${y.playing ? '▶' : '⏸'} 내 영상</span></div></div>`
+        : y.file ? `<div class="wc-yt-in${st}"><video disablepictureinpicture class="wc-yt-p wc-yt-v" src="${esc(y.file)}#t=${Math.max(0.5, Math.floor(y.pos || 0))}" muted preload="metadata"></video><div class="wc-yt-thumb" style="background:none"><span class="mine">${y.playing ? '▶' : '⏸'} 내 영상</span></div></div>`
         : `<div class="wc-yt-in${st}"><div class="wc-yt-thumb" style="background-image:url('https://i.ytimg.com/vi/${esc(y.id)}/hqdefault.jpg')"><span>${y.playing ? '▶' : '⏸'} YouTube</span></div></div>`, true, fade);
       if (on && real) ytSync(container, snap, mode);
     }
@@ -462,6 +464,7 @@
     const olds = [...container.querySelectorAll(':scope > .wc-layer')];
     const mark = container.querySelector(':scope > .wc-mark');
     container.insertBefore(layer, mark || null);
+    if (mode === 'stage') fitStage(layer);
     const frames = [...layer.querySelectorAll('iframe.wc-hfile')];
     frames.forEach(f => { f._wcPage = fm ? +fm[2] : 0; f.addEventListener('load', () => postPage(f)); });
     if (frames.length) {
@@ -490,6 +493,18 @@
     } else swap();
   }
 
+  // 프롬프터 글자는 크게(12cqh, 처음의 150%) — 가사가 길어 화면을 넘치면 그 슬라이드만 맞을 때까지 줄임 (최소 35%)
+  function fitStage(layer) {
+    const el = layer.querySelector('.wc-st-cur');
+    if (!el || !el.clientHeight) return;
+    el.style.fontSize = '';
+    let px = parseFloat(getComputedStyle(el).fontSize) || 0;
+    const min = px * 0.35;
+    for (let n = 0; n < 40 && px > min && el.scrollHeight > el.clientHeight + 1; n++) { px *= 0.92; el.style.fontSize = px + 'px'; }
+    // 창 크기가 바뀌면(전체화면 등) 다시 맞춤 — 한 번만 등록
+    if (!fitStage._rs) { fitStage._rs = true; let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => document.querySelectorAll('.wc-stage').forEach(s => fitStage(s.closest('.wc-layer') || s)), 150); }); }
+  }
+
   // 썸네일용: 특정 슬라이드를 즉시 렌더 (움직임 멈춤)
   function thumb(container, slide, style, item, still = true) {
     render(container, { slide, style, live: {}, item }, 'main', { fade: false, still });   // 썸네일에는 미디어 배경 없음
@@ -497,18 +512,21 @@
 
   // ── 곡 구성(Arrangement): 슬라이드에 '1절·후렴·브리지' 이름을 붙이고, 부를 순서를 정함 ──
   // 이름 붙은 슬라이드부터 다음 이름 전까지가 한 묶음. 순서(arr)가 없으면 원래 순서 그대로
+  // 숨긴 슬라이드(hidden)는 건너뜀 — lib/store.js 의 seq 와 같아야 함
   function seq(it) {
     const sl = it?.slides || [], arr = (it?.arr || []).filter(Boolean);
-    if (!arr.length || !sl.some(s => s.label)) return sl;
+    const shown = x => x.filter(s => !s?.hidden);
+    if (!arr.length || !sl.some(s => s.label)) return shown(sl);
     const groups = new Map(); let cur = null;   // Map: 이름이 '__proto__' 같아도 안전
     for (const s of sl) { if (s.label) { cur = String(s.label); if (!groups.has(cur)) groups.set(cur, []); } if (cur) groups.get(cur).push(s); }
     const out = arr.flatMap(l => groups.get(String(l)) || []);
-    return out.length ? out : sl;
+    return shown(out.length ? out : sl);
   }
 
   // ── 타이머·무대 메시지·이름 자막: 슬라이드와 따로 위에 얹는 층 (1초마다 숫자만 바뀜) ──
   function timeLeft(snap) {
     const t = snap.live?.timer; if (!t || !t.end) return null;
+    if (t.paused != null) return Math.round(t.paused / 1000);   // ⏸ 멈춤: 남은 시간 그대로
     if (snap.now && !snap._recv) snap._recv = Date.now();
     const now = snap.now ? snap.now + (Date.now() - snap._recv) : Date.now();
     return Math.round((t.end - now) / 1000);
@@ -518,17 +536,20 @@
     return (neg ? '+' : '') + (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
   }
   const timerUp = snap => { const t = snap.live?.timer; return !!(t && t.end && timeLeft(snap) > 0); };
-  const timerOver = snap => snap.live?.timer?.tv === 'over' && timerUp(snap);   // '배경 위에 타이머만': 슬라이드 글자 대신 타이머
+  const timerOver = snap => snap.live?.timer?.tv === 'over' && !snap.live.timer.hidden && timerUp(snap);   // '배경 위에 타이머만': 슬라이드 글자 대신 타이머 (숨기면 슬라이드로)
   function extrasHTML(snap, mode) {
     const L = snap.live || {}, t = L.timer, p = snap.prop, parts = [];
     // 예배당 화면의 타이머는 0이 되면 사라짐 (프롬프터에는 넘긴 시간 +0:05 처럼 계속 보여 설교 시간 관리)
     // '몇 시까지' 타이머는 정시가 되면 프롬프터에서도 사라짐. '몇 분' 타이머는 프롬프터에 넘긴 시간을 계속 보임
-    const shown = ['corner', 'big', 'over'].includes(t?.tv) && timerUp(snap);
+    const shown = ['corner', 'big', 'over'].includes(t?.tv) && !t.hidden && timerUp(snap);   // 숨기면 예배당·유튜브에서 빠짐 (프롬프터에는 보임)
     const timerOn = t && t.end && ((mode === 'stage' && (!t.clock || timeLeft(snap) > 0)) || (mode === 'main' && shown && !L.black)
       || (mode === 'overlay' && shown && t.obs && !L.overlayOff && !L.black));   // 유튜브에도: 예배당 화면과 같은 모양
     if (timerOn) {
       const kind = mode === 'stage' ? 'stage' : t.tv;
-      parts.push(`<div class="wc-tm wc-tm-${kind}">${t.label ? `<div class="wc-tm-l">${esc(t.label)}</div>` : ''}<div class="wc-tm-v"></div></div>`);
+      // 프롬프터에는 멈춤·숨김 상태도 표시
+      const st = mode === 'stage' ? [t.paused != null && T('⏸ 멈춤'), t.hidden && T('숨김')].filter(Boolean).join(' · ') : '';
+      const lab = [t.label, st && `(${st})`].filter(Boolean).join(' ');
+      parts.push(`<div class="wc-tm wc-tm-${kind}${t.paused != null ? ' paused' : ''}">${lab ? `<div class="wc-tm-l">${esc(lab)}</div>` : ''}<div class="wc-tm-v"></div></div>`);
     }
     if (p && p.text && !L.black && ((mode === 'main' && p.where !== 'obs') || (mode === 'overlay' && p.where !== 'tv' && !L.overlayOff))) {
       parts.push(`<div class="wc-prop wc-prop-${p.pos === 'top' ? 'top' : 'bottom'}"><div class="wc-prop-t">${esc(p.text)}</div>${p.sub ? `<div class="wc-prop-s">${esc(p.sub)}</div>` : ''}</div>`);
