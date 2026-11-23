@@ -305,6 +305,17 @@ app.use('/vendor/pdfjs', express.static(path.join(__dirname, 'node_modules', 'pd
   setHeaders: (res, p) => { if (p.endsWith('.mjs')) res.setHeader('Content-Type', 'text/javascript'); },
 }));
 app.use('/fonts', express.static(path.join(__dirname, 'node_modules', '@fontsource'), { maxAge: '7d' }));
+// 내 글꼴: 교회가 가진 글꼴 파일(.ttf·.otf·.woff·.woff2)을 자료 폴더에 두고 모든 화면(예배당·OBS·리모컨)에 내줌
+// (글꼴은 저작권·사용 허락이 있어 프로그램에는 넣지 않음). 이름표는 'WCF <id>' — 글꼴 이름 검사(영문·숫자·한글)를 그대로 통과
+const FONTS_DIR = path.join(store.DATA_DIR, 'fonts');
+fs.mkdirSync(FONTS_DIR, { recursive: true });
+const FONT_EXT = /^\.(ttf|otf|woff2?)$/i;
+const myFonts = () => (Array.isArray(db.settings.fonts) ? db.settings.fonts : (db.settings.fonts = []));
+app.use('/myfonts', express.static(FONTS_DIR, { maxAge: '7d' }));
+app.get('/fonts-mine.css', (req, res) => {
+  res.type('text/css').set('Cache-Control', 'no-cache')
+    .send(myFonts().map(f => `@font-face { font-family: '${f.family}'; src: url('/myfonts/${encodeURIComponent(f.file)}'); font-display: swap; }`).join('\n'));
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 const loginFails = new Map(); // ip -> { n, until }
@@ -337,7 +348,7 @@ app.get('/api/me', (req, res) => res.json({ authed: authed(req), local: isLocal(
 app.get('/api/state', needAuth, (req, res) => {
   res.json({
     items: db.items, services: db.services, currentServiceId: db.currentServiceId, phrases: db.phrases, props: db.props, canControl: canControl(req),
-    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '', themes: db.settings.themes || {}, themeDefaults: db.settings.themeDefaults || {} },
+    style: db.style, settings: isLocal(req) ? db.settings : { logo: db.settings.logo, titleLogo: db.settings.titleLogo || '', themes: db.settings.themes || {}, themeDefaults: db.settings.themeDefaults || {}, fonts: myFonts() },
     bibleVersions: bible.versionNames(), bibleDefault: bible.defaultVersion(), lan: lanAddresses(), host: hostName(), hymnCount: hymns.count(), readingCount: readings.count(), port: PORT, live: snapshot(),
     recovered: isLocal(req) ? store.recoveredInfo() : null,   // 자료 파일이 깨져 보관본으로 되살렸으면 알림
   });
@@ -793,6 +804,28 @@ app.put('/api/bible/folders', needLocal, (req, res) => {
 
 // 미디어
 const mediaExt = /\.(png|jpe?g|gif|webp|bmp|mp4|mov|m4v|webm|mp3|m4a|wav|aac)$/i;
+// 내 글꼴 올리기·지우기 (운영 컴퓨터에서만). 목록은 /api/state 의 settings.fonts
+app.post('/api/fonts', needLocal, upload.array('file', 20), (req, res) => {
+  let added = 0;
+  for (const f of req.files || []) {
+    const ext = path.extname(fname(f)).toLowerCase();
+    if (!FONT_EXT.test(ext)) { fs.unlink(f.path, () => {}); continue; }
+    const id = store.uid(), file = id + ext;
+    fs.renameSync(f.path, path.join(FONTS_DIR, file));
+    const name = path.basename(fname(f), path.extname(fname(f))).normalize('NFC').replace(/[<>"'`\\]/g, '').trim().slice(0, 60) || '내 글꼴';
+    myFonts().push({ id, family: 'WCF ' + id, file, name });
+    added++;
+  }
+  if (!added) return res.status(400).json({ error: '글꼴 파일(.ttf · .otf · .woff · .woff2)이 없습니다' });
+  changed(); res.json({ added, fonts: myFonts() });
+});
+app.delete('/api/fonts/:id', needLocal, (req, res) => {
+  const f = myFonts().find(x => x.id === req.params.id);
+  if (!f) return res.status(404).json({ error: '없음' });
+  db.settings.fonts = myFonts().filter(x => x !== f);
+  fs.rm(path.join(FONTS_DIR, path.basename(f.file)), { force: true }, () => {});
+  changed(); res.json({ ok: true });
+});
 app.get('/api/media', needAuth, (req, res) => {
   const files = fs.readdirSync(MEDIA_DIR).filter(f => mediaExt.test(f) && !f.startsWith('ppt_'))
     .map(f => ({ url: '/media/' + f, name: f, size: fs.statSync(path.join(MEDIA_DIR, f)).size }));

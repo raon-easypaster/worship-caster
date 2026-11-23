@@ -1042,6 +1042,32 @@ async function main() {
     await api('POST', '/api/live', { reset: true });
     noErr();
   });
+  await check('🔤 내 글꼴: 글꼴 파일 올리기 → 목록·@font-face · 자막 스타일에서 고르면 예배당 화면이 그 글꼴 · 글꼴 아닌 파일은 거절 · 지우기', async () => {
+    const before = (await api('GET', '/api/state')).style.main.font;
+    const post = async (name, buf) => { const fd = new FormData(); fd.append('file', new Blob([buf]), name); const r = await fetch(BASE + '/api/fonts', { method: 'POST', headers: { Origin: BASE }, body: fd }); return { status: r.status, j: await r.json() }; };
+    ok((await post('악성.exe', Buffer.from('MZ'))).status === 400, '글꼴 아닌 파일을 받음');
+    const up = await post('우리교회 글꼴.woff2', fs.readFileSync(path.join(ROOT, 'node_modules', '@fontsource', 'jua', 'files', fs.readdirSync(path.join(ROOT, 'node_modules', '@fontsource', 'jua', 'files')).find(f => /korean-400-normal\.woff2$/.test(f)) || 'jua-0-400-normal.woff2')));
+    const f = up.j.fonts?.find(x => x.name === '우리교회 글꼴');
+    ok(up.status === 200 && f && /^WCF [0-9a-f]{12}$/.test(f.family), '글꼴이 안 올라감: ' + JSON.stringify(up));
+    try {
+      const css = await (await fetch(BASE + '/fonts-mine.css')).text();
+      ok(css.includes(`font-family: '${f.family}'`) && (await fetch(BASE + '/myfonts/' + f.file)).status === 200, '@font-face 또는 글꼴 파일이 안 나옴: ' + css.slice(0, 160));
+      await api('PUT', '/api/style', { main: { font: `'${f.family}', sans-serif` } });
+      const it = await api('POST', '/api/items', { type: 'text', title: '글꼴 점검', slides: [{ text: '가나다 글꼴' }], place: true });
+      await api('POST', '/api/live', { itemId: it.id, index: 0 });
+      await c.go(BASE + '/output?nohint', 2000);
+      const r = await c.eval(`document.fonts.ready.then(() => ({ fam: getComputedStyle([...document.querySelectorAll('#screen > .wc-layer .wc-text-main')].pop()).fontFamily, loaded: document.fonts.check("16px '${f.family}'", '가') && [...document.fonts].some(x => x.family.replace(/["']/g, '') === '${f.family}' && x.status === 'loaded') }))`);
+      ok(r.fam.includes(f.family) && r.loaded, '예배당 화면이 내 글꼴로 안 나옴: ' + JSON.stringify(r));
+      await c.go(BASE + '/control', 1500);
+      ok(await c.eval(`allFonts().some(([v, n]) => v.includes(${JSON.stringify(f.family)}) && n.includes('우리교회 글꼴'))`), '자막 스타일 글꼴 목록에 내 글꼴이 없음');
+    } finally {
+      await api('PUT', '/api/style', { main: { font: before } });
+      await api('POST', '/api/live', { reset: true });
+      const d = await fetch(BASE + '/api/fonts/' + f?.id, { method: 'DELETE', headers: { Origin: BASE } });
+      ok(d.status === 200 && !(await api('GET', '/api/state')).settings.fonts?.some(x => x.id === f?.id) && (await fetch(BASE + '/myfonts/' + f?.file)).status === 404, '글꼴 지우기가 안 됨');
+    }
+    noErr();
+  });
   await check('다국어 자막 글꼴 (태국어·미얀마어·베트남어)', async () => {
     const it = await api('POST', '/api/items', { type: 'song', title: '다국어', slides: [{ text: 'พระเจ้า ဘုရား Chúa yêu' }], place: true });
     await api('POST', '/api/live', { itemId: it.id, index: 0 });

@@ -38,6 +38,24 @@
     setTimeout(() => (el.style.opacity = 1), ms);
   }
 
+  // 내 글꼴(교회가 올린 글꼴 파일, 이름표 'WCF <id>'): /fonts-mine.css 를 붙이고,
+  // 처음 보는 내 글꼴이 쓰이면 한 번 다시 불러옴 → 열려 있는 예배당·OBS 화면도 새로고침 없이 새 글꼴이 나옴
+  const seenMy = new Set();
+  function myFontsLink(fresh) {
+    if (typeof document === 'undefined') return;
+    let l = document.getElementById('wc-myfonts');
+    if (!l) { l = document.createElement('link'); l.id = 'wc-myfonts'; l.rel = 'stylesheet'; (document.head || document.documentElement).appendChild(l); fresh = true; }
+    if (fresh) l.href = '/fonts-mine.css?v=' + Date.now();
+  }
+  myFontsLink();
+  function ensureMyFonts(snap) {
+    const found = JSON.stringify([snap.style, snap.themes || CUSTOM]).match(/WCF [0-9a-f]{12}/g) || [];
+    const fresh = found.filter(f => !seenMy.has(f));
+    if (!fresh.length) return;
+    fresh.forEach(f => seenMy.add(f));
+    if (!document.fonts || !fresh.every(f => document.fonts.check(`16px '${f}'`))) myFontsLink(true);
+  }
+
   // 글꼴 (프로그램에 함께 들어 있어 인터넷 없이도 나옴)
   const FONTS = [
     [DEFAULT_FONT, '본고딕 (Noto Sans KR)'],
@@ -391,6 +409,7 @@
   // 페이드 전환 렌더
   function render(container, snap, mode, opts = {}) {
     snap = withThemeBg(snap);
+    ensureMyFonts(snap);
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
     const L0 = snap.live || {};
@@ -674,5 +693,5 @@
     extras(container, snap, mode);
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
+  window.WC = { render, thumb, esc, bcMode, FONTS, reloadMyFonts: () => myFontsLink(true), MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
 })();
