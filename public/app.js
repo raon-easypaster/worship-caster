@@ -1107,6 +1107,15 @@ function openItemEditor(id, focusIndex, preset) {
   });
   body.querySelector('#eSave').onclick = async () => {
     it.title = body.querySelector('#eTitle').value.trim() || it.title;   // 저장할 때 제목 칸을 다시 읽음 (칸만 바뀌고 값이 안 바뀐 경우까지)
+    // 가사를 찾아 넣고 [나누어 슬라이드 만들기]를 안 누른 채 저장하면 빈 곡이 되던 문제 →
+    //   슬라이드가 비어 있으면 가사 칸의 글을 저절로 나눠 넣고, 이미 슬라이드가 있으면 뒤에 붙일지 물음
+    const pasted = it.type !== 'html' && body.querySelector('#ePaste')?.value.trim();
+    const blank = x => !String(x.text || '').trim() && !x.bg && !x.img && !x.html && !x.htmlFile && !(x.elements || []).length;
+    if (pasted) {
+      if (it.slides.every(blank)) await doSplit(false);
+      else if (confirm('가사·글 칸에 아직 슬라이드로 만들지 않은 글이 있습니다.\n슬라이드로 만들어 뒤에 붙일까요?\n(취소하면 이 글은 빼고 저장합니다)')) await doSplit(true);
+    }
+    if (it.slides.every(blank) && it.type !== 'html' && !confirm('슬라이드에 내용이 없습니다. 그래도 저장할까요?\n(가사를 찾았으면 [나누어 슬라이드 만들기]를 누르세요)')) return;
     if (!src && KEEP.has(it.type) && !askDup(it.title)) return;   // 자료실에 똑같은 찬양이 있으면 먼저 알림
     const libOnly = !!it._lib; delete it._lib;   // ＋ 새 곡: 찬양 자료실에만 (예배 순서에는 안 넣음)
     const saved = src ? await api('PUT', '/api/items/' + id, it) : await api('POST', '/api/items', libOnly ? it : { ...it, place: true, after: afterId() });

@@ -810,6 +810,22 @@ async function main() {
     await api('DELETE', '/api/items/' + a.id); await api('DELETE', '/api/items/' + b.id);
     noErr();
   });
+  await check("가사를 찾아 넣고 [나누어 슬라이드 만들기]를 안 누른 채 저장해도 빈 곡이 되지 않음 (저절로 나눔 · 슬라이드가 있으면 뒤에 붙일지 물음)", async () => {
+    c.errors.splice(0);
+    await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
+    await c.eval(`(document.querySelector('#eTitle').value = '안나눔 점검곡', document.querySelector('#ePaste').value = '첫 줄\\n둘째 줄\\n\\n셋째 줄', document.querySelector('#eSave').click(), 1)`); await sleep(1200);
+    let st = await api('GET', '/api/state');
+    const a = st.items.find(i => i.title === '안나눔 점검곡');
+    ok(a && a.slides.length === 2 && a.slides[0].text === '첫 줄\n둘째 줄' && a.slides[1].text === '셋째 줄', '빈 곡으로 저장됨: ' + JSON.stringify(a?.slides));
+    // 슬라이드가 이미 있으면 묻고(확인) 뒤에 붙임
+    await c.eval(`(openItemEditor(${JSON.stringify(a.id)}), 1)`); await sleep(600);
+    await c.eval(`(window._c = window.confirm, window.confirm = () => true, document.querySelector('#ePaste').value = '넷째 줄', document.querySelector('#eSave').click(), 1)`); await sleep(1200);
+    await c.eval(`(window.confirm = window._c, 1)`);
+    st = await api('GET', '/api/state');
+    ok(st.items.find(i => i.id === a.id).slides.map(x => x.text).join('|') === '첫 줄\n둘째 줄|셋째 줄|넷째 줄', '뒤에 붙지 않음: ' + JSON.stringify(st.items.find(i => i.id === a.id).slides));
+    await api('DELETE', '/api/items/' + a.id);
+    noErr();
+  });
   await check('새 찬양: 제목 칸에 보이는 이름으로 저장 (\'새 찬양\'으로 저장되지 않음)', async () => {
     await c.eval(`(closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);
     // 가사 찾기에서 곡을 고를 때처럼 제목 칸만 바꿈 (입력 이벤트 없이)

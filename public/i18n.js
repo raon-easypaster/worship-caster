@@ -195,6 +195,8 @@
     '＋ 빈 문구': '＋ Blank text', '＋ 새 곡': '＋ New song', '새 문구': 'New text', '찬양 자료실에 넣었습니다': 'Added to the song library',
     '빈 편집 창 열기 — 제목과 내용을 직접 적어 예배 순서에 넣기': 'Open a blank editor — type a title and text and add it to the service',
     '빈 편집 창 열기 — 제목과 가사를 직접 적어 찬양 자료실에만 넣기 (예배 순서에는 안 들어감)': 'Open a blank editor — type a title and lyrics and add it to the song library only (not to the service)',
+    '가사·글 칸에 아직 슬라이드로 만들지 않은 글이 있습니다.\n슬라이드로 만들어 뒤에 붙일까요?\n(취소하면 이 글은 빼고 저장합니다)': 'There is text in the lyrics box that has not been made into slides yet.\nMake slides and add them at the end?\n(Cancel saves without this text)',
+    '슬라이드에 내용이 없습니다. 그래도 저장할까요?\n(가사를 찾았으면 [나누어 슬라이드 만들기]를 누르세요)': 'The slides are empty. Save anyway?\n(If you found lyrics, press [Split into slides])',
     '자막 스타일': 'Caption Style', '방송 자막 (OBS)': 'Stream captions (OBS)', '글꼴': 'Font', '글자 크기': 'Text size', '글자 색': 'Text color', '굵게': 'Bold',
     '그림자': 'Shadow', '테두리 두께': 'Outline width', '테두리 색': 'Outline color', '가로 정렬': 'Alignment', '세로 위치': 'Vertical position',
     '화면 비율': 'Aspect ratio', '16:9 (TV·요즘 프로젝터)': '16:9 (TVs, modern projectors)', '4:3 (옛 프로젝터)': '4:3 (older projectors)',
