@@ -870,7 +870,7 @@ app.get('/api/backup', needLocal, (req, res) => {
   zip.file('예배송출-백업.txt', `예배송출 백업 — 가져온 성경·찬송가·교독문이 들어 있을 수 있으니 이 파일은 남에게 나누지 마세요 (${new Date().toLocaleString('ko-KR')})\n⚙︎ 설정 → 백업·복원 → 백업 파일로 되살리기 에서 이 zip 파일을 고르세요.\n`);
   // 가져온 찬송가·교독문 (교회가 가진 파일에서 가져온 것 — 이 컴퓨터 밖에 나누지 않음)
   for (const f of [hymns.FILE, readings.FILE]) if (fs.existsSync(f)) zip.file('data/' + path.basename(f), fs.readFileSync(f));
-  for (const [dir, sub] of [[MEDIA_DIR, 'media'], [SLIDES_DIR, 'slides'], [bible.BIBLE_DIR, 'bible']]) {
+  for (const [dir, sub] of [[MEDIA_DIR, 'media'], [SLIDES_DIR, 'slides'], [bible.BIBLE_DIR, 'bible'], [FONTS_DIR, 'fonts']]) {
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
       const p = path.join(dir, f);
@@ -918,8 +918,21 @@ function cleanRestore(src) {
       bibleFolders: folders,
       themes: cleanThemes(S0.themes),
       themeDefaults: cleanThemeDefaults(S0.themeDefaults, cleanThemes(S0.themes)),
+      fonts: cleanFonts([...myFonts(), ...(Array.isArray(S0.fonts) ? S0.fonts : [])]),
     },
   };
+}
+// 내 글꼴 목록: 이 컴퓨터 것 + 백업 것 (같은 것은 하나만). 글꼴 파일이 실제로 있는 것만
+function cleanFonts(list) {
+  const seen = new Set(), out = [];
+  for (const f of list) {
+    if (!f || typeof f !== 'object' || !/^[a-f0-9]{12}$/.test(f.id) || seen.has(f.id)) continue;
+    const file = String(f.file || '');
+    if (!new RegExp('^' + f.id + '\\.(ttf|otf|woff2?)$', 'i').test(file) || !fs.existsSync(path.join(FONTS_DIR, file))) continue;
+    seen.add(f.id);
+    out.push({ id: f.id, family: 'WCF ' + f.id, file, name: String(f.name || '').normalize('NFC').replace(/[<>"'`\\]/g, '').trim().slice(0, 60) || '내 글꼴' });
+  }
+  return out.slice(0, 200);
 }
 app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
   const tmp = req.file?.path;
@@ -936,13 +949,14 @@ app.post('/api/restore', needLocal, upload.single('file'), async (req, res) => {
     let files = 0;
     for (const [name, f] of Object.entries(zip.files)) {
       if (f.dir) continue;
-      const m = name.match(/^(media|slides|bible)\/([^/\\]+)$/);
+      const m = name.match(/^(media|slides|bible|fonts)\/([^/\\]+)$/);
       if (!m || m[2].startsWith('.')) continue;
       const base = path.basename(m[2]);   // zip 안 경로로 폴더 밖에 쓰는 것 막기
       if (m[1] === 'media' && !mediaExt.test(base)) continue;
       if (m[1] === 'slides' && !/^[a-f0-9]{12}\.html$/.test(base)) continue;
       if (m[1] === 'bible' && !/\.(txt|tsv)$/i.test(base)) continue;
-      const dir = { media: MEDIA_DIR, slides: SLIDES_DIR, bible: bible.BIBLE_DIR }[m[1]];
+      if (m[1] === 'fonts' && !/^[a-f0-9]{12}\.(ttf|otf|woff2?)$/i.test(base)) continue;   // 내 글꼴 (프로그램이 붙인 이름만)
+      const dir = { media: MEDIA_DIR, slides: SLIDES_DIR, bible: bible.BIBLE_DIR, fonts: FONTS_DIR }[m[1]];
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, base), await f.async('nodebuffer'));
       files++;

@@ -291,6 +291,31 @@ async function main() {
     st = await api('GET', '/api/state');
     ok(st.settings.themes.my_testa?.bg === '#3a1f0f' && st.settings.themeDefaults.bible === 'my_testa', '백업에서 내 모양이 안 돌아옴');
   });
+  await check('🔤 내 글꼴도 백업에 들어가고, 지운 뒤 되살리면 글꼴 파일과 목록이 돌아옴 · 이상한 글꼴 항목은 걸러짐', async () => {
+    const woff = fs.readFileSync(path.join(ROOT, 'node_modules', '@fontsource', 'jua', 'files', fs.readdirSync(path.join(ROOT, 'node_modules', '@fontsource', 'jua', 'files')).find(f => /korean-400-normal\.woff2$/.test(f))));
+    const fd = new FormData(); fd.append('file', new Blob([woff]), '백업 점검 글꼴.woff2');
+    const r = await fetch(BASE + '/api/fonts', { method: 'POST', headers: { Origin: BASE }, body: fd }); const j = await r.json();
+    const f = j.fonts?.find(x => x.name === '백업 점검 글꼴'); ok(f, '글꼴이 안 올라감: ' + JSON.stringify(j));
+    const zipBuf = await (await fetch(BASE + '/api/backup')).arrayBuffer();
+    const JSZip = require(path.join(ROOT, 'node_modules', 'jszip'));
+    const z = await JSZip.loadAsync(zipBuf);
+    ok(z.file('fonts/' + f.file), '백업 zip 에 글꼴 파일이 없음');
+    // 이상한 글꼴 항목을 섞은 백업
+    const dbj = JSON.parse(await z.file('db.json').async('string'));
+    dbj.settings.fonts.push({ id: 'zzz', file: '../x.ttf', family: "x'}", name: 'x' }, { id: 'aaaaaaaaaaaa', file: 'aaaaaaaaaaaa.ttf', family: 'WCF aaaaaaaaaaaa', name: '파일 없음' });
+    z.file('db.json', JSON.stringify(dbj)); z.file('fonts/../evil.ttf', 'x');
+    const bad = await z.generateAsync({ type: 'nodebuffer' });
+    await fetch(BASE + '/api/fonts/' + f.id, { method: 'DELETE', headers: { Origin: BASE } });
+    ok(!(await api('GET', '/api/state')).settings.fonts.some(x => x.id === f.id), '지우기가 안 됨');
+    const rf = new FormData(); rf.append('file', new Blob([bad]), 'b.zip'); await api('POST', '/api/restore', rf);
+    const st = await api('GET', '/api/state');
+    const back = st.settings.fonts.find(x => x.id === f.id);
+    ok(back && back.name === '백업 점검 글꼴' && back.family === 'WCF ' + f.id, '되살려도 글꼴 목록이 안 돌아옴: ' + JSON.stringify(st.settings.fonts));
+    ok((await fetch(BASE + '/myfonts/' + f.file)).status === 200, '되살려도 글꼴 파일이 안 돌아옴');
+    ok(!st.settings.fonts.some(x => x.id === 'zzz' || x.id === 'aaaaaaaaaaaa'), '이상한 글꼴 항목이 들어옴: ' + JSON.stringify(st.settings.fonts));
+    ok(!fs.existsSync(path.join(DATA, 'evil.ttf')), '글꼴 폴더 밖에 파일이 써짐');
+    await fetch(BASE + '/api/fonts/' + f.id, { method: 'DELETE', headers: { Origin: BASE } });
+  });
   await check('백업 받기 → 되살리기 (이상한 값은 걸러짐)', async () => {
     const r = await fetch(BASE + '/api/backup'); ok(r.ok, '백업 실패'); const zip = await r.arrayBuffer();
     const fd = new FormData(); fd.append('file', new Blob([zip]), 'b.zip');
