@@ -60,6 +60,8 @@ async function launch(dir, port = 9339) {
       if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails.exception?.description || r.exceptionDetails.text).slice(0, 300));
       return r.result.value;
     },
+    // 화면 크기 바꾸기 (휴대폰·태블릿 점검용). 인자 없이 부르면 처음 크기(1440×900)로
+    viewport(width = 1440, height = 900, mobile = false) { return send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile }); },
     close() { try { ws.close(); } catch {} proc.kill(); },
   };
   return api;

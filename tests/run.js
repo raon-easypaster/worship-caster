@@ -1392,6 +1392,43 @@ async function main() {
     await c.go(BASE + '/remote', 1500);
     ok(await c.eval(`!!document.querySelector('.big') || !!document.querySelector('#pin')`), '리모컨이 안 그려짐'); noErr();
   });
+  await check('리모컨 태블릿 화면: 왼쪽 조작·오른쪽 슬라이드 칸(두 줄) · 누르면 송출 · 숨긴 슬라이드는 리모컨에서도 건너뜀 · 휴대폰은 한 줄 그대로', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '리모컨 점검', slides: [{ text: '가 첫 줄\n가 둘째 줄' }, { text: '나 숨김', hidden: true }, { text: '다 첫 줄\n다 둘째 줄' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0 });
+    try {
+      await c.viewport(1024, 768);
+      await c.go(BASE + '/remote', 1500);
+      const t = await c.eval(`(() => { const ctl = document.querySelector('.ctl').getBoundingClientRect(), pick = document.querySelector('.pick').getBoundingClientRect(), bs = [...document.querySelectorAll('.list.slides button')]; return { side: pick.left >= ctl.right - 1 && Math.abs(pick.top - ctl.top) < 40, n: bs.length, two: getComputedStyle(bs[0].querySelector('.t2')).display !== 'none' && bs[0].querySelector('.t2').textContent === '가 둘째 줄', grid: bs.length > 1 && Math.abs(bs[0].getBoundingClientRect().top - bs[1].getBoundingClientRect().top) < 2 }; })()`);
+      ok(t.side && t.two && t.grid, '태블릿 배치가 아님: ' + JSON.stringify(t));
+      ok(t.n === 2, '숨긴 슬라이드가 리모컨에 나옴: ' + t.n + '칸');
+      await c.eval(`(document.querySelectorAll('.list.slides button')[1].click(), 1)`); await sleep(800);
+      const s = await api('GET', '/api/state');
+      ok(s.live.live.index === 1 && s.live.slide?.text.startsWith('다 첫 줄'), '리모컨 칸을 눌러도 그 슬라이드가 안 나감: ' + JSON.stringify(s.live.live.index));
+      await c.viewport(375, 812, true);
+      await c.go(BASE + '/remote', 1500);
+      const p = await c.eval(`(() => { const ctl = document.querySelector('.ctl').getBoundingClientRect(), pick = document.querySelector('.pick').getBoundingClientRect(), b = document.querySelector('.list.slides button'); return { stacked: pick.top >= ctl.bottom - 1, oneLine: getComputedStyle(b.querySelector('.t2')).display === 'none', noScroll: document.documentElement.scrollWidth <= innerWidth + 1 }; })()`);
+      ok(p.stacked && p.oneLine && p.noScroll, '휴대폰 배치가 바뀜: ' + JSON.stringify(p));
+    } finally { await c.viewport(); await api('POST', '/api/live', { reset: true }); }
+    noErr();
+  });
+  await check('리모컨 [배경] 칸: 미디어 그림·영상이 보이고 누르면 예배당 배경 · 방송에도 켜고 끄기 · 배경 끄기 (영상에 화면 속 화면 없음)', async () => {
+    await api('POST', '/api/live', { mediaBg: null, mediaObs: false });
+    await c.go(BASE + '/remote', 1500);
+    await c.eval(`(document.querySelector('[data-tab=media]').click(), 1)`); await sleep(1500);
+    const r = await c.eval(`({ n: document.querySelectorAll('[data-bg]').length, url: document.querySelector('[data-bg]')?.dataset.bg, pip: [...document.querySelectorAll('.list.media video')].every(v => v.disablePictureInPicture), off: document.querySelector('[data-m=off]').disabled })`);
+    ok(r.n > 0 && r.pip && r.off, '배경 칸이 이상함: ' + JSON.stringify(r));
+    await c.eval(`(document.querySelector('[data-bg]').click(), 1)`); await sleep(900);
+    let s = await api('GET', '/api/state');
+    ok(s.live.live.mediaBg === r.url, '눌러도 배경이 안 나감: ' + s.live.live.mediaBg);
+    ok(await c.eval(`document.querySelector('[data-bg].live')?.dataset.bg === ${JSON.stringify(r.url)} && !document.querySelector('[data-m=off]').disabled`), '나가는 배경 표시가 없음');
+    await c.eval(`(document.querySelector('[data-m=obs]').click(), 1)`); await sleep(800);
+    ok((await api('GET', '/api/state')).live.live.mediaObs === true, '방송에도가 안 켜짐');
+    await c.eval(`(document.querySelector('[data-m=obs]').click(), 1)`); await sleep(800);
+    await c.eval(`(document.querySelector('[data-m=off]').click(), 1)`); await sleep(800);
+    s = await api('GET', '/api/state');
+    ok(!s.live.live.mediaBg && !s.live.live.mediaObs, '배경 끄기·방송에도 끄기가 안 됨: ' + JSON.stringify({ bg: s.live.live.mediaBg, obs: s.live.live.mediaObs }));
+    noErr();
+  });
 
   // ── 자동 업데이트: 가짜 배포(이 컴퓨터 안)에서 받아 확인값 대조 → 자료 폴더에 설치 → 새 버전으로 다시 켜짐 ──
   await check('🔔 자동 업데이트: 안내 창·확인값 틀리면 거절·서명이 틀리면 거절·설치 뒤 새 버전으로 다시 켜짐·자료 그대로·받아 둔 파일이 바뀌면 실행 안 함·서명이 없으면 자동 설치 안 함', async () => {
