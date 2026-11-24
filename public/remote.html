@@ -140,7 +140,7 @@ function draw() {
     </div></div>
     <div class="pick">
     <div class="seg"><button data-tab="slides" class="${tab === 'slides' ? 'on' : ''}">슬라이드</button><button data-tab="items" class="${tab === 'items' ? 'on' : ''}">예배 순서</button><button data-tab="media" class="${tab === 'media' ? 'on' : ''}">배경</button></div>
-    ${tab === 'media' ? `<div class="mbar"><button data-m="off" ${L.mediaBg ? '' : 'disabled'}>■ 배경 끄기</button><button data-m="obs" class="${L.mediaObs ? 'on' : ''}" title="같은 배경을 유튜브(OBS)에도">🎥 방송에도</button></div>
+    ${tab === 'media' ? `<div class="mbar"><button data-m="off" ${L.mediaBg ? '' : 'disabled'}>■ 배경 끄기</button><button data-m="obs" class="${L.mediaObs ? 'on' : ''}" title="같은 배경을 유튜브(OBS)에도">🎥 방송에도</button><button data-m="cam" class="${L.cam ? 'on' : ''}" title="운영 노트북에서 마지막에 고른 카메라를 예배당 화면 배경으로 (방송에는 안 나감)">📷 카메라</button></div>
     <div class="list media">${media == null ? '<p class="msg">불러오는 중…</p>' : media.map(f => `<button data-bg="${esc(f.url)}" class="${f.url === L.mediaBg ? 'live' : ''}">${isVid(f.url)
       ? `<video disablepictureinpicture class="th" src="${esc(f.url)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img class="th" src="${esc(f.url)}" loading="lazy" alt="">`}<span class="nm">${esc(decodeURIComponent(f.name))}</span></button>`).join('') || '<p class="msg">미디어 파일이 없습니다. 운영 노트북의 🖼 미디어에서 올리세요</p>'}</div></div>` : `
     <div class="list ${tab === 'slides' ? 'slides' : 'items'}">${tab === 'slides'
@@ -158,7 +158,7 @@ function draw() {
   $('#app').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; if (tab === 'media') loadMedia(); draw(); });
   // 배경: 누르면 예배당 화면 배경으로 (슬라이드는 그대로) · 끄기 · 방송에도
   $('#app').querySelectorAll('[data-bg]').forEach(b => b.onclick = () => go({ mediaBg: b.dataset.bg }));
-  $('#app').querySelectorAll('[data-m]').forEach(b => b.onclick = () => go(b.dataset.m === 'off' ? { mediaBg: null } : { mediaObs: !L.mediaObs }));
+  $('#app').querySelectorAll('[data-m]').forEach(b => b.onclick = () => go(b.dataset.m === 'off' ? { mediaBg: null } : b.dataset.m === 'cam' ? { cam: !L.cam } : { mediaObs: !L.mediaObs }));
   $('#app').querySelectorAll('[data-i]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.i }));
   $('#app').querySelectorAll('[data-sec]').forEach(b => b.onclick = () => go({ itemId: L.itemId, index: +b.dataset.sec }));
   $('#app').querySelectorAll('[data-item]').forEach(b => b.onclick = () => { tab = 'slides'; go({ itemId: b.dataset.item }); });

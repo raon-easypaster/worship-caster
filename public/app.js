@@ -2013,6 +2013,40 @@ function markMediaLive() {
   $('#mbObs').classList.toggle('on', obs);
   $('#mbObs').textContent = obs ? '🎥 방송에도 나가는 중' : '🎥 방송에도';
   $('#mbFit').value = snap.live.mediaFit || 'auto';
+  const cam = snap.live.cam;
+  $('#mbCam').classList.toggle('on', !!cam);
+  $('#mbCam').textContent = cam ? '📷 카메라 켜짐' : '📷 카메라';
+}
+// 📷 카메라를 예배당 화면 배경으로: 장치 고르기 · 자막 모양(큰 글자 / 방송 자막처럼) · 켜기·끄기
+async function openCamDlg() {
+  const c = snap?.live?.cam, saved = c || S.settings.cam || {};
+  const body = openDlg(`
+    <div class="dlg-head"><h3>📷 카메라를 예배당 화면에</h3><button class="icon" data-x>✕</button></div>
+    <p class="muted small" style="margin-top:0">PTZ 카메라(캡처 장치)·웹캠 영상을 예배당 화면 배경으로 깔고 그 위에 자막을 얹습니다. 방송(OBS)에는 보내지 않습니다.</p>
+    <div class="form">
+      <label>카메라</label><select id="camDev"><option value="">찾는 중…</option></select>
+      <label>자막 모양</label><select id="camBar"><option value="0">예배당 화면 그대로 (큰 글자)</option><option value="1" ${saved.bar ? 'selected' : ''}>방송 자막처럼 (아래 바)</option></select>
+    </div>
+    <p class="small" id="camNote" style="color:var(--live);min-height:1.2em"></p>
+    <p class="muted small">카메라가 목록에 없으면: HDMI·SDI 카메라는 USB 캡처 장치로, NDI 카메라는 NDI 웹캠 프로그램으로 노트북에 '웹캠'처럼 연결해야 합니다. OBS가 같은 카메라를 쓰고 있으면 열리지 않습니다 → OBS에서 <b>가상 카메라 ⚙️ → 출력 유형 '소스' → 카메라 소스</b>를 고르고 <b>가상 카메라 시작</b>, 여기서 <b>OBS Virtual Camera</b>를 고르세요. ('프로그램'으로 두면 OBS 자막까지 와서 자막이 두 번 보입니다)</p>
+    <div class="dlg-foot">${c ? '<button class="btn" id="camOff">카메라 끄기</button>' : ''}<button class="btn" data-x>닫기</button><button class="btn primary" id="camGo">${c ? '바꾸기' : '켜기'}</button></div>`);
+  body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
+  const sel = body.querySelector('#camDev'), note = body.querySelector('#camNote');
+  // 카메라 이름을 보려면 한 번 허락이 필요 → 잠깐 열었다가 바로 닫음 (예배당 화면도 같은 허락을 씀)
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('이 브라우저는 카메라를 쓸 수 없습니다');
+    try { const st = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); st.getTracks().forEach(t => t.stop()); }
+    catch (e) { if (e.name === 'NotAllowedError') throw new Error('카메라 사용 허락이 필요합니다 — 브라우저에 뜬 허락 창에서 [허용]을 누르세요'); if (e.name === 'NotReadableError') note.textContent = '지금 다른 프로그램(OBS 등)이 카메라를 쓰고 있을 수 있습니다'; }
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    if (!cams.length) throw new Error('연결된 카메라가 없습니다');
+    sel.innerHTML = cams.map((d, i) => `<option value="${esc(d.deviceId)}" data-label="${esc(d.label)}" ${(d.deviceId === saved.deviceId || (saved.label && d.label === saved.label)) ? 'selected' : ''}>${esc(d.label || '카메라 ' + (i + 1))}</option>`).join('');
+  } catch (e) { sel.innerHTML = '<option value="">카메라 없음</option>'; note.textContent = e.message; }
+  body.querySelector('#camGo').onclick = async () => {
+    const o = sel.selectedOptions[0];
+    if (!o || !o.value) return toast('카메라를 고르세요');
+    try { await goLive({ cam: { deviceId: o.value, label: o.dataset.label || '', bar: body.querySelector('#camBar').value === '1' } }); closeDlg(); toast('예배당 화면에 카메라를 깔았습니다 (방송에는 안 나감)'); } catch {}
+  };
+  body.querySelector('#camOff')?.addEventListener('click', async () => { try { await goLive({ cam: false }); closeDlg(); toast('카메라를 껐습니다'); } catch {} });
 }
 function initMediaBin() {
   if (IS_EDITOR) return;
@@ -2040,6 +2074,7 @@ function initMediaBin() {
   $('#mbOff').onclick = () => goLive({ mediaBg: null });
   $('#mbTopOff').onclick = () => goLive({ mediaTop: null });
   $('#mbObs').onclick = () => goLive({ mediaObs: !snap?.live?.mediaObs }).catch(() => {});
+  $('#mbCam').onclick = () => openCamDlg();
   // 맞춤은 파일마다 기억 (로고는 '작게', 영상은 '자동' 처럼) — 이 컴퓨터에 저장
   $('#mbFit').onchange = e => {
     const cur = snap?.live?.mediaBg;

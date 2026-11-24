@@ -156,3 +156,9 @@
 /* 내 영상(파일) — 유튜브 영상과 같은 자리 */
 .wc-yt-v { object-fit: contain; background: #000; }
 .wc-yt-thumb span.mine { background: rgba(47,109,246,.92); }
+
+/* 📷 카메라 배경 (예배당 화면) — 진짜 화면은 영상, 미리보기·썸네일은 '카메라' 표시 */
+.wc-cam video.wc-camv { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.wc-cam .wc-cam-err { position: absolute; left: 3cqw; right: 3cqw; top: 3cqh; color: #ffb4b4; font: 600 2.6cqh/1.4 'Noto Sans KR', sans-serif; text-shadow: 0 .2cqh .6cqh #000; }
+.wc-cam-ph { position: absolute; inset: 0; background: linear-gradient(135deg, #1b2a3a, #0c1118); display: flex; align-items: flex-start; justify-content: flex-start; }
+.wc-cam-ph span { margin: 3cqh 3cqw; padding: .4cqh 1.6cqw; border-radius: 1cqh; background: rgba(229,56,59,.85); color: #fff; font: 700 3.4cqh/1.4 'Noto Sans KR', sans-serif; }

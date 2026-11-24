@@ -1496,6 +1496,43 @@ async function main() {
     ok(!s.live.live.mediaBg && !s.live.live.mediaObs, '배경 끄기·방송에도 끄기가 안 됨: ' + JSON.stringify({ bg: s.live.live.mediaBg, obs: s.live.live.mediaObs }));
     noErr();
   });
+  await check('📷 카메라 배경: 운영 화면에서 카메라 고르고 켜기 → 예배당 화면(/output)에만 카메라 영상 · 방송 자막처럼(아래 바) · 미리보기는 표시만 · OBS 에는 안 나감 · 리모컨으로 끄고 켜기', async () => {
+    const it = await api('POST', '/api/items', { type: 'text', title: '카메라 점검', slides: [{ text: '카메라 위 자막' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0, cam: false });
+    try {
+      await openControl();
+      await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#mbCam').click(), 1)`); await sleep(1500);
+      const d = await c.eval(`({ n: document.querySelectorAll('#camDev option[value]:not([value=""])').length, note: document.querySelector('#camNote')?.textContent })`);
+      ok(d.n > 0, '카메라 목록이 비었음: ' + JSON.stringify(d));
+      await c.eval(`(document.querySelector('#camBar').value = '1', document.querySelector('#camGo').click(), 1)`); await sleep(900);
+      let st = await api('GET', '/api/state');
+      const why = st.live.live.cam ? '' : JSON.stringify(await c.eval(`({ inactive, toast: [...document.querySelectorAll('.toast, #toast, [class*=toast]')].map(x => x.textContent).join('|'), dlg: !!document.querySelector('#dlg')?.open, sel: document.querySelector('#camDev')?.value?.slice(0, 8) })`));
+      ok(st.live.live.cam?.on && st.live.live.cam.bar && st.live.live.cam.deviceId && st.settings.cam?.deviceId === st.live.live.cam.deviceId, '카메라가 안 켜지거나 기억 안 됨: ' + JSON.stringify(st.live.live.cam) + ' ' + why);
+      ok(await c.eval(`!!document.querySelector('#pvMain .wc-cam-ph') && !document.querySelector('#pvMain video.wc-camv') && document.querySelector('#mbCam').classList.contains('on')`), '운영 화면 미리보기가 카메라를 열었거나 켜짐 표시가 없음');
+      await c.go(BASE + '/output?nohint', 2500);
+      let o;
+      for (let i = 0; i < 10; i++) { o = await c.eval(`(() => { const v = document.querySelector('.wc-cam video.wc-camv'); return { live: !!(v && v.srcObject && v.srcObject.getVideoTracks().some(t => t.readyState === 'live')), w: v?.videoWidth || 0, err: document.querySelector('.wc-cam-err')?.textContent || '', bar: !!document.querySelector('#screen > .wc-layer .wc-ov'), big: !!document.querySelector('#screen > .wc-layer .wc-text-main') }; })()`); if (o.live && o.w) break; await sleep(500); }
+      ok(o.live && o.w > 0 && !o.err, '예배당 화면에 카메라 영상이 안 나옴: ' + JSON.stringify(o));
+      ok(o.bar && !o.big, '방송 자막처럼(아래 바)이 아님: ' + JSON.stringify(o));
+      await c.go(BASE + '/overlay', 1500);
+      ok(!(await c.eval(`!!document.querySelector('.wc-cam')`)), 'OBS 화면에 카메라가 나감');
+      // 리모컨: 끄기 → 켜기(마지막 카메라)
+      await api('POST', '/api/live', { cam: false });
+      ok(!(await api('GET', '/api/state')).live.live.cam, '카메라가 안 꺼짐');
+      await api('PUT', '/api/settings', { remote: true });
+      await c.go(BASE + '/remote', 1500);
+      await c.eval(`(document.querySelector('[data-tab=media]').click(), 1)`); await sleep(1200);
+      await c.eval(`(document.querySelector('[data-m=cam]').click(), 1)`); await sleep(900);
+      st = await api('GET', '/api/state');
+      ok(st.live.live.cam?.on && st.live.live.cam.deviceId === st.settings.cam.deviceId, '리모컨에서 마지막 카메라로 안 켜짐: ' + JSON.stringify(st.live.live.cam));
+      await api('POST', '/api/live', { cam: { ...st.settings.cam, bar: false } });
+      await c.go(BASE + '/output?nohint', 2000);
+      ok(await c.eval(`!!document.querySelector('#screen > .wc-layer .wc-text-main') && !document.querySelector('#screen > .wc-layer .wc-ov')`), '큰 글자 모양으로 안 바뀜');
+      await api('POST', '/api/live', { cam: false }); await sleep(900);
+      ok(!(await c.eval(`!!document.querySelector('#screen > .wc-cam')`)), '끈 뒤에도 예배당 화면에 카메라가 남음');
+    } finally { await api('POST', '/api/live', { cam: false, reset: true }); }
+    noErr();
+  });
 
   // ── 자동 업데이트: 가짜 배포(이 컴퓨터 안)에서 받아 확인값 대조 → 자료 폴더에 설치 → 새 버전으로 다시 켜짐 ──
   await check('🔔 자동 업데이트: 안내 창·확인값 틀리면 거절·서명이 틀리면 거절·설치 뒤 새 버전으로 다시 켜짐·자료 그대로·받아 둔 파일이 바뀌면 실행 안 함·서명이 없으면 자동 설치 안 함', async () => {
