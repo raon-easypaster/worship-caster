@@ -418,6 +418,7 @@ function renderLive() {
   const L = snap.live;
   for (const k of ['black', 'clear', 'logo', 'overlayOff']) $('#' + k).classList.toggle('on', !!L[k]);
   $('#pip').classList.toggle('on', !!L.camOnly);
+  $('#obsMain').classList.toggle('on', !!L.obsMain);
   $('#tvNoImg').classList.toggle('on', !!L.tvNoImg);
   $('#motionOn').classList.toggle('on', snap.style.main.motionOn !== false);
   $('#szMain').textContent = Math.round(+snap.style.main.size / 6.2 * 100) + '%';
@@ -493,6 +494,7 @@ function connectWS() {
     if (m.type === 'data') reload().catch(() => {});
     if (m.type === 'focus') { window.focus(); toast('예배송출 운영 화면입니다'); }
     if (m.type === 'obs') { obsInfo = m; document.dispatchEvent(new Event('obsinfo')); }
+    if (m.type === 'camErr') { toast('📹 ' + m.msg); clearTimeout($('#toast')._h); $('#toast')._h = setTimeout(() => $('#toast').classList.remove('show'), 9000); }
     if (m.type === 'audioBlocked') toast('🔊 예배당 화면 창이 소리를 막았습니다 — TV 창을 한 번 클릭(또는 F 키)한 뒤 다시 띄우세요');
     if (m.type === 'dup' || m.type === 'replaced') showWindowNotice(m.type);
     if (m.type === 'raiseHint') { toast('독 아이콘으로 이 창을 앞으로 가져오려면: 맥 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → 예배송출 켜기'); clearTimeout($('#toast')._h); $('#toast')._h = setTimeout(() => $('#toast').classList.remove('show'), 9000); }
@@ -2022,6 +2024,69 @@ function markMediaLive() {
   $('#mbObs').classList.toggle('on', obs);
   $('#mbObs').textContent = obs ? '🎥 방송에도 나가는 중' : '🎥 방송에도';
   $('#mbFit').value = snap.live.mediaFit || 'auto';
+  const cam = snap.live.cam;
+  $('#camBtn').classList.toggle('on', !!cam);
+  $('#camBtn').textContent = cam ? (cam.mode === 'bg' ? '📹 OBS 화면: 배경' : '📹 OBS 화면: 화면 가득') : '📹 OBS 화면';
+}
+
+// ── 📹 OBS 화면을 예배당 화면에: OBS [가상 카메라 시작] → 예배당 창이 그 화면을 카메라처럼 받아 띄움 ──
+const camMem = () => { try { return JSON.parse(localStorage.getItem('wc-cam') || '{}'); } catch { return {}; } };
+async function camDevices() {
+  const md = navigator.mediaDevices;
+  if (!md?.getUserMedia) throw new Error('이 창에서는 카메라를 쓸 수 없습니다');
+  let ds = (await md.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  if (!ds.some(d => d.label)) {   // 처음 한 번: 카메라 사용 허용을 받아야 이름이 보임
+    (await md.getUserMedia({ video: true, audio: false })).getTracks().forEach(t => t.stop());
+    ds = (await md.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  }
+  return ds;
+}
+async function openCam() {
+  const cur = snap?.live?.cam, mem = camMem();
+  const body = openDlg(`<h3>📹 OBS 화면을 예배당 화면에</h3>
+    <p class="muted small">OBS 오른쪽 아래 <b>[가상 카메라 시작]</b>을 먼저 누르세요. 그러면 예배당 화면이 OBS 화면을 카메라처럼 받아 띄웁니다.<br>
+    처음 한 번은 카메라 사용을 묻습니다 → <b>허용</b>.</p>
+    <label class="small">받을 화면</label>
+    <div class="row"><select id="camDev" style="flex:1;min-width:0"><option value="">찾는 중…</option></select><button class="btn sm" id="camRe" title="다시 찾기">↻</button></div>
+    <p id="camMsg" class="small muted"></p>
+    <label class="small">모양</label>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <label><input type="radio" name="camMode" value="top"> <b>화면 가득</b> — 슬라이드 대신 OBS 화면만 (다시 끄면 슬라이드로)</label>
+      <label><input type="radio" name="camMode" value="bg"> <b>배경으로</b> — OBS 화면을 깔고 그 위에 가사·글자</label>
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      ${cur ? '<button class="btn danger" id="camOff">⏹ 끄기</button>' : ''}<div class="grow"></div>
+      <button class="btn" id="camClose">닫기</button><button class="btn primary" id="camGo">${cur ? '바꾸기' : '▶ 띄우기'}</button>
+    </div>`);
+  const sel = body.querySelector('#camDev'), msg = body.querySelector('#camMsg');
+  const mode = cur?.mode || mem.mode || 'top';
+  body.querySelector(`[name=camMode][value=${mode}]`).checked = true;
+  const fill = async () => {
+    sel.innerHTML = '<option value="">찾는 중…</option>'; msg.textContent = '';
+    try {
+      const ds = await camDevices();
+      if (!ds.length) { sel.innerHTML = '<option value="">카메라가 없습니다</option>'; msg.textContent = 'OBS에서 [가상 카메라 시작]을 누른 뒤 ↻ 를 누르세요.'; return; }
+      sel.innerHTML = ds.map(d => `<option value="${esc(d.deviceId)}">${esc(d.label || '카메라')}</option>`).join('');
+      const want = ds.find(d => cur && d.deviceId === cur.dev) || ds.find(d => cur && d.label === cur.label) || ds.find(d => mem.label && d.label === mem.label) || ds.find(d => /obs/i.test(d.label));
+      if (want) sel.value = want.deviceId;
+      if (!ds.some(d => /obs/i.test(d.label))) msg.textContent = 'OBS 가상 카메라가 목록에 없습니다. OBS에서 [가상 카메라 시작]을 누른 뒤 ↻ 를 누르세요. (다른 카메라를 골라도 됩니다)';
+    } catch (e) {
+      sel.innerHTML = '<option value="">—</option>';
+      msg.textContent = e && e.name === 'NotAllowedError' ? '카메라 사용이 막혀 있습니다. 창 주소 왼쪽 자물쇠(또는 맥 시스템 설정 → 개인정보 보호 및 보안 → 카메라)에서 허용한 뒤 ↻ 를 누르세요.' : '카메라 목록을 못 읽었습니다: ' + ((e && e.message) || e);
+    }
+  };
+  body.querySelector('#camRe').onclick = fill;
+  body.querySelector('#camClose').onclick = closeDlg;
+  if (cur) body.querySelector('#camOff').onclick = async () => { await goLive({ cam: null }).catch(() => {}); closeDlg(); toast('OBS 화면을 껐습니다'); };
+  body.querySelector('#camGo').onclick = async () => {
+    const o = sel.selectedOptions[0];
+    if (!o || !o.value) { msg.textContent = '받을 화면을 고르세요.'; return; }
+    const m = body.querySelector('[name=camMode]:checked').value, label = o.textContent;
+    try { localStorage.setItem('wc-cam', JSON.stringify({ mode: m, label })); } catch {}
+    await goLive({ cam: { mode: m, dev: o.value, label } }).catch(() => {});
+    closeDlg(); toast(m === 'bg' ? '예배당 화면에 OBS 화면을 배경으로 깔았습니다' : '예배당 화면에 OBS 화면을 띄웠습니다 — 다시 눌러 끄기');
+  };
+  fill();
 }
 function initMediaBin() {
   if (IS_EDITOR) return;
@@ -2049,6 +2114,7 @@ function initMediaBin() {
   $('#mbOff').onclick = () => goLive({ mediaBg: null });
   $('#mbTopOff').onclick = () => goLive({ mediaTop: null });
   $('#mbObs').onclick = () => goLive({ mediaObs: !snap?.live?.mediaObs }).catch(() => {});
+  $('#camBtn').onclick = () => openCam();
   // 맞춤은 파일마다 기억 (로고는 '작게', 영상은 '자동' 처럼) — 이 컴퓨터에 저장
   $('#mbFit').onchange = e => {
     const cur = snap?.live?.mediaBg;
@@ -2524,6 +2590,7 @@ function bind() {
   $('#logo').onclick = () => goLive({ logo: !snap.live.logo });
   $('#reset').onclick = () => goLive({ reset: true });
   $('#overlayOff').onclick = () => goLive({ overlayOff: !snap.live.overlayOff });
+  $('#obsMain').onclick = () => goLive({ obsMain: !snap.live.obsMain }).then(() => toast(snap.live.obsMain ? '유튜브(OBS)에도 예배당 화면과 똑같이 나갑니다' : '유튜브(OBS)는 다시 자막 바로 나갑니다')).catch(() => {});
   // 👤 사람 화면(P): 유튜브에는 그림 대신 사람(카메라) 화면만. 예배당 TV는 그대로
   $('#pip').onclick = () => { const on = !snap.live.camOnly; goLive({ camOnly: on }).catch(() => {}); toast(on ? '유튜브에는 사람(카메라) 화면만 나갑니다 — 그림은 예배당 TV에만' : '유튜브에 그림도 다시 나갑니다'); };
   $('#tvNoImg').onclick = () => { const on = !snap.live.tvNoImg; goLive({ tvNoImg: on }).catch(() => {}); toast(on ? '예배당 TV에 그림을 내보내지 않습니다 (글자는 그대로)' : '예배당 TV에 그림도 다시 나갑니다'); };

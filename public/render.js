@@ -257,7 +257,7 @@
   // 이 슬라이드 뒤에 깔 움직이는 배경 (그림·PPT·HTML 슬라이드에는 깔지 않음)
   function motionKey(snap, st) {
     const L = snap.live || {}, s = snap.slide, main = snap.style.main || {};
-    if (L.black || !s || s.bg || s._bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
+    if (L.black || !s || s.bg || s._bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg) || camBg(L)) return '';
     const iv = mediaUrl(snap.item?.motionVideo);   // 이 찬양에 저장해 둔 배경 영상이 먼저
     if (iv) return 'video:' + iv;
     const t = themeOf(snap);
@@ -340,11 +340,11 @@
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
       // 띄운 슬라이드가 없거나 '배경 위에 로고만'이면 미디어 배경이 보이게 (검은 화면을 켠 때만 가림)
-      const see = !L.black && mediaUrl(L.mediaBg);
+      const see = !L.black && (mediaUrl(L.mediaBg) || camBg(L));
       return `<div class="wc-layer" style="background:${see ? 'transparent' : '#000'}">${logo}</div>`;
     }
     const mk = motionKey(snap, st);
-    const under = mk || s._bg || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
+    const under = mk || s._bg || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s)) || (camBg(L) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
     const bg = under ? 'transparent' : L.clear ? '#000' : col(s.bgColor, st.bg);   // 글자 지움·모두 끄기는 검정 (악보·밝은 테마의 흰 바탕이 남지 않게)
     return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
@@ -433,6 +433,58 @@
     if (fade) { el.style.opacity = 0; el.style.transition = 'opacity .7s'; fadeIn(el, 750); }
   }
 
+  // ── 📹 OBS 화면을 예배당 화면에: OBS [가상 카메라 시작]을 카메라처럼 받아 띄움 ──
+  //   top: 화면 가득(슬라이드 위) · bg: 배경으로 깔고 가사는 그 위에. 실제 예배당 창에서만 카메라를 열고, 운영 화면 미리보기는 그림 표시만
+  const camOn = L => !!(L && L.cam && !L.black && (L.cam.mode === 'top' || L.cam.mode === 'bg'));
+  const camBg = L => camOn(L) && L.cam.mode === 'bg';
+  const obsAsMain = snap => { const L = snap.live || {}; return !!L.obsMain && !L.overlayOff && !snap.item?.noBroadcast; };
+  const CAM = { stream: null, key: '', p: null, want: '' };
+  function camStop() { if (CAM.stream) CAM.stream.getTracks().forEach(t => t.stop()); CAM.stream = null; CAM.key = ''; }
+  async function camOpen(c) {
+    const md = navigator.mediaDevices;
+    if (!md?.getUserMedia) throw new Error('이 화면에서는 카메라를 쓸 수 없습니다');
+    const get = id => md.getUserMedia({ audio: false, video: { ...(id ? { deviceId: { exact: id } } : {}), width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } });
+    const find = async () => {
+      const ds = (await md.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      return { ds, d: ds.find(d => c.dev && d.deviceId === c.dev) || ds.find(d => c.label && d.label === c.label) || (!c.dev && !c.label ? ds.find(d => /obs/i.test(d.label)) : null) };
+    };
+    let f = await find();
+    if (!f.d && !f.ds.some(d => d.label)) { (await get()).getTracks().forEach(t => t.stop()); f = await find(); }   // 허용 전에는 이름이 안 보여 한 번 열어 허용받음
+    if (!f.d) throw new Error((c.label || 'OBS 가상 카메라') + '를 찾지 못했습니다 — OBS에서 [가상 카메라 시작]을 눌렀는지 보세요');
+    return get(f.d.deviceId);
+  }
+  function camLayer(container, L, opts, fade) {
+    const on = camOn(L), real = !!window.WC_YT_PLAYER && !opts.still && !opts.obs;
+    const key = on && !opts.obs ? L.cam.mode + '|' + (real ? 'r' : 'p') : '';
+    persist(container, 'wc-cam', key, () => real
+      ? '<video class="wc-cam-v" autoplay muted playsinline disablepictureinpicture></video>'
+      : '<div class="wc-cam-ph"><span>📹 OBS 화면</span></div>', on && L.cam.mode === 'top', fade);
+    const el = container.querySelector(':scope > .wc-cam');
+    if (el && L.cam.mode === 'bg') {   // 배경: 미디어 배경 위, 슬라이드 배경·글자 아래
+      const at = container.querySelector(':scope > .wc-sbg, :scope > .wc-layer');
+      if (at) { if (el.nextElementSibling !== at) container.insertBefore(el, at); }
+      else container.insertBefore(el, container.querySelector(':scope > .wc-mtop, :scope > .wc-yt, :scope > .wc-mark'));
+    }
+    if (!real) return;
+    const want = on ? (L.cam.dev || '') + '|' + (L.cam.label || '') : '';
+    CAM.want = want;
+    if (!want) return camStop();
+    const v = el && el.querySelector('video');
+    const attach = () => { if (v && CAM.stream && v.srcObject !== CAM.stream) { v.srcObject = CAM.stream; v.play().catch(() => {}); } };
+    if (CAM.stream && CAM.key === want && CAM.stream.active) return attach();
+    if (CAM.p && CAM.pk === want) return void CAM.p.then(attach);
+    camStop();
+    CAM.pk = want;
+    CAM.p = camOpen(L.cam).then(s => {
+      if (CAM.want !== want) { s.getTracks().forEach(t => t.stop()); return; }   // 그사이 껐거나 바꿈
+      CAM.stream = s; CAM.key = want;
+      const cur = container.querySelector(':scope > .wc-cam video');
+      if (cur) { cur.srcObject = s; cur.play().catch(() => {}); }
+    }).catch(e => {
+      if (window.WC_report) window.WC_report({ type: 'camErr', msg: String(e && e.name === 'NotAllowedError' ? '예배당 화면 창에서 카메라 사용이 막혀 있습니다 — 그 창 주소 왼쪽(또는 맥 시스템 설정 → 개인정보 보호 → 카메라)에서 허용해 주세요' : (e && e.message) || e).slice(0, 300) });
+    }).finally(() => { if (CAM.pk === want) { CAM.p = null; CAM.pk = ''; } });
+  }
+
   // 예배당 화면: 슬라이드 배경을 슬라이드 층에서 떼어 냄 (소리 내는 영상·그림만 있는 슬라이드를 TV에서 끈 때는 그대로)
   //   떼어 내는 것: 글자 뒤 배경, 영상 배경, 지금 깔린 것과 같은 배경. 그림만 있는 슬라이드(악보·PPT 그림·사진)는 장마다 그림이 달라 그대로 둠
   function liftBg(snap, container) {
@@ -447,13 +499,16 @@
 
   // 페이드 전환 렌더
   function render(container, snap, mode, opts = {}) {
+    // 📺 방송도 예배당처럼: OBS(방송 자막) 화면도 예배당 화면과 똑같이 그림 (자막 바 대신 화면 가득)
+    if (mode === 'overlay' && obsAsMain(snap)) { mode = 'main'; opts = { ...opts, obs: true, audio: false }; }
+    const xm = opts.obs ? 'overlay' : mode;   // 이름 자막·타이머·유튜브 영상은 방송 설정 그대로
     snap = withThemeBg(snap);
     ensureMyFonts(snap);
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
     const L0 = snap.live || {};
     // 예배당 화면 비율: 4:3 프로젝터면 화면 틀을 4:3 으로 (방송·프롬프터는 늘 16:9)
-    if (mode === 'main' && snap.style) container.dataset.ar = snap.style.main?.aspect === '4:3' ? '43' : '';
+    if (mode === 'main' && snap.style) container.dataset.ar = !opts.obs && snap.style.main?.aspect === '4:3' ? '43' : '';
     if (mode === 'main' || mode === 'overlay') {
       // 미디어 배경: 예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만 (검은 화면·방송 자막 끄기면 안 나감)
       const url = mediaUrl(L0.mediaBg);
@@ -477,7 +532,7 @@
     }
     {
       // 유튜브 영상: 예배당 화면·방송·프롬프터 맨 위에 (운영 화면 미리보기는 그림만)
-      const y = L0.yt, on = ytShown(L0, mode), real = !!window.WC_YT_PLAYER && !opts.still;
+      const y = L0.yt, on = ytShown(L0, xm), real = !!window.WC_YT_PLAYER && !opts.still;
       const key = on ? (real ? 'p:' + y.id : 't:' + y.id + ':' + (y.playing ? 1 : 0)) : '';
       const st = mode === 'stage' ? ' st' : '';
       persist(container, 'wc-yt', key, () => real
@@ -485,7 +540,7 @@
           : `<div class="wc-yt-in${st}"><div class="wc-yt-p"></div></div>`)
         : y.file ? `<div class="wc-yt-in${st}"><video disablepictureinpicture class="wc-yt-p wc-yt-v" src="${esc(y.file)}#t=${Math.max(0.5, Math.floor(y.pos || 0))}" muted preload="metadata"></video><div class="wc-yt-thumb" style="background:none"><span class="mine">${y.playing ? '▶' : '⏸'} 내 영상</span></div></div>`
         : `<div class="wc-yt-in${st}"><div class="wc-yt-thumb" style="background-image:url('https://i.ytimg.com/vi/${esc(y.id)}/hqdefault.jpg')"><span>${y.playing ? '▶' : '⏸'} YouTube</span></div></div>`, true, fade);
-      if (on && real) ytSync(container, snap, mode);
+      if (on && real) ytSync(container, snap, xm);
     }
     if (mode === 'main') {
       // 슬라이드에 넣은 배경(사진·영상): 같은 배경이면 슬라이드를 넘겨도 처음부터 다시 시작하지 않고 계속 이어짐
@@ -497,14 +552,15 @@
       else if (sb && !firstLayer) container.insertBefore(sb, container.querySelector(':scope > .wc-mtop, :scope > .wc-yt, :scope > .wc-mark'));
       const mk = motionKey(snap, mainStyle(snap));
       persist(container, 'wc-mbase', mk, () => motionHTML(mk, opts.still), false, fade);
-    }
+      camLayer(container, L0, opts, fade);
+    } else ['wc-sbg', 'wc-mbase', 'wc-cam'].forEach(c => persist(container, c, '', null, false, false));   // 방송도 예배당처럼을 끄면 그 층들을 치움
     if (mode === 'main' || mode === 'overlay') {
       const lg = logoObj(snap.logo), L = snap.live || {};
       const show = lg.url && lg.mark && !L.black && (mode === 'main' || lg.markOverlay);
       const html = show ? logoImg(lg.url, lg.markPos || 'tr', lg.markSize || 10, lg.markOpacity ?? 0.85) : '';
       persist(container, 'wc-mark', html, () => html, true, false);
     }
-    if (!opts.still) extras(container, snap, mode);
+    if (!opts.still) extras(container, snap, xm);
     fillStills(container);
     const html = toVp(RENDER[mode](snap, opts));
     if (container._wcHTML === html) return;
@@ -734,5 +790,5 @@
     extras(container, snap, mode);
   }
 
-  window.WC = { render, thumb, vposter, esc, bcMode, FONTS, reloadMyFonts: () => myFontsLink(true), MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
+  window.WC = { render, thumb, vposter, esc, bcMode, obsAsMain, FONTS, reloadMyFonts: () => myFontsLink(true), MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
 })();

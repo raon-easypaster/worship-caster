@@ -791,6 +791,96 @@ async function main() {
     await api('POST', '/api/live', { reset: true });
     noErr();
   });
+  await check('📺 방송도 예배당처럼: 켜면 OBS(방송 자막) 화면도 예배당 화면과 똑같이(배경·글자 화면 가득) · 끄면 다시 자막 바 · 방송 자막 끄기는 그대로 끔', async () => {
+    c.errors.splice(0);
+    const it = await api('POST', '/api/items', { type: 'song', title: '방송도 예배당처럼', slides: [{ text: '주 은혜 놀라워' }], place: true });
+    await api('POST', '/api/live', { itemId: it.id, index: 0, obsMain: false, overlayOff: false });
+    await c.go(BASE + '/overlay', 1500);
+    const look = () => c.eval(`(() => { const s = document.querySelector('#screen'), L = [...s.querySelectorAll(':scope > .wc-layer')].pop();
+      return { bar: !!L?.querySelector('.wc-ov'), main: !!L?.querySelector('.wc-text-main'), text: L?.innerText || '', bg: L ? getComputedStyle(L).backgroundColor : '', mbase: !!s.querySelector(':scope > .wc-mbase'), ar: s.dataset.ar || '' }; })()`);
+    let r = await look();
+    ok(r.bar && !r.main, '처음(끔)에 자막 바가 아님: ' + JSON.stringify(r));
+    await api('POST', '/api/live', { obsMain: true }); await sleep(900);
+    r = await look();
+    ok(r.main && !r.bar && r.text.includes('주 은혜'), '켰는데 예배당 화면처럼 나오지 않음: ' + JSON.stringify(r));
+    ok(r.bg !== 'rgba(0, 0, 0, 0)' || r.mbase, '화면 가득(바탕)이 아님: ' + JSON.stringify(r));
+    await api('POST', '/api/live', { overlayOff: true }); await sleep(700);
+    r = await look();
+    ok(!r.main && !r.bar, '방송 자막 끄기인데 나감: ' + JSON.stringify(r));
+    await api('POST', '/api/live', { overlayOff: false, obsMain: false }); await sleep(800);
+    r = await look();
+    ok(r.bar && !r.main && !r.mbase, '끄고 나서 자막 바로 안 돌아옴(또는 배경이 남음): ' + JSON.stringify(r));
+    // 운영 화면 단추
+    await c.go(BASE + '/control', 2000); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300);
+    await c.eval(`(document.querySelector('#obsMain').click(), 1)`); await sleep(700);
+    ok((await api('GET', '/api/state')).live.live.obsMain === true, '[📺 방송도 예배당처럼] 단추가 안 켜짐');
+    ok(await c.eval(`document.querySelector('#obsMain').classList.contains('on')`), '단추에 켜짐 표시가 없음');
+    await c.eval(`(document.querySelector('#obsMain').click(), 1)`); await sleep(700);
+    ok((await api('GET', '/api/state')).live.live.obsMain === false, '다시 누르면 꺼져야 함');
+    await api('POST', '/api/live', { reset: true });
+    noErr();
+  });
+  await check('📹 OBS 화면(가상 카메라)을 예배당 화면에: 화면 가득·배경으로(가사는 위에)·끄기 · 운영 화면 단추에서 카메라 고르기 · 못 찾으면 운영 화면에 알림 · OBS 화면에는 안 나감', async () => {
+    const W = require('ws');
+    const cc = await launch(fs.mkdtempSync(path.join(os.tmpdir(), 'wc-cam-')), 9341, ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream']);
+    let ws = null; const got = [];
+    try {
+      const it = await api('POST', '/api/items', { type: 'song', title: 'OBS 화면 점검', slides: [{ text: '찬양 가사 한 줄' }], place: true });
+      await api('POST', '/api/live', { itemId: it.id, index: 0 });
+      // 운영 화면: 단추 → 카메라 목록 → 띄우기
+      await cc.go(BASE + '/control', 2000); await cc.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300);
+      // 운영 화면 알림을 받아 볼 연결 (운영 창처럼)
+      ws = new W(BASE.replace('http', 'ws') + '/ws', { headers: { origin: BASE } });
+      await new Promise((res, rej) => { ws.once('open', res); ws.once('error', rej); });
+      ws.send(JSON.stringify({ type: 'hello', role: 'control' }));
+      ws.on('message', m => { try { const d = JSON.parse(m); if (d.type === 'camErr') got.push(d.msg); } catch {} });
+      await cc.eval(`(document.querySelector('#camBtn').click(), 1)`);
+      let opts = [];
+      for (let i = 0; i < 20; i++) { opts = await cc.eval(`[...document.querySelectorAll('#camDev option')].map(o => o.value && o.textContent)`); if (opts.some(Boolean)) break; await sleep(250); }
+      ok(opts.some(Boolean), '카메라 목록이 비어 있음: ' + JSON.stringify(opts));
+      await cc.eval(`(document.querySelector('[name=camMode][value=top]').click(), document.querySelector('#camGo').click(), 1)`); await sleep(700);
+      let L = (await api('GET', '/api/state')).live.live;
+      ok(L.cam && L.cam.mode === 'top' && L.cam.dev && L.cam.label, '띄우기가 저장 안 됨: ' + JSON.stringify(L.cam));
+      ok(await cc.eval(`document.querySelector('#camBtn').classList.contains('on') && !!document.querySelector('#pvMain > .wc-cam .wc-cam-ph') && !document.querySelector('#pvMain video.wc-cam-v')`), '운영 화면 단추 표시·미리보기 그림이 이상함(미리보기에서 카메라를 열면 안 됨)');
+      // 예배당 화면: 실제로 카메라 화면이 나옴 (화면 가득 = 슬라이드 위)
+      await cc.go(BASE + '/output', 1200);
+      const tv = () => cc.eval(`(() => { const s = document.querySelector('#screen'), k = [...s.children].map(x => x.className), v = s.querySelector('.wc-cam video');
+        return { k, play: !!(v && v.srcObject && v.srcObject.active && v.videoWidth > 0), z: s.querySelector(':scope > .wc-cam')?.style.zIndex || '', text: !!s.querySelector('.wc-text-main') }; })()`);
+      let r;
+      for (let i = 0; i < 30; i++) { r = await tv(); if (r.play) break; await sleep(250); }
+      ok(r.play, '예배당 화면에 OBS 화면(카메라)이 안 나옴: ' + JSON.stringify(r));
+      ok(r.z === '5', '화면 가득인데 슬라이드 위가 아님: ' + JSON.stringify(r));
+      // 배경으로: 슬라이드 글자 아래, 움직이는 배경은 쉼
+      await api('POST', '/api/live', { cam: { ...L.cam, mode: 'bg' } }); await sleep(900);
+      r = await tv();
+      const ci = r.k.indexOf('wc-cam'), li = r.k.lastIndexOf('wc-layer');
+      ok(r.play && ci >= 0 && ci < li && r.text && !r.k.includes('wc-mbase'), '배경으로가 가사 아래에 깔리지 않음: ' + JSON.stringify(r));
+      ok(await cc.eval(`getComputedStyle([...document.querySelectorAll('#screen > .wc-layer')].pop()).backgroundColor === 'rgba(0, 0, 0, 0)'`), '배경으로인데 슬라이드 바탕이 가림');
+      // OBS(방송도 예배당처럼)에는 카메라 층이 없음 (화면이 화면을 비추는 되울림 방지)
+      await api('POST', '/api/live', { obsMain: true });
+      await c.go(BASE + '/overlay', 1200);
+      ok(await c.eval(`!document.querySelector('#screen .wc-cam') && !!document.querySelector('#screen .wc-text-main')`), 'OBS 화면에 카메라 층이 들어감');
+      await api('POST', '/api/live', { obsMain: false });
+      // 끄기: 층이 사라지고 카메라도 닫힘
+      await cc.eval(`(window.__tracks = document.querySelector('#screen .wc-cam video').srcObject.getTracks(), 1)`);
+      await api('POST', '/api/live', { cam: null }); await sleep(900);
+      ok(await cc.eval(`!document.querySelector('#screen .wc-cam') && window.__tracks.every(t => t.readyState === 'ended')`), '끄기 뒤에도 카메라가 열려 있음');
+      // 없는 카메라: 예배당 화면은 그대로, 운영 화면에 알림
+      await api('POST', '/api/live', { cam: { mode: 'top', dev: 'nope', label: '없는 카메라' } });
+      for (let i = 0; i < 20 && !got.length; i++) await sleep(250);
+      ok(got.some(m => m.includes('없는 카메라') && m.includes('찾지 못했습니다')), '못 찾았다는 알림이 운영 화면에 안 옴: ' + JSON.stringify(got));
+      // 이상한 값은 막음 · 모두 끄기로 꺼짐
+      await api('POST', '/api/live', { cam: { mode: 'evil' } });
+      ok((await api('GET', '/api/state')).live.live.cam === null, '이상한 모양이 저장됨');
+      await api('POST', '/api/live', { cam: { mode: 'bg', dev: '', label: 'x' } }); await api('POST', '/api/live', { reset: true });
+      ok((await api('GET', '/api/state')).live.live.cam === null, '모두 끄기로 OBS 화면이 안 꺼짐');
+      ok(!cc.errors.length, '화면 오류: ' + cc.errors.join(' | '));
+    } finally {
+      try { ws?.close(); } catch {} cc.close();
+      await c.go(BASE + '/control', 2000); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300);   // 다음 점검은 운영 화면에서
+    }
+    noErr();
+  });
   await check('가사 찾기: [벅스]·[멜론]·[구글]·[네이버] 단추가 그 사이트 검색 화면을 곡 제목으로 엶', async () => {
     c.errors.splice(0);
     await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);

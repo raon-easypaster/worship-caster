@@ -158,7 +158,7 @@ function addItem(b) {
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto', obsMain: false, cam: null,
   msg: '', timer: null, prop: null, auto: null, yt: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
@@ -1115,7 +1115,13 @@ app.post('/api/live', needControl, (req, res) => {
     }
     live.clear = false; live.black = false; live.logo = false;
   }
-  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'tvNoImg', 'mediaObs']) if (b[k] !== undefined) live[k] = !!b[k];
+  for (const k of ['black', 'clear', 'logo', 'overlayOff', 'pip', 'camOnly', 'tvNoImg', 'mediaObs', 'obsMain']) if (b[k] !== undefined) live[k] = !!b[k];
+  // 📹 OBS 화면을 예배당 화면에 (OBS 가상 카메라): top 화면 가득 / bg 배경으로(가사는 위에) / null 끄기
+  if (b.cam !== undefined) {
+    const c = b.cam && typeof b.cam === 'object' ? b.cam : null, str = v => String(v || '').replace(/[\u0000-\u001f]/g, '').slice(0, 200);
+    live.cam = c && ['top', 'bg'].includes(c.mode) ? { mode: c.mode, dev: str(c.dev), label: str(c.label) } : null;
+    if (live.cam) live.black = false;
+  }
   // 로고 단추만 눌렀으면: '검은 바탕'이면 검은 화면도 함께, '배경 위에 로고만'이면 지금 배경(미디어 배경)을 그대로 둠
   if (b.logo !== undefined && b.black === undefined) live.black = !!b.logo && db.settings.logoStyle?.screenBg !== 'over';
   if (b.mediaBg !== undefined) {
@@ -1144,7 +1150,7 @@ app.post('/api/live', needControl, (req, res) => {
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
   if (b.yt !== undefined) ytCommand(b.yt);
-  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null, yt: null }); setAuto(null); }
+  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null, yt: null, cam: null }); setAuto(null); }
   pushLive(); res.json(snapshot());
 });
 
@@ -1178,7 +1184,8 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (!ws.isLocal) return;
-    if (m.type === 'audioBlocked') { for (const c of controls) sendTo(c, { type: 'audioBlocked' }); return; }   // 예배당 화면이 소리 재생을 막힘
+    if (m.type === 'audioBlocked') { for (const c of controls) sendTo(c, { type: 'audioBlocked' }); return; }
+    if (m.type === 'camErr') { const msg = String(m.msg || '').slice(0, 300); for (const c of controls) sendTo(c, { type: 'camErr', msg }); return; }   // 예배당 화면이 OBS 화면(카메라)을 못 엶   // 예배당 화면이 소리 재생을 막힘
     // 유튜브 영상: 화면이 알려 주는 길이·끝남
     if (m.type === 'ytInfo' && live.yt && m.id === live.yt.id && +m.dur > 0 && !live.yt.dur) { live.yt.dur = Math.round(+m.dur); pushLive(); return; }
     if (m.type === 'ytEnded' && live.yt && m.id === live.yt.id && live.yt.playing) {
