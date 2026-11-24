@@ -158,7 +158,7 @@ function addItem(b) {
 // pip: 방송에 그림을 보낼 때 오른쪽 아래에 사람(카메라) 화면 — OBS 장면 전환으로
 // mediaBg: 미디어 칸에서 고른 배경(사진·영상) — 슬라이드가 바뀌어도 예배당 화면 뒤에 계속 나옴
 // mediaObs: 미디어 배경을 방송(OBS)에도 / mediaFit: auto · cover · contain · small
-const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto',
+const live = { itemId: null, index: 0, black: false, clear: false, logo: false, overlayOff: false, pip: true, camOnly: false, tvNoImg: false, mediaBg: null, mediaObs: false, mediaFit: 'auto', cam: null,
   msg: '', timer: null, prop: null, auto: null, yt: null, rev: 0 };
 let obsStatus = null;  // OBS 브라우저 소스가 알려 준 상태 (권한·장면 목록)
 
@@ -1144,7 +1144,18 @@ app.post('/api/live', needControl, (req, res) => {
   if (b.prop !== undefined) live.prop = db.props.some(p => p.id === b.prop) ? b.prop : null; // 이름 자막
   if (b.auto !== undefined) setAuto(b.auto);
   if (b.yt !== undefined) ytCommand(b.yt);
-  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null, yt: null }); setAuto(null); }
+  // 📷 카메라(PTZ 등)를 예배당 화면 배경으로: { deviceId, label, bar } 를 주면 그 카메라로 켜고 다음에 쓸 값으로 기억,
+  // true 면 기억해 둔 카메라로, false·null 이면 끔. bar: 글자를 방송 자막처럼 아래 바로. (방송·OBS에는 보내지 않음)
+  if (b.cam !== undefined) {
+    if (b.cam && typeof b.cam === 'object') {
+      const c = { deviceId: String(b.cam.deviceId || '').replace(/[^\w+/=.\-]/g, '').slice(0, 200), label: String(b.cam.label || '').replace(/[<>"'`\\]/g, '').slice(0, 100), bar: !!b.cam.bar };
+      db.settings.cam = c; store.save();
+      live.cam = { on: true, ...c };
+    } else if (b.cam === true) live.cam = { on: true, ...(db.settings.cam || { deviceId: '', label: '', bar: false }) };
+    else live.cam = null;
+    if (live.cam) live.black = false;
+  }
+  if (b.reset) { Object.assign(live, { black: false, clear: true, logo: false, mediaBg: null, mediaTop: null, prop: null, yt: null, cam: null }); setAuto(null); }
   pushLive(); res.json(snapshot());
 });
 

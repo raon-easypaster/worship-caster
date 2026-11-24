@@ -18,6 +18,8 @@
     : /[\u0E00-\u0E7F\u0E80-\u0EFF]/.test(text) ? Math.max(base, 1.65) : base;
   const pick = (v, list, d) => (list.includes(v) ? v : d);
   const mediaUrl = u => (/^\/media\/[^"'<>()\\\s]+$/.test(String(u || '')) ? u : '');
+  // 📷 카메라 배경이 켜졌는지 (예배당 화면에만 깔림, 검은 화면이면 가림)
+  const camOn = L => !!(L && L.cam && L.cam.on) && !L.black;
 
   // 오래된 브라우저(OBS 28 이하 내장 브라우저 등)는 cqh/cqw 단위를 몰라 글자가 아주 작게 나옴.
   // 송출 화면은 화면을 꽉 채우므로 vh/vw 로 바꿔도 결과가 같음. (smdjoo-stack 님 버전에서 가져옴)
@@ -201,7 +203,7 @@
   // 내 모양의 배경 사진: 글자만 있는 슬라이드에 배경으로 깔기 (슬라이드에 따로 넣은 배경·미디어 배경이 먼저)
   function withThemeBg(snap) {
     const s = snap.slide, u = mediaUrl(themeOf(snap).bgImg);
-    if (!u || isVideo(u) || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || mediaUrl(snap.live?.mediaBg)) return snap;
+    if (!u || isVideo(u) || !s || s.bg || s.html || s.htmlFile || (s.elements && s.elements.length) || mediaUrl(snap.live?.mediaBg) || camOn(snap.live)) return snap;
     return { ...snap, slide: { ...s, bg: u } };
   }
   // 🎨 자막 스타일에서 종류별(찬양·말씀·문구·광고)로 따로 바꾼 값 — 전체 스타일·모양(테마)보다 먼저
@@ -218,7 +220,7 @@
   // 이 슬라이드 뒤에 깔 움직이는 배경 (그림·PPT·HTML 슬라이드에는 깔지 않음)
   function motionKey(snap, st) {
     const L = snap.live || {}, s = snap.slide, main = snap.style.main || {};
-    if (L.black || !s || s.bg || s._bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg)) return '';
+    if (L.black || !s || s.bg || s._bg || s.html || s.htmlFile || (s.elements && s.elements.length) || main.motionOn === false || mediaUrl(L.mediaBg) || camOn(L)) return '';
     const iv = mediaUrl(snap.item?.motionVideo);   // 이 찬양에 저장해 둔 배경 영상이 먼저
     if (iv) return 'video:' + iv;
     const t = themeOf(snap);
@@ -301,11 +303,13 @@
       const lg = logoObj(snap.logo);
       const logo = L.logo && lg.url ? logoImg(lg.url, lg.screenPos || 'c', lg.screenSize || 50) : '';
       // 띄운 슬라이드가 없거나 '배경 위에 로고만'이면 미디어 배경이 보이게 (검은 화면을 켠 때만 가림)
-      const see = !L.black && mediaUrl(L.mediaBg);
+      const see = !L.black && (mediaUrl(L.mediaBg) || camOn(L));
       return `<div class="wc-layer" style="background:${see ? 'transparent' : '#000'}">${logo}</div>`;
     }
+    // 📷 카메라 + '방송 자막처럼': 글자 슬라이드는 큰 글자 대신 카메라 위 아래쪽 자막 바 (그림·악보·PPT 는 그대로 화면에)
+    if (camOn(L) && L.cam.bar && !isVisual(s)) return `<div class="wc-layer" data-tr="1" style="background:transparent">${L.clear || !String(s.text || '').trim() ? '' : barInner(snap)}</div>`;
     const mk = motionKey(snap, st);
-    const under = mk || s._bg || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
+    const under = mk || s._bg || ((mediaUrl(L.mediaBg) || camOn(L)) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경·미디어 배경·카메라가 깔림 → 바탕을 투명하게
     const bg = under ? 'transparent' : L.clear ? '#000' : col(s.bgColor, st.bg);   // 글자 지움·모두 끄기는 검정 (악보·밝은 테마의 흰 바탕이 남지 않게)
     return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
@@ -354,13 +358,17 @@
       const pip = snap.live?.pip && snap.obs?.base && snap.obs?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
       return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
     }
-    const st = ovStyle(snap);
+    return `<div class="wc-layer">${barInner(snap)}</div>`;
+  }
+  // 방송 자막 바 (OBS 자막 · 예배당 화면의 '📷 카메라 + 방송 자막처럼'이 함께 씀)
+  function barInner(snap) {
+    const st = ovStyle(snap), s = snap.slide;
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
     const pos = st.position === 'top' ? 'top:4cqh' : st.position === 'middle' ? 'top:50%;transform:translateY(-50%)' : 'bottom:5cqh';
-    return `<div class="wc-layer"><div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
+    return `<div class="wc-ov" style="${pos};background:${hexA(st.box, st.boxOpacity)};font-family:${st.font}">
       ${title ? `<div class="wc-ov-title" style="font-size:${(st.size * 0.55).toFixed(2)}cqh">${esc(title)}</div>` : ''}
       <div class="wc-ov-text" dir="auto" style="font-size:${st.size}cqh;color:${st.color};font-weight:${st.bold ? 700 : 400};line-height:${lhFor(s.text || '', st.lineHeight)}">${esc(s.text).replace(/\n/g, '<br>')}</div>
-    </div></div>`;
+    </div>`;
   }
 
   function stageHTML(snap) {
@@ -377,6 +385,26 @@
   }
 
   const RENDER = { main: mainHTML, overlay: overlayHTML, stage: stageHTML };
+
+  // 📷 카메라 열기: 고른 장치(없으면 같은 이름 → 기본 카메라). 못 열면 화면에 까닭을 작게 보임
+  async function startCam(layer, c) {
+    const v = layer?.querySelector('video'), err = layer?.querySelector('.wc-cam-err');
+    if (!v) return;
+    const say = m => { if (err) err.textContent = m; };
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error(T('이 브라우저는 카메라를 쓸 수 없습니다'));
+      let id = c.deviceId;
+      const ds = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+      const cams = ds.filter(d => d.kind === 'videoinput');
+      if (cams.length && !cams.some(d => d.deviceId === id)) id = (cams.find(d => c.label && d.label === c.label) || {}).deviceId || '';
+      const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+      const stream = await navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id }, ...size } : size, audio: false });
+      if (!layer.isConnected) { stream.getTracks().forEach(t => t.stop()); return; }
+      v.srcObject = stream; say('');
+    } catch (e) {
+      say(T('카메라를 열 수 없습니다') + ' — ' + (e && (e.name === 'NotReadableError' || e.name === 'TrackStartError') ? T('다른 프로그램(OBS 등)이 이 카메라를 쓰는 중일 수 있습니다') : e && e.name === 'NotAllowedError' ? T('카메라 사용 허락이 필요합니다') : (e && e.message) || ''));
+    }
+  }
 
   // 바뀔 때만 다시 그리는 고정 층 (움직이는 배경은 슬라이드가 넘어가도 끊기지 않게)
   function persist(container, cls, key, make, top, fade) {
@@ -415,10 +443,25 @@
     const L0 = snap.live || {};
     // 예배당 화면 비율: 4:3 프로젝터면 화면 틀을 4:3 으로 (방송·프롬프터는 늘 16:9)
     if (mode === 'main' && snap.style) container.dataset.ar = snap.style.main?.aspect === '4:3' ? '43' : '';
+    if (mode === 'main') {
+      // 📷 카메라 배경: 진짜 예배당 화면(/output, opts.cam)만 카메라를 엶 — 운영 화면 미리보기·썸네일은 '카메라' 표시만
+      // (캡처 장치는 한 프로그램만 쓸 수 있는 경우가 많아 한 곳에서만 열기)
+      const c = camOn(L0) ? L0.cam : null, live = !!(c && opts.cam && !opts.still);
+      const key = c ? (live ? 'cam|' + c.deviceId + '|' + c.label : 'cam-ph') : '';
+      const old = container.querySelector(':scope > .wc-cam');
+      if ((old?._key || '') !== key) {
+        const ov = old?.querySelector('video');
+        if (ov?.srcObject) setTimeout(() => { try { ov.srcObject.getTracks().forEach(t => t.stop()); } catch {} }, 800);   // 끄면 카메라도 놓아 줌
+        persist(container, 'wc-cam', key, () => live
+          ? '<video disablepictureinpicture class="wc-camv" autoplay muted playsinline></video><div class="wc-cam-err"></div>'
+          : `<div class="wc-cam-ph"><span>${T('📷 카메라')}${c?.label ? ' · ' + esc(c.label) : ''}</span></div>`, false, fade);
+        if (live) startCam(container.querySelector(':scope > .wc-cam'), c);
+      }
+    }
     if (mode === 'main' || mode === 'overlay') {
-      // 미디어 배경: 예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만 (검은 화면·방송 자막 끄기면 안 나감)
+      // 미디어 배경: 예배당 화면에는 늘, 방송에는 '방송에도'를 켰을 때만 (검은 화면·방송 자막 끄기면 안 나감) · 카메라를 켜면 예배당에서는 카메라가 먼저
       const url = mediaUrl(L0.mediaBg);
-      const on = url && !L0.black && (mode === 'main' || (L0.mediaObs && !L0.overlayOff));
+      const on = url && !L0.black && (mode === 'main' ? !camOn(L0) : (L0.mediaObs && !L0.overlayOff));
       const key = on ? url + '|' + fitOf(url, L0.mediaFit) : '';
       const cur = container.querySelector(':scope > .wc-mlayer');
       if (cur && key && cur._url === url && cur._key !== key) {        // 같은 파일에서 맞춤만 바뀜 → 영상을 다시 불러오지 않음
