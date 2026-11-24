@@ -749,6 +749,48 @@ async function main() {
     ok(r.blackOff, '검은 화면인데 슬라이드 배경이 남음');
     noErr();
   });
+  await check('영상 넣은 찬양: 슬라이드 칸마다 영상을 열지 않음(한 장면 그림 하나를 같이 씀) · 넘길 때 칸을 다시 그리지 않고 표시만 옮김 · 미디어 칸 영상은 미리 열지 않음 (윈도우 렉)', async () => {
+    c.errors.splice(0);
+    const vid = (await api('GET', '/api/media')).find(m => /\.mp4$/i.test(m.url));
+    ok(vid, '시험용 영상이 없음');
+    const it = await api('POST', '/api/items', { type: 'song', title: '영상 렉 점검', slides: [{ text: '하나' }, { text: '둘', bg: vid.url }, { text: '셋' }, { text: '넷' }], place: true });
+    await api('PUT', '/api/items/' + it.id, { motionVideo: vid.url });
+    await api('PUT', '/api/settings', { continuous: false });
+    await c.go(BASE + '/control', 2000);
+    await c.eval(`(select(${JSON.stringify(it.id)}), 1)`);
+    await api('POST', '/api/live', { itemId: it.id, index: 0 }); await sleep(600);
+    let r;
+    for (let i = 0; i < 30; i++) {
+      r = await c.eval(`(() => { const st = [...document.querySelectorAll('#slides .wc-vstill')];
+        return { vids: document.querySelectorAll('#slides video').length, stills: st.length, filled: st.filter(e => e.style.backgroundImage.startsWith('url("data:image/jpeg')).length }; })()`);
+      if (r.stills && r.filled === r.stills) break; await sleep(250);
+    }
+    ok(r.vids === 0, '슬라이드 칸에 영상(<video>)이 열려 있음: ' + JSON.stringify(r));
+    ok(r.stills >= 4 && r.filled === r.stills, '슬라이드 칸에 영상 장면 그림이 안 나옴: ' + JSON.stringify(r));
+    // 넘기기: 같은 칸이 그대로 있고 빨간 표시만 옮겨짐
+    await c.eval(`(window.__card0 = document.querySelector('#slides .slide[data-i="0"]'), 1)`);
+    await api('POST', '/api/live', { step: 1 }); await sleep(500);
+    await api('POST', '/api/live', { step: 1 }); await sleep(500);
+    r = await c.eval(`({ same: window.__card0 === document.querySelector('#slides .slide[data-i="0"]') && document.body.contains(window.__card0),
+      live: [...document.querySelectorAll('#slides .slide.live')].map(x => x.dataset.i) })`);
+    ok(r.same, '넘길 때 슬라이드 칸을 모두 새로 그림');
+    ok(r.live.length === 1 && r.live[0] === '2', '나가는 칸 표시가 안 옮겨짐: ' + JSON.stringify(r.live));
+    // 다른 자료로 가면 그 자료 칸으로 바뀜 (기존 동작)
+    const it2 = await api('POST', '/api/items', { type: 'text', title: '다른 자료', slides: [{ text: '가' }, { text: '나' }], place: true });
+    await c.eval(`(select(${JSON.stringify(it2.id)}), 1)`);
+    await api('POST', '/api/live', { itemId: it2.id, index: 1 }); await sleep(600);
+    r = await c.eval(`({ n: document.querySelectorAll('#slides .slide:not(.hid)').length, live: document.querySelector('#slides .slide.live')?.dataset.i })`);
+    ok(r.n === 2 && r.live === '1', '다른 자료로 갔는데 칸·표시가 안 맞음: ' + JSON.stringify(r));
+    // 미디어 칸: 영상은 미리 열지 않고 장면 그림만
+    for (let i = 0; i < 20; i++) { r = await c.eval(`(() => { const v = [...document.querySelectorAll('#mbGrid video')]; return { n: v.length, none: v.every(x => x.preload === 'none'), poster: v.filter(x => x.poster.startsWith('data:image')).length }; })()`); if (r.poster === r.n) break; await sleep(250); }
+    ok(r.n > 0 && r.none, '미디어 칸 영상을 미리 엶: ' + JSON.stringify(r));
+    ok(r.poster === r.n, '미디어 칸 영상에 장면 그림이 없음: ' + JSON.stringify(r));
+    // 예배당 화면(썸네일이 아닌 화면)에서는 그대로 영상이 재생됨
+    const tv = await c.eval(`(() => { const d = document.createElement('div'); WC.render(d, { slide: { text: '가', bg: ${JSON.stringify(vid.url)} }, style: S.style, live: {}, item: { motionVideo: ${JSON.stringify(vid.url)} } }, 'main', { fade: false }); return d.querySelectorAll('video[autoplay]').length; })()`);
+    ok(tv >= 1, '예배당 화면에서 영상이 재생되지 않음: ' + tv);
+    await api('POST', '/api/live', { reset: true });
+    noErr();
+  });
   await check('가사 찾기: [벅스]·[멜론]·[구글]·[네이버] 단추가 그 사이트 검색 화면을 곡 제목으로 엶', async () => {
     c.errors.splice(0);
     await c.eval(`(document.querySelector('#dlg')?.open && closeDlg(), document.querySelector('#newSong').click(), 1)`); await sleep(600);

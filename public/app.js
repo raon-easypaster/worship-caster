@@ -306,6 +306,14 @@ function scrollToLive(grid, force) {
   const el = grid.querySelector('.slide.live') || (force && grid.querySelector('.allsec.sel'));
   el?.scrollIntoView({ block: 'nearest' });
 }
+// 한 곡 보기에서 나가는 슬라이드만 바뀌면 칸을 다시 그리지 않고 표시만 옮김
+//   (칸을 모두 새로 그리면 배경 영상 넣은 찬양은 넘길 때마다 칸 수만큼 영상을 다시 열어 윈도우에서 렉이 걸렸음)
+function markOneLive() {
+  const grid = $('#slides'), L = snap?.live;
+  grid.querySelectorAll('.slide.live').forEach(x => x.classList.remove('live'));
+  if (L?.itemId) grid.querySelector(`.slide[data-item="${CSS.escape(L.itemId)}"][data-i="${+L.index}"]:not(.hid)`)?.classList.add('live');
+  renderSecNav();
+}
 // 이어 보기에서 나가는 슬라이드만 바뀌면 다시 그리지 않고 표시만 옮김 (슬라이드가 많아도 빠르게)
 function markAllLive() {
   const grid = $('#slides'), L = snap?.live;
@@ -331,7 +339,7 @@ function renderSlides() {
   if (mv) $('#itemVid .t').textContent = '🎞 ' + decodeURIComponent(mv.split('/').pop());
   const grid = $('#slides');
   const scroller = grid.closest('.center-main'), keepTop = scroller?.scrollTop || 0;
-  grid.innerHTML = ''; grid.className = 'grid';
+  grid.innerHTML = ''; grid.className = 'grid'; grid.dataset.sel = allOn ? '' : (it?.id || '');
   if (allOn) { renderAllView(grid); if (scroller) scroller.scrollTop = keepTop; scrollToLive(grid); renderSecNav(); return; }
   if (!it) return;
   // 곡 구성 순서대로 (같은 후렴이 여러 번 나오면 여러 칸)
@@ -478,7 +486,8 @@ function connectWS() {
         if (allViewOn()) {   // 이어 보기: 나가는 자료를 따라 왼쪽 순서도 고름, 슬라이드는 표시만 옮김
           if (changedItem && m.live.itemId && service()?.itemIds.includes(m.live.itemId)) { selId = m.live.itemId; renderServices(); renderLib(); $('#itemTitle').textContent = item(selId)?.title || ''; $('#editItem').disabled = false; $('#slides .allsec.sel')?.classList.remove('sel'); $(`#slides .allsec[data-sec="${CSS.escape(selId)}"]`)?.classList.add('sel'); }
           markAllLive();
-        } else { renderSlides(); if (changedItem) { renderServices(); renderLib(); } }
+        } else if (!changedItem && $('#slides').dataset.sel === (selId || '')) markOneLive();   // 같은 자료 안에서 넘김: 칸은 그대로, 표시만 옮김
+        else { renderSlides(); if (changedItem) { renderServices(); renderLib(); } }
       }
     }
     if (m.type === 'data') reload().catch(() => {});
@@ -1939,7 +1948,7 @@ function renderMediaBin() {
   const grid = $('#mbGrid'); if (!grid) return;
   const list = mbFiles.filter(f => mbFilter === 'all' || (mbFilter === 'video') === isVid(f.url));
   grid.innerHTML = list.map(f => `<div class="mb-item" data-url="${esc(f.url)}" draggable="${mbPick ? 'false' : 'true'}" title="${esc(f.name)} — 누르면 예배당 화면 배경으로${isVid(f.url) ? ' · 위쪽 슬라이드 칸으로 끌어다 놓으면 이 찬양의 배경 영상으로 저장' : ''}">
-      <div class="mb-th">${isVid(f.url) ? `<video disablepictureinpicture src="${esc(f.url)}#t=0.5" muted loop playsinline preload="metadata"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
+      <div class="mb-th">${isVid(f.url) ? `<video disablepictureinpicture src="${esc(f.url)}#t=0.5" muted loop playsinline preload="none"></video><span class="mb-dur">영상</span>` : `<img src="${esc(f.url)}" loading="lazy">`}
       <span class="mb-tag">LIVE</span><button class="mb-del" data-del="${esc(f.name)}" title="이 파일 삭제">🗑</button>
       <button class="mb-top" title="화면 위에 띄우기 (배경·슬라이드는 그대로, ⏹ 그림 끄기로 뺌)">⬆ 위에</button></div>
       <div class="mb-name"><span class="t">${esc(f.name)}</span>${isVid(f.url) ? '<span title="반복 재생">🔁</span>' : ''}</div></div>`).join('')
@@ -1947,10 +1956,10 @@ function renderMediaBin() {
   grid.querySelectorAll('.mb-item').forEach(el => {
     const v = el.querySelector('video');
     if (v) {
-      v.addEventListener('loadedmetadata', () => {
-        const s = Math.round(v.duration || 0);
-        el.querySelector('.mb-dur').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-      });
+      // 영상은 미리 열지 않고(preload none) 한 장면만 한 번 떠서 보여 줌 — 길이도 그때 앎
+      const dur = d => { const s = Math.round(d || 0); if (s) el.querySelector('.mb-dur').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+      WC.vposter(el.dataset.url).then(r => { if (r?.src) v.poster = r.src; if (r) dur(r.dur); });
+      v.addEventListener('loadedmetadata', () => dur(v.duration));
       el.addEventListener('mouseenter', () => v.play().catch(() => {}));   // 마우스를 올리면 미리 재생
       el.addEventListener('mouseleave', () => { v.pause(); v.currentTime = 0.5; });
     }

@@ -133,11 +133,49 @@
     }
     return h;
   }
+  // 영상의 멈춘 그림: 슬라이드 칸(썸네일)마다 <video> 를 따로 열지 않고, 영상마다 한 장면을 한 번만 떠서 같이 씀
+  //   (윈도우에서 영상 넣은 찬양을 열거나 넘길 때 칸마다 영상을 열어 렉이 걸리던 문제)
+  const VPD = new Map(), VPP = new Map(); let vpQ = Promise.resolve();
+  function grabFrame(url) {
+    return new Promise(res => {
+      const v = document.createElement('video'); let done = false;
+      const fin = r => { if (done) return; done = true; clearTimeout(t); try { v.removeAttribute('src'); v.load(); } catch {} res(r); };
+      const t = setTimeout(() => fin(null), 10000);
+      v.muted = true; v.playsInline = true; v.preload = 'auto';
+      v.onloadedmetadata = () => { try { v.currentTime = Math.min(1, (v.duration || 2) / 2); } catch { fin(null); } };
+      v.onseeked = () => {
+        const dur = v.duration || 0;
+        try {
+          const w = 480, h = Math.max(1, Math.round(w * (v.videoHeight || 9) / (v.videoWidth || 16)));
+          const c = document.createElement('canvas'); c.width = w; c.height = h;
+          c.getContext('2d').drawImage(v, 0, 0, w, h);
+          fin({ src: c.toDataURL('image/jpeg', 0.8), dur });
+        } catch { fin({ src: '', dur }); }
+      };
+      v.onerror = () => fin(null);
+      v.src = url;
+    });
+  }
+  // 한 번에 하나씩 뜸 (영상 여러 개를 한꺼번에 열지 않게). 결과: { src: 그림, dur: 길이(초) } 또는 null
+  function vposter(url) {
+    if (!url) return Promise.resolve(null);
+    if (!VPP.has(url)) VPP.set(url, vpQ = vpQ.then(() => grabFrame(url)).catch(() => null).then(r => (VPD.set(url, r), r)));
+    return VPP.get(url);
+  }
+  const vstill = (u, cls, style) => `<div class="${cls} wc-vstill" data-vsrc="${esc(u)}" style="${style}"></div>`;
+  function fillStills(root) {
+    root.querySelectorAll('.wc-vstill:not([data-vf])').forEach(el => {
+      el.dataset.vf = '1';
+      const u = el.dataset.vsrc, put = r => { if (r && r.src) el.style.backgroundImage = `url("${r.src}")`; };
+      if (VPD.has(u)) put(VPD.get(u)); else vposter(u).then(put);
+    });
+  }
+
   function motionHTML(key, still) {
     if (!key) return '';
     if (key.startsWith('video:')) {
       const u = mediaUrl(key.slice(6)); if (!u) return '';
-      return still ? `<div class="wc-motion m-video"><video disablepictureinpicture class="wc-bg" src="${esc(u)}#t=1" muted preload="metadata"></video></div>`
+      return still ? `<div class="wc-motion m-video">${vstill(u, 'wc-bg', 'background-size:cover')}</div>`
         : `<div class="wc-motion m-video"><video disablepictureinpicture class="wc-bg" src="${esc(u)}" autoplay muted loop playsinline></video></div>`;
     }
     const st = (n, seed, max, dur, cls = '') => `<i class="g-st ${cls}" style="background-image:${stars(n, seed, max)};animation-duration:${dur}s"></i>`;
@@ -154,8 +192,9 @@
   }
 
   // sound: 소리 켜고 한 번 재생 (예배당 화면에서만 — 미리보기·방송에서는 소리 없이)
-  function bgHTML(url, cover = true, sound = false) {
+  function bgHTML(url, cover = true, sound = false, still = false) {
     if (!url) return '';
+    if (isVideo(url) && still) return vstill(url, 'wc-bg', `background-size:${cover ? 'cover' : 'contain'}`);
     if (isVideo(url) && sound) return `<video disablepictureinpicture class="wc-bg" src="${esc(url)}" autoplay playsinline data-sound="1" style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
     if (isVideo(url)) return `<video disablepictureinpicture class="wc-bg" src="${esc(url)}" autoplay muted loop playsinline style="object-fit:${cover ? 'cover' : 'contain'}"></video>`;
     return `<div class="wc-bg" style="background-image:url('${esc(url)}');background-size:${cover ? 'cover' : 'contain'}"></div>`;
@@ -256,7 +295,7 @@
   function mediaHTML(url, fit, still) {
     url = mediaUrl(url); if (!url) return '';
     const f = fitOf(url, fit);
-    if (isVideo(url)) return still ? `<video disablepictureinpicture class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}#t=1" muted preload="metadata"></video>`
+    if (isVideo(url)) return still ? vstill(url, 'wc-bg wc-media', fitStyle(f))
       : `<video disablepictureinpicture class="wc-bg wc-media" style="${fitStyle(f)}" src="${esc(url)}" autoplay muted loop playsinline></video>`;
     return `<div class="wc-bg wc-media" style="${fitStyle(f)}background-image:url('${esc(url)}')"></div>`;
   }
@@ -267,10 +306,10 @@
     const s = snap.slide;
     if (isHtmlFile(s)) return htmlFileHTML(s);
     if (s.html) return `<iframe class="wc-html" sandbox="${still || noScript ? '' : 'allow-scripts'}" srcdoc="${esc(s.html)}" tabindex="-1"></iframe>`;
-    let inner = bgHTML(s.bg, s.fit !== 'contain', !!(audio && s.sound));
+    let inner = bgHTML(s.bg, s.fit !== 'contain', !!(audio && s.sound), still);
     // 추가 그림: 배경 위에 따로 얹음 (포스터·사진) — 빼도 배경은 그대로
     const img = mediaUrl(s.img);
-    if (img) inner += isVideo(img) ? `<video disablepictureinpicture class="wc-img" src="${esc(img)}" autoplay muted loop playsinline></video>` : `<div class="wc-img" style="background-image:url('${esc(img)}')"></div>`;
+    if (img) inner += isVideo(img) && still ? vstill(img, 'wc-img', '') : isVideo(img) ? `<video disablepictureinpicture class="wc-img" src="${esc(img)}" autoplay muted loop playsinline></video>` : `<div class="wc-img" style="background-image:url('${esc(img)}')"></div>`;
     if (s.elements && s.elements.length) return inner + elementsHTML(s);
     const jc = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[st.valign] || 'center';
     const ref = s.ref ? `<div class="wc-ref" style="font-size:${(st.size * 0.6).toFixed(2)}cqh;color:${st.refColor}">${esc(s.ref)}</div>` : '';
@@ -451,7 +490,7 @@
     if (mode === 'main') {
       // 슬라이드에 넣은 배경(사진·영상): 같은 배경이면 슬라이드를 넘겨도 처음부터 다시 시작하지 않고 계속 이어짐
       const lb = liftBg(snap, container); snap = lb.snap;
-      persist(container, 'wc-sbg', lb.key, () => bgHTML(lb.url, lb.cover), false, fade);
+      persist(container, 'wc-sbg', lb.key + (opts.still ? '|still' : ''), () => bgHTML(lb.url, lb.cover, false, opts.still), false, fade);
       // 미디어 배경보다 위, 슬라이드 글자보다 아래에 (예전처럼 슬라이드 배경이 미디어 배경을 가림)
       const sb = container.querySelector(':scope > .wc-sbg'), firstLayer = container.querySelector(':scope > .wc-layer');
       if (sb && firstLayer && sb.nextElementSibling !== firstLayer) container.insertBefore(sb, firstLayer);
@@ -466,6 +505,7 @@
       persist(container, 'wc-mark', html, () => html, true, false);
     }
     if (!opts.still) extras(container, snap, mode);
+    fillStills(container);
     const html = toVp(RENDER[mode](snap, opts));
     if (container._wcHTML === html) return;
     // 같은 HTML 파일에서 장만 바뀌면 다시 불러오지 않고 '이 장 보여 줘' 신호만 보냄
@@ -483,6 +523,7 @@
     const olds = [...container.querySelectorAll(':scope > .wc-layer')];
     const mark = container.querySelector(':scope > .wc-mark');
     container.insertBefore(layer, mark || null);
+    fillStills(layer);
     if (mode === 'stage') fitStage(layer);
     const frames = [...layer.querySelectorAll('iframe.wc-hfile')];
     frames.forEach(f => { f._wcPage = fm ? +fm[2] : 0; f.addEventListener('load', () => postPage(f)); });
@@ -693,5 +734,5 @@
     extras(container, snap, mode);
   }
 
-  window.WC = { render, thumb, esc, bcMode, FONTS, reloadMyFonts: () => myFontsLink(true), MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
+  window.WC = { render, thumb, vposter, esc, bcMode, FONTS, reloadMyFonts: () => myFontsLink(true), MOTIONS, THEMES, POS, FITS, seq, tick, fmt, ytShown, setThemes, themeOf };
 })();
