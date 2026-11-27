@@ -2159,7 +2159,7 @@ async function openOnScreen(url) {
       .scr-btn { display: flex; width: 100%; justify-content: flex-start; gap: 8px; margin: 6px 0; }
     </style>
     <div class="scr-map">${map}</div>${list}
-    <p class="muted small">창이 그 모니터에 꽉 차게 열립니다. 전체화면은 새 창에서 <b>F 키</b> 또는 <b>더블클릭</b>.</p>
+    <p class="muted small">그 모니터에 전체화면으로 열립니다. 위에 바가 남아 있으면 그 화면을 한 번 누르세요 (F 키도 됩니다).</p>
     <div class="dlg-foot"><button class="btn" id="scrPlain">그냥 창으로 열기</button><button class="btn" data-x>취소</button></div>`);
   const body = $('#dlgBody');
   body.querySelectorAll('[data-x]').forEach(b => (b.onclick = closeDlg));
@@ -2168,7 +2168,9 @@ async function openOnScreen(url) {
     const s = screens[+b.dataset.scr];
     try { localStorage.setItem(key, id(s)); } catch {}
     closeDlg();
-    const w = track(window.open(url, url, `popup,left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`));
+    // 처음부터 전체화면: 크롬·엣지가 '창 관리' 권한으로 전체화면 창 열기를 지원하면 바로 전체화면 (지원하지 않으면 이 낱말은 무시됨)
+    // → 안 되면 새 창에 '한 번 누르면 전체화면' 안내가 크게 뜨고, 아무 곳이나 한 번 누르면 전체화면 (?fs=1)
+    const w = track(window.open(url + '?fs=1', url, `popup,fullscreen,left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`));
     try { w.moveTo(s.availLeft, s.availTop); w.resizeTo(s.availWidth, s.availHeight); w.focus(); } catch {}
     toast(`${name}을 ${+b.dataset.scr + 1}번 모니터에 열었습니다`);
   });

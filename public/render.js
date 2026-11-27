@@ -32,6 +32,23 @@
   }
   // 창이 가려져 있어도 확실히 나타나게: requestAnimationFrame 은 창이 안 보이면 멈춰서
   // 새 화면이 투명한 채로 남는 문제가 있었음 → 강제로 한 번 그린 뒤 바꾸고, 타이머로 한 번 더 보장
+  // PPT·악보·사진 장: 그림을 미리 받아 그릴 준비를 해 둠 → 넘길 때 그림이 늦게 떠 빈 화면이 끼지 않음 (최근 24장 기억)
+  const PIC = new Map();
+  function warm(u) {
+    u = mediaUrl(u); if (!u || isVideo(u)) return null;
+    let p = PIC.get(u);
+    if (p) { PIC.delete(u); PIC.set(u, p); return p; }
+    const im = new Image(); im.decoding = 'async'; im.src = u;
+    p = (im.decode ? im.decode() : new Promise(r => { im.onload = im.onerror = r; })).catch(() => {});
+    p.im = im;   // 그림을 붙잡아 두어 다시 받지 않게
+    PIC.set(u, p);
+    if (PIC.size > 24) PIC.delete(PIC.keys().next().value);
+    return p;
+  }
+  const picsIn = el => [...el.querySelectorAll('.wc-bg, .wc-img, .wc-media, img.wc-el')]
+    .map(e => e.tagName === 'IMG' ? e.getAttribute('src') : ((e.style.backgroundImage || '').match(/url\(["']?(.*?)["']?\)/) || [])[1]);
+  const slidePics = s => (s ? [s.bg, s.img, ...(s.elements || []).filter(e => e.type === 'image').map(e => e.src)] : []);
+
   function fadeIn(el, ms = 320) {
     void el.offsetWidth;
     el.style.opacity = 1;
@@ -346,7 +363,8 @@
     const mk = motionKey(snap, st);
     const under = mk || s._bg || (mediaUrl(L.mediaBg) && !s.bg && !isHtmlFile(s)) || (camBg(L) && !s.bg && !isHtmlFile(s));   // 아래에 움직이는 배경이나 미디어 배경이 깔림 → 바탕을 투명하게
     const bg = under ? 'transparent' : L.clear ? '#000' : col(s.bgColor, st.bg);   // 글자 지움·모두 끄기는 검정 (악보·밝은 테마의 흰 바탕이 남지 않게)
-    return `<div class="wc-layer"${under ? ' data-tr="1"' : ''} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
+    const vis = !L.clear && isVisual(s) ? ' data-vis="1"' : '';   // 그림·PPT 장: 그림 장끼리는 서서히 바꾸지 않고 바로 넘김 (깜빡임 없게)
+    return `<div class="wc-layer"${under ? ' data-tr="1"' : ''}${vis} style="background:${bg}">${L.clear ? '' : slideInner(snap, st, opts.still, false, opts.audio)}</div>`;
   }
 
   function hexA(hex, a) {
@@ -378,7 +396,7 @@
         // 화면 일부: 원래 크기로 그린 뒤 줄여서 구석에 → 나머지는 카메라가 보임
         const v = { t: 'top', m: 'center', b: 'bottom' }[ov.partPos[0]], h = ov.partPos[1] === 'r' ? 'right' : 'left';
         const vCss = v === 'center' ? 'top:0' : `${v}:4%`;
-        return `<div class="wc-layer"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
+        return `<div class="wc-layer" data-vis="1"><div class="wc-part" style="${vCss};${h}:3%;transform:scale(${ov.partSize / 100});transform-origin:${v} ${h};background:${bg}">${screen}</div></div>`;
       }
       if (ov.imgMode === 'circle' && !snap.item?.bcFull) {
         // 화면 가득 + 사람 원: 그림에 동그란 구멍을 뚫어 그 아래 OBS 카메라가 동그랗게 보임 (구멍 둘레에 흰 테)
@@ -387,11 +405,11 @@
         const cy = v === 't' ? `${4 + r}cqh` : v === 'm' ? '50cqh' : `${96 - r}cqh`;
         const mask = `radial-gradient(circle at ${cx} ${cy},transparent ${r}cqh,#000 calc(${r}cqh + 1px))`;
         const ph = opts.preview ? `<span class="wc-circ-ph">${T('👤 설교자')}</span>` : '';
-        return `<div class="wc-layer"><div class="wc-circ-img" style="background:${bg};-webkit-mask-image:${mask};mask-image:${mask}">${screen}</div>` +
+        return `<div class="wc-layer" data-vis="1"><div class="wc-circ-img" style="background:${bg};-webkit-mask-image:${mask};mask-image:${mask}">${screen}</div>` +
           `<div class="wc-circ" style="left:${cx};top:${cy};width:${ov.circSize}cqh">${ph}</div></div>`;
       }
       const pip = snap.live?.pip && snap.obs?.base && snap.obs?.pip && opts.preview ? `<div class="wc-pip-ph">${T('👤 사람 화면')}<small>${T('(OBS 장면 전환)')}</small></div>` : '';
-      return `<div class="wc-layer" style="background:${bg}">${screen}${pip}</div>`;
+      return `<div class="wc-layer" data-vis="1" style="background:${bg}">${screen}${pip}</div>`;
     }
     const st = ovStyle(snap);
     const title = st.showTitle && (s.ref || (snap.item?.type === 'song' ? snap.item.title : ''));
@@ -506,6 +524,7 @@
     ensureMyFonts(snap);
     const fade = opts.fade !== false;
     container.classList.toggle('wc-still', !!opts.still);
+    if (!opts.still) slidePics(snap.next).forEach(warm);   // 다음 장 그림을 미리 받아 둠
     const L0 = snap.live || {};
     // 예배당 화면 비율: 4:3 프로젝터면 화면 틀을 4:3 으로 (방송·프롬프터는 늘 16:9)
     if (mode === 'main' && snap.style) container.dataset.ar = !opts.obs && snap.style.main?.aspect === '4:3' ? '43' : '';
@@ -587,8 +606,14 @@
       fitHtml(container);
       if (!container._wcRO && window.ResizeObserver) (container._wcRO = new ResizeObserver(() => fitHtml(container))).observe(container);
     }
+    // 그림 장 → 그림 장(PPT 넘기기): 옛 장을 숨기고 서서히 띄우면 그 사이 바탕이 비쳐 깜빡임 → 새 그림이 준비되면 바로 바꿈
+    const last = olds[olds.length - 1];
+    const cut = !!(layer.dataset.vis && last && last.dataset.vis);
+    const pics = picsIn(layer).map(warm).filter(Boolean);
     const swap = () => {
-      if (fade) {
+      if (!layer.isConnected) return;   // 기다리는 사이 다음 장으로 넘어감
+      layer.style.visibility = '';
+      if (fade && !cut) {
         // 잔상 없게: 옛 화면의 글자·그림은 바로 숨기고(바탕색만 남김) 새 화면이 그 위에 나타남 → 두 화면이 겹쳐 보이지 않음
         olds.forEach(o => {
           o.querySelectorAll(':scope > :not(.wc-ov), .wc-ov-text, .wc-ov-title').forEach(ch => (ch.style.visibility = 'hidden'));
@@ -599,13 +624,20 @@
         setTimeout(() => olds.forEach(o => o.remove()), 320);
       } else olds.forEach(o => o.remove());
     };
-    if (fade) layer.style.opacity = 0;
+    if (fade && !cut) layer.style.opacity = 0;
     // HTML 파일은 다 그려진 뒤 바꿈 (깜빡임 방지, 최대 1.5초)
     if (frames.length && fade) {
       let done = false;
       const go = () => { if (!done) { done = true; setTimeout(swap, 80); } };
       frames[0].addEventListener('load', go, { once: true });
       setTimeout(go, 1500);
+    } else if (pics.length && olds.length) {
+      // 그림이 다 준비된 뒤 바꿈 (그동안 옛 장이 그대로 보임, 최대 1초)
+      layer.style.visibility = 'hidden';
+      let done = false;
+      const go = () => { if (!done) { done = true; swap(); } };
+      Promise.all(pics).then(go);
+      setTimeout(go, 1000);
     } else swap();
   }
 

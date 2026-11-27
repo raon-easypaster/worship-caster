@@ -12,6 +12,7 @@
   body { display: flex; align-items: center; justify-content: center; }
   #screen { width: min(100vw, calc(100vh * 16 / 9)); }
   #screen[data-ar="43"] { width: min(100vw, calc(100vh * 4 / 3)); }
+  #hint.big { left: 50%; top: 50%; bottom: auto; transform: translate(-50%, -50%); color: #fff; font: 600 28px sans-serif; padding: 22px 34px; border-radius: 14px; background: rgba(20,30,50,.85); border: 2px solid #6aa8ff; text-align: center; }
   #hint { position: fixed; left: 12px; bottom: 12px; color: #888; font: 13px sans-serif; background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 6px; transition: opacity .6s; z-index: 9; }
   #offline { position: fixed; right: 10px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: #e33; display: none; z-index: 9; }
 </style>
@@ -28,7 +29,20 @@
     document.body.classList.add('overlay');
     document.documentElement.style.background = 'transparent';   // html 바탕이 검게 남아 OBS에서 투명하지 않던 문제 (smdjoo-stack 님 수정)
   }
+  // 운영 화면에서 모니터를 골라 연 창(?fs=1): 전체화면이 아니면 크게 안내하고, 아무 곳이나 한 번 누르면 전체화면
+  // (브라우저는 사람이 그 창을 누르기 전에는 전체화면을 막음. 전체화면 창 열기를 지원하는 브라우저는 처음부터 전체화면)
+  const wantFs = mode !== 'overlay' && new URLSearchParams(location.search).has('fs');
   if (mode === 'overlay' || new URLSearchParams(location.search).has('nohint')) document.getElementById('hint').remove();
+  else if (wantFs && !document.fullscreenElement) {
+    const h = document.getElementById('hint');
+    const t = s => (window.I18N ? I18N.t(s) : s);
+    h.classList.add('big'); h.innerHTML = t('화면을 한 번 누르면 전체화면') + '<br><small style="font-weight:400;font-size:17px;opacity:.8">' + t('F 키도 됩니다') + '</small>';
+    const hide = () => { if (document.fullscreenElement) h.style.opacity = 0; };
+    document.addEventListener('fullscreenchange', hide);
+    setTimeout(hide, 300);
+    setTimeout(() => (h.style.opacity = 0), 15000);
+    addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); });
+  }
   else setTimeout(() => document.getElementById('hint')?.style.setProperty('opacity', 0), 5000);
   document.title = { main: '예배당 화면', overlay: '방송 자막(OBS)', stage: '프롬프터' }[mode];
 
@@ -108,7 +122,9 @@
 
   const fs = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') fs(); });
-  addEventListener('dblclick', fs);
+  // 한 번 눌러 전체화면이 된 직후의 두 번째 누름(더블클릭)으로 다시 풀리지 않게
+  let fsAt = 0; document.addEventListener('fullscreenchange', () => (fsAt = Date.now()));
+  addEventListener('dblclick', () => { if (Date.now() - fsAt > 800) fs(); });
 </script>
 </body>
 </html>

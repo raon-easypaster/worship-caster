@@ -749,6 +749,92 @@ async function main() {
     ok(r.blackOff, '검은 화면인데 슬라이드 배경이 남음');
     noErr();
   });
+  await check('PPT·그림 장 넘기기: 깜빡임 없음(새 그림이 준비될 때까지 옛 장이 그대로 보이고, 준비되면 바로 바뀜) · 다음 장 그림은 미리 받아 둠 · 방송(OBS) 그림 장도 같음 · 글자 장은 지금처럼 서서히', async () => {
+    c.errors.splice(0);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const fd = new FormData(); ['pflip_1.png', 'pflip_2.png', 'pflip_3.png', 'pflip_4.png', 'pflip_5.png'].forEach(n => fd.append('files', new Blob([png]), n));
+    const up = (await api('POST', '/api/media', fd)).map(u => u.url);
+    ok(up.length === 5, '올리기 실패');
+    const r = JSON.parse(await c.eval(`(async () => {
+      const U = ${JSON.stringify(up)}, out = {};
+      const pic = (u, next) => ({ slide: { text: '', bg: u, fit: 'contain', bgColor: '#000000' }, next: next ? { text: '', bg: next } : null, style: S.style, live: {}, item: { type: 'ppt', theme: '' } });
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      for (const mode of ['main', 'overlay']) {
+        const box = document.createElement('div'); box.className = 'wc-screen'; document.body.append(box);
+        const a = mode === 'main' ? 0 : 2;
+        WC.render(box, pic(U[a], U[4]), mode, { fade: true });
+        await wait(700);
+        WC.render(box, pic(U[a + 1]), mode, { fade: true });
+        // 바로 그 순간: 옛 장은 그대로 보이고(숨기지 않음), 새 장은 그림이 준비될 때까지 안 보임 → 빈 화면이 끼지 않음
+        const L = [...box.querySelectorAll(':scope > .wc-layer')];
+        const old = L[0], neu = L[L.length - 1];
+        out[mode + 'Now'] = { n: L.length, oldShown: !!old && old !== neu && ![...old.querySelectorAll('*')].some(e => e.style.visibility === 'hidden') && old.style.opacity !== '0',
+          newWait: neu.style.visibility === 'hidden' };
+        await wait(1200);
+        const L2 = [...box.querySelectorAll(':scope > .wc-layer')];
+        out[mode + 'After'] = { n: L2.length, shown: L2[0] && L2[0].style.visibility !== 'hidden' && L2[0].style.opacity !== '0', bg: /pflip_/.test(L2[0]?.innerHTML || '') && L2[0].innerHTML.includes(U[a + 1].split('/').pop()) };
+        box.remove();
+      }
+      out.preloaded = performance.getEntriesByType('resource').some(e => e.name.endsWith(U[4]));
+      // 글자 장은 그대로: 옛 글자는 바로 숨기고 새 장이 서서히
+      const box = document.createElement('div'); box.className = 'wc-screen'; document.body.append(box);
+      const tx = t => ({ slide: { text: t }, style: S.style, live: {}, item: { type: 'song', theme: '' } });
+      WC.render(box, tx('가'), 'main', { fade: true }); WC.render(box, tx('나'), 'main', { fade: true });
+      const T = [...box.querySelectorAll(':scope > .wc-layer')];
+      out.text = T.length === 2 && T[0].querySelector('.wc-textwrap')?.style.visibility === 'hidden' && T[1].style.visibility !== 'hidden';
+      box.remove();
+      return JSON.stringify(out);
+    })()`));
+    for (const m of ['main', 'overlay']) {
+      ok(r[m + 'Now'].oldShown && r[m + 'Now'].newWait, `${m}: 넘기는 순간 옛 장을 숨김(빈 화면이 끼어 깜빡임): ` + JSON.stringify(r[m + 'Now']));
+      ok(r[m + 'After'].n === 1 && r[m + 'After'].shown && r[m + 'After'].bg, `${m}: 새 그림 장으로 안 바뀜: ` + JSON.stringify(r[m + 'After']));
+    }
+    ok(r.preloaded, '다음 장 그림을 미리 받지 않음');
+    ok(r.text, '글자 장 넘기기(잔상 없이 서서히)가 바뀜');
+    await api('POST', '/api/media/delete', { names: up.map(u => u.split('/').pop()) });
+    noErr();
+  });
+  await check('📺 예배당 화면 열기: 모니터를 고르면 처음부터 전체화면(fullscreen 창) · 안 되면 TV에 "한 번 누르면 전체화면" 안내 → 한 번 누르면 전체화면 · OBS 화면에는 안내 없음', async () => {
+    c.errors.splice(0);
+    try {
+      // 운영 화면: 모니터 두 대인 척 → 2번 모니터 고르기 → 전체화면 창으로 열기
+      const r = JSON.parse(await c.eval(`(async () => {
+        const S2 = [{ left: 0, top: 0, width: 1440, height: 900, availLeft: 0, availTop: 25, availWidth: 1440, availHeight: 875, label: '노트북', isPrimary: true },
+                    { left: 1440, top: 0, width: 1920, height: 1080, availLeft: 1440, availTop: 0, availWidth: 1920, availHeight: 1080, label: 'TV', isPrimary: false }];
+        const keep = { gsd: window.getScreenDetails, open: window.open }; let got = null;
+        window.getScreenDetails = async () => ({ screens: S2, currentScreen: S2[0] });
+        window.open = (u, n, f) => { got = { u, n, f }; return { moveTo() {}, resizeTo() {}, focus() {}, close() {} }; };
+        try {
+          const p = openOnScreen('/output'); await p;
+          for (let i = 0; i < 20 && !document.querySelector('#dlgBody [data-scr="1"]'); i++) await new Promise(r => setTimeout(r, 100));
+          const note = document.querySelector('#dlgBody')?.innerText || '';
+          document.querySelector('#dlgBody button.scr-btn[data-scr="1"]').click();
+          return JSON.stringify({ got, note });
+        } finally { window.getScreenDetails = keep.gsd; window.open = keep.open; }
+      })()`));
+      ok(r.got && r.got.u === '/output?fs=1' && /(^|,)fullscreen(,|$)/.test(r.got.f) && /left=1440/.test(r.got.f), '전체화면 창으로 열지 않음: ' + JSON.stringify(r.got));
+      ok(/한 번 누르세요/.test(r.note), '모니터 고르기 창에 안내가 없음');
+      // 예배당 화면(?fs=1): 큰 안내 → 한 번 누르면 전체화면
+      await c.go(BASE + '/output?fs=1', 1500);
+      const d = JSON.parse(await c.eval(`(() => { let asked = 0; document.documentElement.requestFullscreen = () => { asked++; return Promise.resolve(); };
+        const h = document.getElementById('hint'); const big = !!h && h.classList.contains('big') && /한 번 누르면 전체화면/.test(h.innerText);
+        document.body.click(); return JSON.stringify({ big, asked }); })()`));
+      ok(d.big, '예배당 화면에 "한 번 누르면 전체화면" 안내가 없음');
+      ok(d.asked === 1, '한 번 눌러도 전체화면을 하지 않음: ' + d.asked);
+      // 그냥 연 예배당 화면은 예전처럼 작은 안내, OBS 화면은 안내 없음·눌러도 전체화면 안 함
+      await c.go(BASE + '/output', 1200);
+      const plain = await c.eval(`(() => { const h = document.getElementById('hint'); return !!h && !h.classList.contains('big'); })()`);
+      ok(plain, '그냥 연 예배당 화면의 안내가 바뀜');
+      await c.go(BASE + '/overlay?fs=1', 1200);
+      const ov = JSON.parse(await c.eval(`(() => { let asked = 0; document.documentElement.requestFullscreen = () => { asked++; return Promise.resolve(); };
+        document.body.click(); return JSON.stringify({ hint: !!document.getElementById('hint'), asked }); })()`));
+      ok(!ov.hint && ov.asked === 0, 'OBS 화면에 전체화면 안내가 나옴: ' + JSON.stringify(ov));
+      ok(!c.errors.length, '화면 오류: ' + c.errors.join(' | '));
+    } finally {
+      await c.go(BASE + '/control', 2000); await c.eval(`(document.querySelector('#wnTake')?.click(), 1)`); await sleep(300);   // 다음 점검은 운영 화면에서
+    }
+    noErr();
+  });
   await check('영상 넣은 찬양: 슬라이드 칸마다 영상을 열지 않음(한 장면 그림 하나를 같이 씀) · 넘길 때 칸을 다시 그리지 않고 표시만 옮김 · 미디어 칸 영상은 미리 열지 않음 (윈도우 렉)', async () => {
     c.errors.splice(0);
     const vid = (await api('GET', '/api/media')).find(m => /\.mp4$/i.test(m.url));

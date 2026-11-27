@@ -282,7 +282,9 @@
     '예배송출을 종료했습니다. 이 창은 닫으셔도 됩니다.': 'Worship Caster has quit. You can close this window.', '예배송출이 종료되었습니다. 이 창은 닫으셔도 됩니다.': 'Worship Caster has quit. You can close this window.',
     '예배송출이 종료되었습니다.': 'Worship Caster has quit.', '창이 닫히지 않으면 창 왼쪽 위(윈도우는 오른쪽 위) 닫기 단추를 눌러 주세요.': "If the window doesn't close, use its close button.",
     // ── 화면 · 프롬프터 · 리모컨 ──
-    'F 키 또는 더블클릭 = 전체화면': 'F key or double-click = full screen', '프롬프터': 'Prompter', '방송 자막(OBS)': 'Stream captions (OBS)',
+    'F 키 또는 더블클릭 = 전체화면': 'F key or double-click = full screen',
+    '화면을 한 번 누르면 전체화면': 'Click the screen once for full screen', 'F 키도 됩니다': 'The F key works too',
+    '그 모니터에 전체화면으로 열립니다. 위에 바가 남아 있으면 그 화면을 한 번 누르세요 (F 키도 됩니다).': 'It opens full screen on that monitor. If a bar is still at the top, click that screen once (the F key works too).', '프롬프터': 'Prompter', '방송 자막(OBS)': 'Stream captions (OBS)',
     '대기': 'Standby', '● 송출 중': '● Live', '· 방송 자막 꺼짐': '· stream captions off', '· 검은 화면': '· black screen', '· 글자 지움': '· text cleared',
     '👤 사람 화면': '👤 Camera only', '(OBS 장면 전환)': '(OBS scene switch)',
     '✝ 예배송출 리모컨': '✝ Worship Caster Remote', '예배송출 리모컨': 'Worship Caster Remote', '운영 컴퓨터의': 'Enter the', '⚙︎ 설정 → 웹 편집기 PIN': '⚙︎ Settings → Web editor PIN',
