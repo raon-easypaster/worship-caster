@@ -924,6 +924,10 @@ async function main() {
       let opts = [];
       for (let i = 0; i < 20; i++) { opts = await cc.eval(`[...document.querySelectorAll('#camDev option')].map(o => o.value && o.textContent)`); if (opts.some(Boolean)) break; await sleep(250); }
       ok(opts.some(Boolean), '카메라 목록이 비어 있음: ' + JSON.stringify(opts));
+      // 모양 고르기: 동그라미가 글자와 같은 줄에 (동그라미만 따로 다른 줄로 밀리면 안 됨)
+      const al = JSON.parse(await cc.eval(`JSON.stringify([...document.querySelectorAll('[name=camMode]')].map(r => { const a = r.getBoundingClientRect(), t = r.parentElement.querySelector('b').getBoundingClientRect();
+        return { w: Math.round(a.width), dy: Math.round(Math.abs((a.top + a.height / 2) - (t.top + t.height / 2))), left: a.right <= t.left + 1 }; }))`));
+      ok(al.length === 2 && al.every(x => x.w < 30 && x.dy <= 8 && x.left), '화면 가득·배경으로 동그라미가 글자와 줄이 안 맞음: ' + JSON.stringify(al));
       await cc.eval(`(document.querySelector('[name=camMode][value=top]').click(), document.querySelector('#camGo').click(), 1)`); await sleep(700);
       let L = (await api('GET', '/api/state')).live.live;
       ok(L.cam && L.cam.mode === 'top' && L.cam.dev && L.cam.label, '띄우기가 저장 안 됨: ' + JSON.stringify(L.cam));

@@ -2050,9 +2050,9 @@ async function openCam() {
     <div class="row"><select id="camDev" style="flex:1;min-width:0"><option value="">찾는 중…</option></select><button class="btn sm" id="camRe" title="다시 찾기">↻</button></div>
     <p id="camMsg" class="small muted"></p>
     <label class="small">모양</label>
-    <div style="display:flex;flex-direction:column;gap:4px">
-      <label><input type="radio" name="camMode" value="top"> <b>화면 가득</b> — 슬라이드 대신 OBS 화면만 (다시 끄면 슬라이드로)</label>
-      <label><input type="radio" name="camMode" value="bg"> <b>배경으로</b> — OBS 화면을 깔고 그 위에 가사·글자</label>
+    <div class="ppt-modes">
+      <label class="ppt-mode"><input type="radio" name="camMode" value="top"> <b>화면 가득</b> — 슬라이드 대신 OBS 화면만 (다시 끄면 슬라이드로)</label>
+      <label class="ppt-mode"><input type="radio" name="camMode" value="bg"> <b>배경으로</b> — OBS 화면을 깔고 그 위에 가사·글자</label>
     </div>
     <div class="row" style="margin-top:12px;justify-content:flex-end">
       ${cur ? '<button class="btn danger" id="camOff">⏹ 끄기</button>' : ''}<div class="grow"></div>
